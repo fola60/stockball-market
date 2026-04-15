@@ -98,45 +98,6 @@ pub async fn get_current_price(
     .ok_or(InstrumentError::NotFound(instrument_id))
 }
 
-pub async fn update_current_price(
-    pool: &PgPool,
-    instrument_id: Uuid,
-    new_price: Decimal,
-) -> Result<Instrument, InstrumentError> {
-    if new_price.is_sign_negative() {
-        return Err(InstrumentError::NegativePrice);
-    }
-
-    let row = sqlx::query_as::<_, InstrumentRow>(
-        r#"
-        UPDATE instruments
-        SET
-            current_price = $2,
-            updated_at = now()
-        WHERE id = $1
-        RETURNING
-            id,
-            instrument_type,
-            player_id,
-            symbol,
-            display_name,
-            current_price,
-            shares_outstanding,
-            price_impact_unit,
-            trading_status,
-            created_at,
-            updated_at
-        "#,
-    )
-    .bind(instrument_id)
-    .bind(new_price)
-    .fetch_optional(pool)
-    .await?;
-
-    row.map(Instrument::try_from)
-        .transpose()?
-        .ok_or(InstrumentError::NotFound(instrument_id))
-}
 
 pub async fn get_price_impact_unit(
     pool: &PgPool,

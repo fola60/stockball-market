@@ -20,3 +20,5 @@ Contains the Rust modules that implement market execution and state mutation.
 ## Boundary Rule
 
 Market-critical mutations should be handled here and exposed through internal APIs, not duplicated in the API or worker services.
+
+Detailed module ownership rules are defined in `MODULE_RULES.md`.
