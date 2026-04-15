@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stockball.local/schemas/trading.schema.json",
+  "title": "Stockball Trading Schemas",
+  "type": "object",
+  "$defs": {
+    "Instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "instrument_type",
+        "player_id",
+        "symbol",
+        "display_name",
+        "current_price",
+        "quantity_outstanding",
+        "price_impact_unit",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_type": {
+          "$ref": "./common.schema.json#/$defs/InstrumentType"
+        },
+        "player_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid",
+          "description": "Linked player for PLAYER_SHARE instruments."
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "current_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "quantity_outstanding": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "price_impact_unit": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "status": {
+          "$ref": "./common.schema.json#/$defs/InstrumentStatus"
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "Portfolio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "account_id", "cash_balance", "created_at", "updated_at"],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "account_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "cash_balance": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "Position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "portfolio_id",
+        "instrument_id",
+        "quantity",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "portfolio_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "quantity": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "Order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "request_id",
+        "account_id",
+        "portfolio_id",
+        "instrument_id",
+        "side",
+        "quantity",
+        "status",
+        "submitted_at",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "description": "Caller-provided idempotency key for retry-safe order execution."
+        },
+        "account_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "portfolio_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "side": {
+          "$ref": "./common.schema.json#/$defs/OrderSide"
+        },
+        "quantity": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "status": {
+          "$ref": "./common.schema.json#/$defs/OrderStatus"
+        },
+        "rejection_reason": {
+          "type": ["string", "null"]
+        },
+        "submitted_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "filled_at": {
+          "oneOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "Trade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "order_id",
+        "account_id",
+        "portfolio_id",
+        "instrument_id",
+        "side",
+        "quantity",
+        "execution_price",
+        "gross_amount",
+        "executed_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "order_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "account_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "portfolio_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "side": {
+          "$ref": "./common.schema.json#/$defs/OrderSide"
+        },
+        "quantity": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "execution_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "gross_amount": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "executed_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "CashLedgerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "account_id",
+        "portfolio_id",
+        "reason",
+        "amount_delta",
+        "balance_after",
+        "created_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "account_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "portfolio_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "trade_id": {
+          "oneOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/Uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "$ref": "./common.schema.json#/$defs/LedgerReason"
+        },
+        "amount_delta": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "balance_after": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "source_request_id": {
+          "type": ["string", "null"]
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "PriceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "instrument_id",
+        "old_price",
+        "new_price",
+        "reason",
+        "captured_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "old_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "new_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "reason": {
+          "$ref": "./common.schema.json#/$defs/PriceSnapshotReason"
+        },
+        "trade_id": {
+          "oneOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/Uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captured_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "ExecuteOrderRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "account_id",
+        "portfolio_id",
+        "instrument_id",
+        "side",
+        "quantity"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Caller-provided idempotency key for retry-safe order execution."
+        },
+        "account_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "portfolio_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "side": {
+          "$ref": "./common.schema.json#/$defs/OrderSide"
+        },
+        "quantity": {
+          "allOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/DecimalString"
+            },
+            {
+              "pattern": "^(?!(?:0(?:\\.0+)?)$)(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+            }
+          ],
+          "description": "Positive instrument quantity encoded as a decimal string."
+        }
+      }
+    },
+    "ExecuteOrderResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "order_id",
+        "trade_id",
+        "account_id",
+        "portfolio_id",
+        "instrument_id",
+        "side",
+        "quantity",
+        "execution_price",
+        "gross_amount",
+        "cash_balance_after",
+        "position_quantity_after",
+        "old_price",
+        "new_price",
+        "executed_at"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "order_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "trade_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "account_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "portfolio_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "side": {
+          "$ref": "./common.schema.json#/$defs/OrderSide"
+        },
+        "quantity": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "execution_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "gross_amount": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "cash_balance_after": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "position_quantity_after": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "old_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "new_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "executed_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      }
+    }
+  }
+}

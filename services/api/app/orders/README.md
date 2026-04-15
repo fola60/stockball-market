@@ -19,6 +19,6 @@ Accepts user-facing buy and sell requests.
 - Does not check final cash/share availability.
 - Does not fill orders.
 - Does not create trades.
-- Does not mutate prices, holdings, or cash.
+- Does not mutate prices, positions, or cash.
 
 Final market validation belongs to the trading engine because synthetic traders and users must go through the same execution path.

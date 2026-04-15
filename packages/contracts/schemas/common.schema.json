@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stockball.local/schemas/common.schema.json",
+  "title": "Stockball Common Schemas",
+  "type": "object",
+  "$defs": {
+    "Uuid": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID identifier."
+    },
+    "DecimalString": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+      "description": "Decimal value encoded as a string to avoid JSON float precision loss."
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp."
+    },
+    "OrderSide": {
+      "type": "string",
+      "enum": ["BUY", "SELL"]
+    },
+    "InstrumentType": {
+      "type": "string",
+      "enum": ["PLAYER_SHARE"]
+    },
+    "InstrumentStatus": {
+      "type": "string",
+      "enum": ["ACTIVE", "FROZEN", "DELISTED"]
+    },
+    "OrderStatus": {
+      "type": "string",
+      "enum": ["PENDING", "FILLED", "REJECTED", "FAILED"]
+    },
+    "LedgerReason": {
+      "type": "string",
+      "enum": [
+        "TRADE_BUY_DEBIT",
+        "TRADE_SELL_CREDIT",
+        "WEEKLY_TOPUP",
+        "MONTHLY_TOPUP",
+        "ADMIN_ADJUSTMENT",
+        "REVERSAL"
+      ]
+    },
+    "PriceSnapshotReason": {
+      "type": "string",
+      "enum": ["SEED", "TRADE_BUY", "TRADE_SELL", "ADMIN_ADJUSTMENT"]
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Stable machine-readable error code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message."
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Optional structured context for debugging or field-level errors."
+        }
+      }
+    }
+  }
+}

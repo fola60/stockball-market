@@ -11,7 +11,7 @@ Owns the V1 price movement calculation.
 
 ## Responsibilities
 
-- Calculate the next asset price after a trade.
+- Calculate the next instrument price after a trade.
 - Keep price math isolated and testable.
 - Enforce future guardrails such as minimum price or maximum movement if added.
 

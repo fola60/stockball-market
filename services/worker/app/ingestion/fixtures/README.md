@@ -13,6 +13,6 @@ Ingests Premier League fixture and match-status data.
 
 ## Boundaries
 
-- Does not freeze assets directly in the database.
+- Does not freeze instruments directly in the database.
 - Fixture events should trigger worker jobs that call the trading engine freeze commands.
 - Trading halt enforcement belongs to `trading-engine/freezes`.

@@ -70,8 +70,8 @@ The API service should not execute trades directly. It can validate request shap
 Internal modules:
 
 - `accounts`: real user accounts, authentication, admin roles
-- `assets`: read APIs for player assets and current market data
-- `portfolios`: read APIs for user cash, holdings, and PnL
+- `instruments`: read APIs for tradable instruments and current market data
+- `portfolios`: read APIs for user cash, positions, and PnL
 - `orders`: public order endpoint and request validation
 - `admin`: admin-only views for market state, bots, freezes, and ingestion status
 - `clients.trading_engine`: HTTP client for internal trading-engine commands
@@ -85,8 +85,8 @@ Allowed writes:
 Avoid writes:
 
 - trades
-- holdings
-- asset prices
+- positions
+- instrument prices
 - price snapshots
 - trade-related cash mutations
 
@@ -99,13 +99,13 @@ Purpose:
 - execute buy and sell orders
 - enforce trading freezes
 - check cash and share availability
-- mutate portfolio cash and holdings
+- mutate portfolio cash and positions
 - create orders and trades
 - apply the price-impact rule
 - create price snapshots
 - expose internal trading commands
 
-This is the consistency-critical service. Any action that changes prices, holdings, balances, or trades must go through the trading engine.
+This is the consistency-critical service. Any action that changes prices, positions, balances, or trades must go through the trading engine.
 
 Internal modules:
 
@@ -113,8 +113,9 @@ Internal modules:
 - `execution`: fills orders against the platform quote
 - `price_impact`: applies the V1 linear price movement rule
 - `ledger`: records all cash balance changes, including trade debits/credits and scheduled top-ups
-- `portfolios`: mutates cash balances and holdings
-- `assets`: reads and updates current player-asset price/status
+- `portfolios`: coordinates portfolio summary and cash balance state
+- `positions`: mutates account exposure to instruments
+- `instruments`: reads and updates current instrument price/status
 - `freezes`: enforces market-freeze rules
 - `snapshots`: records historical price changes
 - `idempotency`: prevents duplicate order or top-up execution from retries
@@ -124,11 +125,11 @@ Allowed writes:
 
 - orders
 - trades
-- holdings
+- positions
 - portfolio cash balances caused by trades
 - portfolio cash balances caused by scheduled top-ups
 - cash ledger entries
-- player-asset current prices
+- instrument current prices
 - price snapshots
 - market-freeze state
 
@@ -154,7 +155,7 @@ Purpose:
 - apply recurring credit top-ups
 - send bot trade commands to the trading engine
 
-The worker service may decide that a bot wants to buy or sell. It must not directly mutate prices, holdings, or balances. Bot trades go through the same trading-engine endpoint as user trades.
+The worker service may decide that a bot wants to buy or sell. It must not directly mutate prices, positions, or balances. Bot trades go through the same trading-engine endpoint as user trades.
 
 Internal modules:
 
@@ -165,7 +166,7 @@ Internal modules:
 - `ingestion.fixtures`: fixtures, lineups, and match status
 - `signals.social`: mention volume and sentiment observations
 - `signals.stats`: player performance observations
-- `synthetic_traders`: bot accounts, strategy selection, and trade decisions
+- `synthetic_traders`: bot strategy configuration, strategy selection, and trade decisions
 - `topups`: recurring virtual-cash allocations
 - `clients.trading_engine`: HTTP client for bot trades, top-up credits, and freeze commands
 
@@ -175,15 +176,15 @@ Allowed writes:
 - raw provider records
 - fixtures and fixture status
 - social/stat signal observations
-- synthetic trader strategy configuration
+- synthetic trader configuration
 - ingestion run logs
 - top-up records
 
 Avoid writes:
 
 - trades
-- holdings
-- asset prices
+- positions
+- instrument prices
 - price snapshots
 - trade-related cash mutations
 
@@ -194,7 +195,7 @@ Recommended language: TypeScript with a simple React or Next.js app.
 Purpose:
 
 - inspect market state
-- view players and assets
+- view players and instruments
 - view synthetic trader activity
 - view order/trade history
 - inspect price changes
@@ -213,9 +214,9 @@ Stores:
 
 - users and accounts
 - players
-- player assets
+- instruments
 - portfolios
-- holdings
+- positions
 - orders
 - trades
 - price snapshots
@@ -251,7 +252,7 @@ Examples:
 
 - API service calls trading engine to execute a user order
 - worker service calls trading engine to execute a bot order
-- worker service calls trading engine to freeze or unfreeze assets
+- worker service calls trading engine to freeze or unfreeze instruments
 
 Example endpoint:
 
@@ -265,7 +266,7 @@ Example payload:
 {
   "request_id": "req_123",
   "account_id": "account_123",
-  "asset_id": "asset_456",
+  "instrument_id": "instrument_456",
   "side": "BUY",
   "shares": 10
 }
@@ -301,13 +302,35 @@ Start with OpenAPI/JSON schema contracts. Move to protobuf/gRPC later only if th
 ## Core Module Ownership Rules
 
 - Only the trading engine executes trades.
-- Only the trading engine changes player-asset prices.
-- Only the trading engine mutates holdings after buy/sell activity.
+- Only the trading engine changes instrument prices.
+- Only the trading engine mutates positions after buy/sell activity.
 - Worker service can decide bot behavior, but cannot directly execute bot trades.
 - API service can authenticate users and accept order requests, but cannot fill orders.
+- API service owns account provisioning, including tagged synthetic trader accounts.
+- Worker service owns synthetic trader strategy configuration after bot accounts exist.
 - Admin UI reads through the API service only.
 - Redis queues work but never owns business decisions.
 - PostgreSQL stores durable state, but services must still respect table ownership.
+
+## Instrument Model And Derivatives Scope
+
+An instrument is anything Stockball can trade.
+
+V1 implements only one instrument type:
+
+- `PLAYER_SHARE`: a tradable share linked to a Premier League player.
+
+The architecture should use `instrument_id` and `instrument_type` internally so future product types can be added without rewriting order execution.
+
+Future instrument types may include:
+
+- `TEAM_INDEX`
+- `PLAYER_OPTION`
+- `PLAYER_FUTURE`
+- `MATCH_CONTRACT`
+- `SEASON_PERFORMANCE_CONTRACT`
+
+Derivatives are explicitly not part of V1. V1 should not expose options, futures, margin, shorting, expiry, exercise, or derivative settlement behavior.
 
 ## V1 Price Ownership
 
@@ -316,8 +339,7 @@ The V1 price rule is intentionally simple:
 - buy orders increase price by `shares_bought * price_impact_unit`
 - sell orders decrease price by `shares_sold * price_impact_unit`
 
-This rule belongs inside the trading engine.
-This will be subject to change after fleshing out core modules
+This rule belongs inside the trading engine. It is subject to change after the core modules are fleshed out.
 
 Stats, sentiment, and market-watching signals do not directly change prices in V1. They only influence synthetic trader decisions. Synthetic traders then affect prices by buying or selling through the trading engine.
 
@@ -347,12 +369,12 @@ stockball-market/
 
 Build the smallest end-to-end vertical slice first:
 
-- seed one player and one player asset
+- seed one player and one `PLAYER_SHARE` instrument
 - create one user portfolio
 - expose `POST /v1/orders` from the API service
 - forward the order to the trading engine
 - execute the trade in the trading engine
-- update cash, holdings, asset price, trade record, and price snapshot
-- read the updated asset and portfolio through the API service
+- update cash, positions, instrument price, trade record, and price snapshot
+- read the updated instrument and portfolio through the API service
 
 This validates the service boundaries before adding ingestion, synthetic traders, or admin views.

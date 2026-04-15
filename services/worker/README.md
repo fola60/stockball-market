@@ -20,7 +20,7 @@ It owns external data ingestion, synthetic trader decisions, recurring top-up sc
 
 - Trade execution.
 - Direct price mutation.
-- Direct holding mutation.
+- Direct position mutation.
 - Direct cash mutation.
 - Public API authentication.
 

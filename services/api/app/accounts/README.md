@@ -7,6 +7,7 @@ Owns user and admin identity inside the API service.
 ## Responsibilities
 
 - Create and read user accounts.
+- Provision tagged synthetic trader accounts for internal workflows.
 - Authenticate users.
 - Manage sessions or tokens.
 - Distinguish real users, admins, and synthetic trader accounts where needed for API views.
@@ -15,5 +16,5 @@ Owns user and admin identity inside the API service.
 ## Boundaries
 
 - May write user, session, and role records.
-- Must not mutate portfolio cash, holdings, trades, or asset prices.
+- Must not mutate portfolio cash, positions, trades, or instrument prices.
 - Synthetic trader strategy configuration belongs to the worker service, not this module.

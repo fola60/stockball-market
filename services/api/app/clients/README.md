@@ -15,4 +15,4 @@ Contains HTTP clients used by the API service to call internal services.
 
 - Client modules should not contain market business logic.
 - They should translate requests/responses and handle transport concerns only.
-- If an action changes trades, prices, balances, or holdings, the API must call the trading engine rather than changing the database directly.
+- If an action changes trades, prices, balances, or positions, the API must call the trading engine rather than changing the database directly.

@@ -7,12 +7,12 @@ Owns historical price records.
 ## Responsibilities
 
 - Record price snapshots after every price-changing trade.
-- Store asset ID, old price, new price, reason, related trade ID, and timestamp.
+- Store instrument ID, old price, new price, reason, related trade ID, and timestamp.
 - Support price charts.
 - Support admin debugging and audit trails.
 
 ## Boundaries
 
-- Current price belongs to `assets`.
+- Current price belongs to `instruments`.
 - Historical price records belong here.
 - This module records what happened; it does not decide price movement.

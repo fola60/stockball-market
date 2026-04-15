@@ -6,11 +6,11 @@ Owns market-freeze enforcement.
 
 ## Responsibilities
 
-- Apply freezes to player assets.
-- Remove freezes from player assets.
+- Apply freezes to instruments.
+- Remove freezes from instruments.
 - Store freeze reason, start time, optional end time, and status.
-- Check whether an asset is currently frozen during order execution.
-- Reject orders for frozen assets.
+- Check whether an instrument is currently frozen during order execution.
+- Reject orders for frozen instruments.
 
 ## Freeze Reasons
 
@@ -23,5 +23,5 @@ Owns market-freeze enforcement.
 ## Boundaries
 
 - The worker service may detect fixture events.
-- This module decides whether trading is allowed for a given asset.
+- This module decides whether trading is allowed for a given instrument.
 - The API service and worker service must not bypass freeze checks.

@@ -6,7 +6,7 @@ PostgreSQL is the durable source of truth for Stockball.
 
 ## Responsibilities
 
-- Store accounts, players, assets, portfolios, holdings, orders, trades, price snapshots, freezes, fixtures, signals, synthetic trader configs, and audit records.
+- Store accounts, players, instruments, portfolios, positions, orders, trades, price snapshots, freezes, fixtures, signals, synthetic trader configs, and audit records.
 - Provide migration files under `migrations`.
 - Support local and production database setup.
 

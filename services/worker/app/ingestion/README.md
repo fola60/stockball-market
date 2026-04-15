@@ -27,6 +27,6 @@ Ingestion answers: "What did the outside world say?"
 ## Boundaries
 
 - Does not execute trades.
-- Does not directly change asset prices.
+- Does not directly change instrument prices.
 - Does not decide bot trades.
 - Writes facts and observations that other modules can interpret.

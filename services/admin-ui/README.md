@@ -6,8 +6,8 @@ Internal dashboard for operating and inspecting the Stockball market.
 
 ## Responsibilities
 
-- Show player assets, prices, and price history.
-- Show portfolios, holdings, orders, and trades.
+- Show instruments, prices, and price history.
+- Show portfolios, positions, orders, and trades.
 - Show synthetic trader activity.
 - Show market freezes and fixture-related status.
 - Show ingestion jobs, signal health, and failures.

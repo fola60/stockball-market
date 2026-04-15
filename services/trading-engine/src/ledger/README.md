@@ -29,4 +29,4 @@ Every virtual-cash credit or debit should create a ledger entry.
 - The worker service decides when a top-up is due.
 - This module applies the top-up credit.
 - The API service may read ledger history but must not write ledger entries.
-- Holdings are owned by `portfolios`; cash audit is owned by `ledger`.
+- Positions are owned by `positions`; cash audit is owned by `ledger`.

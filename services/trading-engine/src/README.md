@@ -10,8 +10,9 @@ Contains the Rust modules that implement market execution and state mutation.
 - `execution`: buy/sell execution orchestration.
 - `price_impact`: V1 price movement formula.
 - `ledger`: cash movements and audit entries.
-- `portfolios`: holdings and portfolio mutations.
-- `assets`: tradable player asset state.
+- `portfolios`: portfolio summary and cash balance coordination.
+- `positions`: account exposure to tradable instruments.
+- `instruments`: tradable instrument state.
 - `freezes`: market freeze enforcement.
 - `snapshots`: historical price records.
 - `idempotency`: retry safety.

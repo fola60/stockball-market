@@ -1,0 +1,95 @@
+openapi: 3.1.0
+info:
+  title: Stockball Trading Engine Internal API
+  version: 0.1.0
+  description: Internal REST contract for trading-engine commands used by Stockball services.
+paths:
+  /internal/v1/orders/execute:
+    post:
+      operationId: executeOrder
+      summary: Execute a buy or sell order
+      description: >
+        Executes a retry-safe order command. The trading engine owns all trade
+        execution, price mutation, position mutation, cash ledger mutation, and
+        price snapshot creation.
+      tags:
+        - Orders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteOrderRequest"
+            examples:
+              buy:
+                summary: Buy player-share quantity
+                value:
+                  request_id: req_123
+                  account_id: 00000000-0000-0000-0000-000000000001
+                  portfolio_id: 00000000-0000-0000-0000-000000000002
+                  instrument_id: 00000000-0000-0000-0000-000000000004
+                  side: BUY
+                  quantity: "10"
+      responses:
+        "200":
+          description: Order executed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecuteOrderResponse"
+              examples:
+                executed:
+                  value:
+                    request_id: req_123
+                    order_id: 10000000-0000-0000-0000-000000000001
+                    trade_id: 10000000-0000-0000-0000-000000000002
+                    account_id: 00000000-0000-0000-0000-000000000001
+                    portfolio_id: 00000000-0000-0000-0000-000000000002
+                    instrument_id: 00000000-0000-0000-0000-000000000004
+                    side: BUY
+                    quantity: "10"
+                    execution_price: "100.0000"
+                    gross_amount: "1000.0000"
+                    cash_balance_after: "99000.0000"
+                    position_quantity_after: "10"
+                    old_price: "100.0000"
+                    new_price: "100.1000"
+                    executed_at: "2026-04-15T12:00:00Z"
+        "400":
+          description: Malformed request or invalid command shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Account, portfolio, or instrument was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Order cannot be executed because of current market or portfolio state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Request is syntactically valid but violates trading validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected trading-engine error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    ExecuteOrderRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderRequest"
+    ExecuteOrderResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderResponse"
+    ErrorResponse:
+      $ref: "../schemas/common.schema.json#/$defs/ErrorResponse"

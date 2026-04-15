@@ -4,14 +4,14 @@
 
 The trading engine is the consistency-critical market service.
 
-It is the only service allowed to execute trades or mutate prices, balances, holdings, trade records, and price snapshots.
+It is the only service allowed to execute trades or mutate prices, balances, positions, trade records, and price snapshots.
 
 ## Responsibilities
 
 - Execute buy and sell orders.
 - Enforce market freezes.
 - Check cash and share availability.
-- Mutate portfolio cash and holdings.
+- Mutate portfolio cash and positions.
 - Record orders and trades.
 - Apply the V1 price-impact rule.
 - Record price snapshots.
@@ -32,8 +32,9 @@ It is the only service allowed to execute trades or mutate prices, balances, hol
 - `execution`: trade execution orchestration.
 - `price_impact`: price movement calculation.
 - `ledger`: cash movement records and balance changes.
-- `portfolios`: holdings and portfolio state mutations.
-- `assets`: player asset price/status state.
+- `portfolios`: portfolio summary and cash balance coordination.
+- `positions`: account exposure to tradable instruments.
+- `instruments`: tradable instrument price/status state.
 - `freezes`: market halt enforcement.
 - `snapshots`: price history.
 - `idempotency`: safe retries.

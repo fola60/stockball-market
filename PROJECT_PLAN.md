@@ -2,15 +2,17 @@
 
 ## Summary
 
-Build a backend-first, virtual-cash football market focused exclusively on the Premier League, with an internal admin console and APIs rather than a consumer-grade app. The core product is a simulated exchange where users buy and sell player assets, prices move only from buying and selling activity, and synthetic traders create believable liquidity before real user demand exists.
+Build a backend-first, virtual-cash football market focused exclusively on the Premier League, with an internal admin console and APIs rather than a consumer-grade app. The core product is a simulated exchange where users buy and sell player-share instruments, prices move only from buying and selling activity, and synthetic traders create believable liquidity before real user demand exists.
 
-V1 will not include team or national-team index funds. Those remain part of the longer-term vision, but player assets are the only tradable instruments in the first release.
+V1 will not include team or national-team index funds. Those remain part of the longer-term vision, but `PLAYER_SHARE` instruments are the only tradable instruments in the first release.
+
+The architecture uses `Instrument` as the core tradable concept for extensibility. Derivatives such as options, futures, match contracts, margin, shorting, expiry, exercise, and settlement are explicitly out of scope for V1.
 
 Architecture and service/module boundaries are defined in `docs/ARCHITECTURE.md`.
 
 ## Core V1 Product Decisions
 
-- Asset universe: Premier League players only.
+- Instrument universe: Premier League player shares only.
 - Portfolio currency: virtual cash only.
 - Product shape: backend-first APIs plus an internal admin console.
 - Market participants: real users plus synthetic traders that appear as tagged user accounts.
@@ -29,7 +31,7 @@ Each synthetic trader should have:
 - recurring credit top-ups on a weekly or monthly cadence
 - configurable position limits
 - strategy parameters
-- trading history and holdings like any other participant
+- trading history and positions like any other participant
 
 Bot strategy families in V1:
 
@@ -83,7 +85,7 @@ V1 should use a platform-quoted market instead of a true matching engine.
 
 - users place buy and sell orders against the platform
 - the platform fills orders at the current quoted price
-- after execution, the asset price is updated using the share-impact rule
+- after execution, the instrument price is updated using the share-impact rule
 
 This avoids the complexity of maintaining an order book and matching user orders against each other.
 
@@ -103,9 +105,9 @@ Define the core entities and lock the market rules before building ingestion or 
 Key entities:
 
 - `Player`
-- `PlayerAsset`
+- `Instrument`
 - `Portfolio`
-- `Holding`
+- `Position`
 - `Order`
 - `Trade`
 - `PriceSnapshot`
@@ -116,19 +118,20 @@ Key entities:
 
 - ingest Premier League squads and player metadata
 - ingest a market-value field for each player
-- create canonical player and asset records
+- create canonical player and `PLAYER_SHARE` instrument records
 - seed initial prices and shares outstanding
 
 ### 3. Trading engine
 
 - implement buy and sell flows
-- update balances and holdings
+- update balances and positions
 - record trades and price snapshots
 - apply the simple share-based price-impact rule after each trade
 
 ### 4. Synthetic trader engine
 
-- create tagged bot accounts
+- provision tagged bot accounts through the API/accounts boundary
+- configure synthetic trader strategies in the worker service
 - allocate starting balances
 - support recurring top-ups
 - implement strategy modules for social, stats, market-watching, and noise behavior
@@ -142,14 +145,14 @@ Key entities:
 
 ### 6. API and admin console
 
-- expose asset, trade, portfolio, and market-status APIs
+- expose instrument, trade, portfolio, and market-status APIs
 - expose admin views for bot activity, freezes, and price history
 
 ## Initial API Surface
 
-- `GET /v1/assets`
-- `GET /v1/assets/:id`
-- `GET /v1/assets/:id/price-history`
+- `GET /v1/instruments`
+- `GET /v1/instruments/:id`
+- `GET /v1/instruments/:id/price-history`
 - `GET /v1/fixtures`
 - `GET /v1/market-status`
 - `POST /v1/orders`
@@ -161,7 +164,7 @@ Key entities:
 
 - buying shares increases price by the configured per-share amount
 - selling shares decreases price by the configured per-share amount
-- consecutive buys and sells update holdings, cash, and price history correctly
+- consecutive buys and sells update positions, cash, and price history correctly
 - frozen players reject new orders during matches
 - synthetic traders can place trades through the same path as users
 - synthetic traders receive recurring credit allocations on schedule

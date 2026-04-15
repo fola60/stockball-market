@@ -24,5 +24,5 @@ In each case, the command should only apply once.
 ## Boundaries
 
 - Does not decide business validity.
-- Does not mutate cash, holdings, or prices directly.
+- Does not mutate cash, positions, or prices directly.
 - Must be used by modules that execute non-repeatable actions.

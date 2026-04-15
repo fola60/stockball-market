@@ -16,6 +16,6 @@ Owns internal order commands and order records.
 ## Boundaries
 
 - Does not apply price impact directly.
-- Does not mutate holdings or cash directly.
+- Does not mutate positions or cash directly.
 - Does not contain public API authentication.
 - Final execution is coordinated by the `execution` module.

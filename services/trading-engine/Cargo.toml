@@ -1,0 +1,15 @@
+[package]
+name = "stockball-trading-engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+rust_decimal = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.8", default-features = false, features = ["chrono", "macros", "postgres", "runtime-tokio-rustls", "rust_decimal", "uuid"] }
+thiserror = "2"
+uuid = { version = "1", features = ["serde", "v4"] }

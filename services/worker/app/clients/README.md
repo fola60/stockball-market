@@ -8,7 +8,7 @@ Contains HTTP clients used by the worker service to call internal services.
 
 - Call the trading engine to execute bot trades.
 - Call the trading engine to apply top-up credits.
-- Call the trading engine to freeze or unfreeze assets.
+- Call the trading engine to freeze or unfreeze instruments.
 - Attach request IDs and idempotency keys to retry-sensitive commands.
 - Translate transport errors into retryable job failures.
 

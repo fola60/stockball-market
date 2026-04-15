@@ -9,7 +9,7 @@ Ingests external player market values used for initial Stockball price seeding.
 - Fetch or scrape player market-value data.
 - Match external player records to canonical players.
 - Store source, value, currency, and observed timestamp.
-- Provide initial valuation anchors for player asset creation.
+- Provide initial valuation anchors for `PLAYER_SHARE` instrument creation.
 
 ## Boundaries
 

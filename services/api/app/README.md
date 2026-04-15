@@ -6,9 +6,9 @@ Contains the API service application modules.
 
 ## Modules
 
-- `accounts`: users, admins, sessions, and roles.
-- `assets`: read APIs for assets and market data.
-- `portfolios`: read APIs for cash, holdings, and PnL.
+- `accounts`: users, admins, sessions, roles, and synthetic bot account provisioning.
+- `instruments`: read APIs for instruments and market data.
+- `portfolios`: read APIs for cash, positions, and PnL.
 - `orders`: public order requests and trading-engine forwarding.
 - `admin`: internal admin endpoints.
 - `clients`: clients for internal service calls.

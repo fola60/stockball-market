@@ -2,20 +2,18 @@
 
 ## Purpose
 
-Owns portfolio state and holding mutations inside the trading engine.
+Owns portfolio state and portfolio-level balance coordination inside the trading engine.
 
 ## Responsibilities
 
-- Read portfolio cash and holdings during execution.
-- Increase holdings after buy trades.
-- Decrease holdings after sell trades.
-- Prevent users from selling more shares than they own.
+- Read portfolio cash and summary state during execution.
+- Coordinate portfolio-level cash balance state with `ledger`.
 - Support portfolio valuation once implemented.
-- Maintain average cost or cost basis once implemented.
+- Support portfolio-level PnL summaries once implemented.
 
 ## Boundaries
 
 - Cash audit entries belong to `ledger`.
-- Holding changes caused by trades belong here.
+- Position changes caused by trades belong to `positions`.
 - Read APIs for portfolio display belong to the API service.
-- The worker service must not mutate holdings directly.
+- The worker service must not mutate positions directly.
