@@ -1,0 +1,11 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "services/trading-engine/Cargo.toml"
+  ],
+  "files.watcherExclude": {
+    "**/target/**": true
+  },
+  "search.exclude": {
+    "**/target/**": true
+  }
+}
