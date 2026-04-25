@@ -1,0 +1,1 @@
+"""Stockball worker application package."""
