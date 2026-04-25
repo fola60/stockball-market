@@ -4,7 +4,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Callable, Mapping, Protocol
 
-from app.jobs.models import JobExecutionResult, JobType, TopupJobPayload, WorkerJob
+from app.ingestion.players import PlayerSeedService
+from app.jobs.models import (
+    IngestPlayersJobPayload,
+    JobExecutionResult,
+    JobType,
+    TopupJobPayload,
+    WorkerJob,
+)
 from app.topups import TopupService
 
 
@@ -51,6 +58,26 @@ class TopupJobHandler:
                 job_result,
             )
         return job_result
+
+
+@dataclass(frozen=True)
+class IngestPlayersJobHandler:
+    player_seed_service: PlayerSeedService
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_PLAYERS:
+            raise UnknownJobError(f"player ingestion handler cannot process {job.job_type.value}")
+
+        payload = IngestPlayersJobPayload.from_payload(job.payload)
+        result = self.player_seed_service.seed_players(payload.competition_code)
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.upserted_players,
+            skipped_items=0,
+            failed_items=0,
+        )
 
 
 class WorkerJobRunner:

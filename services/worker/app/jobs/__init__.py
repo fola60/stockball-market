@@ -1,9 +1,17 @@
-from .handlers import RetryableJobError, TopupJobHandler, UnknownJobError, WorkerJobRunner
-from .models import JobExecutionResult, JobType, TopupJobPayload, WorkerJob
+from .handlers import (
+    IngestPlayersJobHandler,
+    RetryableJobError,
+    TopupJobHandler,
+    UnknownJobError,
+    WorkerJobRunner,
+)
+from .models import IngestPlayersJobPayload, JobExecutionResult, JobType, TopupJobPayload, WorkerJob
 from .runtime import BlockingJobQueue, RetryQueue, WorkerProcess
 
 __all__ = [
     "BlockingJobQueue",
+    "IngestPlayersJobHandler",
+    "IngestPlayersJobPayload",
     "JobExecutionResult",
     "JobType",
     "RetryQueue",

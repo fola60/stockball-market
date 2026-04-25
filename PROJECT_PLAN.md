@@ -118,6 +118,8 @@ Key entities:
 
 - ingest Premier League squads and player metadata
 - ingest a market-value field for each player
+- maintain canonical Stockball player IDs separately from external provider IDs
+- store cross-provider player references so squad data and valuation data can come from different sources
 - create canonical player and `PLAYER_SHARE` instrument records
 - seed initial prices and shares outstanding
 
@@ -175,5 +177,8 @@ Key entities:
 - V1 is a simulation only, with no real-money trading.
 - Price movement is intentionally simple in V1 and depends only on shares bought and sold.
 - External stats and sentiment signals are used for bot decision-making, not direct valuation.
+- Premier League player identity and squad data should come from a structured football-data provider, with `football-data.org` as the first V1 candidate.
+- Player market values may need a separate licensed/commercial source or manual CSV import; direct Transfermarkt scraping should not be the default production path.
+- Stockball should keep canonical `players.id` values and store provider IDs in separate mapping/observation tables so players can be reconciled across providers and future imports.
 - Weekly versus monthly bot top-ups is still undecided and can be finalized later without changing the core market structure.
 - Team and national-team index funds are deferred until after the player market is stable.

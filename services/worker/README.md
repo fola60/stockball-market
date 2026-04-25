@@ -33,3 +33,19 @@ It owns external data ingestion, synthetic trader decisions, recurring top-up sc
 - `synthetic_traders`: bot strategy and decision logic.
 - `topups`: determines recurring credit eligibility.
 - `clients`: internal service clients.
+
+## One-Off Commands
+
+Seed current Premier League players from football-data.org:
+
+```bash
+STOCKBALL_WORKER_DATABASE_URL=postgres://... \
+STOCKBALL_FOOTBALL_DATA_API_TOKEN=... \
+stockball-worker seed-players --competition PL
+```
+
+This writes `https://api.football-data.org/v4` into `players.provider` and the football-data player ID into `players.provider_player_id`.
+
+The football-data.org free plan is rate limited to 10 requests/minute for registered clients. The seed command defaults to one request every 7 seconds through `STOCKBALL_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS`, so a full Premier League seed stays under the free-tier limit.
+
+Rate limit does not guarantee endpoint coverage. football-data.org's public pricing page currently lists `Squads` on `Free + Deep Data` and higher plans, so a plain free token may not be enough for this seed command.

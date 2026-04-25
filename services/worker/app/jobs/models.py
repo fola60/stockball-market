@@ -35,6 +35,18 @@ class TopupJobPayload:
 
 
 @dataclass(frozen=True)
+class IngestPlayersJobPayload:
+    competition_code: str = "PL"
+
+    def to_payload(self) -> dict[str, str]:
+        return {"competition_code": self.competition_code}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IngestPlayersJobPayload":
+        return cls(competition_code=str(payload.get("competition_code", "PL")))
+
+
+@dataclass(frozen=True)
 class WorkerJob:
     job_type: JobType
     payload: Mapping[str, Any]
@@ -61,6 +73,10 @@ class WorkerJob:
     @classmethod
     def topup(cls, payload: TopupJobPayload) -> "WorkerJob":
         return cls(job_type=JobType.APPLY_TOPUPS, payload=payload.to_payload())
+
+    @classmethod
+    def ingest_players(cls, payload: IngestPlayersJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.INGEST_PLAYERS, payload=payload.to_payload())
 
     def with_attempt(self, attempt: int) -> "WorkerJob":
         return WorkerJob(job_type=self.job_type, payload=self.payload, attempt=attempt)

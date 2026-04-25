@@ -163,6 +163,8 @@ Deliverables:
 
 - Premier League player import
 - external market-value import
+- canonical player/provider reference schema so player identity and market-value data can be reconciled across sources
+- raw provider observation storage for squad and valuation imports
 - player-to-instrument creation flow
 - initial price seeding from market value
 - fixed shares outstanding per player
@@ -170,6 +172,8 @@ Deliverables:
 Definition of done:
 
 - the system can create tradable `PLAYER_SHARE` instruments from ingested data
+- rerunning the Premier League squad sync updates clubs and league membership without duplicating players
+- market values from a separate source can be matched to canonical players or queued for review
 - every created instrument has an initial price, shares outstanding, and price impact unit
 
 ## Milestone 7: Market Freezes And Fixture Awareness

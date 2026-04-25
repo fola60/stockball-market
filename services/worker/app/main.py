@@ -4,8 +4,9 @@ import argparse
 import logging
 
 from app.clients import HttpTradingEngineClient
-from app.config import Settings
-from app.jobs import JobType, TopupJobHandler, WorkerJobRunner, WorkerProcess
+from app.config import PlayerSeedSettings, Settings
+from app.ingestion.players import FootballDataClient, PlayerSeedService, PostgresPlayerRepository
+from app.jobs import JobType, IngestPlayersJobHandler, TopupJobHandler, WorkerJobRunner, WorkerProcess
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import SchedulerProcess, SchedulerService
 from app.topups import PostgresTopupRepository, TopupService
@@ -15,11 +16,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "seed-players":
+        settings = PlayerSeedSettings.from_env()
+        _configure_logging(args.log_level)
+        result = _build_player_seed_service(settings).seed_players(args.competition)
+        logging.getLogger(__name__).info(
+            "seeded players from football-data.org",
+            extra={
+                "competition": args.competition,
+                "fetched_players": result.fetched_players,
+                "upserted_players": result.upserted_players,
+                "clubs_seen": result.clubs_seen,
+            },
+        )
+        print(
+            f"seeded {result.upserted_players} players "
+            f"from {result.clubs_seen} clubs for {args.competition}"
+        )
+        return 0
+
     settings = Settings.from_env()
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level, logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    _configure_logging(settings.log_level)
 
     if args.command == "scheduler":
         _build_scheduler_process(settings).run_forever(settings.scheduler_poll_seconds)
@@ -48,7 +65,28 @@ def _build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser("schedule-once", help="enqueue due recurring jobs once")
     subcommands.add_parser("worker", help="run the worker consumer loop")
     subcommands.add_parser("work-once", help="consume and execute at most one queued job")
+    seed_players = subcommands.add_parser(
+        "seed-players",
+        help="ingest current Premier League squads from football-data.org into players",
+    )
+    seed_players.add_argument(
+        "--competition",
+        default="PL",
+        help="football-data.org competition code to seed, default: PL",
+    )
+    seed_players.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off seed command, default: INFO",
+    )
     return parser
+
+
+def _configure_logging(log_level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
 
 
 def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
@@ -78,17 +116,40 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
         policy_store=topup_repository,
         audit_store=topup_repository,
     )
-    runner = WorkerJobRunner(
-        {
-            JobType.APPLY_TOPUPS: TopupJobHandler(topup_service=topup_service),
-        }
-    )
+    handlers = {
+        JobType.APPLY_TOPUPS: TopupJobHandler(topup_service=topup_service),
+    }
+    if settings.football_data_api_token:
+        handlers[JobType.INGEST_PLAYERS] = IngestPlayersJobHandler(
+            player_seed_service=_build_player_seed_service(
+                PlayerSeedSettings(
+                    database_url=settings.database_url,
+                    football_data_api_token=settings.football_data_api_token,
+                    football_data_api_base_url=settings.football_data_api_base_url,
+                    football_data_request_interval_seconds=(
+                        settings.football_data_request_interval_seconds
+                    ),
+                )
+            )
+        )
+    runner = WorkerJobRunner(handlers)
     return WorkerProcess(
         queue=queue,
         retry_queue=retry_queue,
         runner=runner,
         retry_delay_seconds=settings.retry_delay_seconds,
         max_attempts=settings.max_attempts,
+    )
+
+
+def _build_player_seed_service(settings: PlayerSeedSettings) -> PlayerSeedService:
+    return PlayerSeedService(
+        client=FootballDataClient(
+            api_token=settings.football_data_api_token,
+            base_url=settings.football_data_api_base_url,
+            request_interval_seconds=settings.football_data_request_interval_seconds,
+        ),
+        repository=PostgresPlayerRepository(settings.database_url),
     )
 
 
