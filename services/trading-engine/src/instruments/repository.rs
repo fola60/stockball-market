@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgConnection, PgExecutor};
 use uuid::Uuid;
 
 use super::{
@@ -24,7 +24,7 @@ struct InstrumentRow {
 }
 
 pub async fn get_instrument_by_id(
-    pool: &PgPool,
+    executor: impl PgExecutor<'_>,
     instrument_id: Uuid,
 ) -> Result<Option<Instrument>, InstrumentError> {
     let row = sqlx::query_as::<_, InstrumentRow>(
@@ -46,17 +46,17 @@ pub async fn get_instrument_by_id(
         "#,
     )
     .bind(instrument_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
 
     row.map(Instrument::try_from).transpose()
 }
 
 pub async fn get_active_instrument_by_id(
-    pool: &PgPool,
+    executor: impl PgExecutor<'_>,
     instrument_id: Uuid,
 ) -> Result<Instrument, InstrumentError> {
-    let instrument = get_instrument_by_id(pool, instrument_id)
+    let instrument = get_instrument_by_id(executor, instrument_id)
         .await?
         .ok_or(InstrumentError::NotFound(instrument_id))?;
 
@@ -82,7 +82,7 @@ pub fn assert_tradable(instrument: &Instrument) -> Result<(), InstrumentError> {
 }
 
 pub async fn get_current_price(
-    pool: &PgPool,
+    executor: impl PgExecutor<'_>,
     instrument_id: Uuid,
 ) -> Result<Decimal, InstrumentError> {
     sqlx::query_scalar::<_, Decimal>(
@@ -93,14 +93,13 @@ pub async fn get_current_price(
         "#,
     )
     .bind(instrument_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(InstrumentError::NotFound(instrument_id))
 }
 
-
 pub async fn get_price_impact_unit(
-    pool: &PgPool,
+    executor: impl PgExecutor<'_>,
     instrument_id: Uuid,
 ) -> Result<Decimal, InstrumentError> {
     sqlx::query_scalar::<_, Decimal>(
@@ -111,9 +110,79 @@ pub async fn get_price_impact_unit(
         "#,
     )
     .bind(instrument_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(InstrumentError::NotFound(instrument_id))
+}
+
+pub(crate) async fn lock_instrument_by_id(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+) -> Result<Instrument, InstrumentError> {
+    let row = sqlx::query_as::<_, InstrumentRow>(
+        r#"
+        SELECT
+            id,
+            instrument_type,
+            player_id,
+            symbol,
+            display_name,
+            current_price,
+            shares_outstanding,
+            price_impact_unit,
+            trading_status,
+            created_at,
+            updated_at
+        FROM instruments
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(instrument_id)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or(InstrumentError::NotFound(instrument_id))?;
+
+    Instrument::try_from(row)
+}
+
+pub(crate) async fn update_current_price(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+    new_price: Decimal,
+) -> Result<Instrument, InstrumentError> {
+    if new_price.is_sign_negative() {
+        return Err(InstrumentError::NegativePrice);
+    }
+
+    let row = sqlx::query_as::<_, InstrumentRow>(
+        r#"
+        UPDATE instruments
+        SET
+            current_price = $2,
+            updated_at = now()
+        WHERE id = $1
+        RETURNING
+            id,
+            instrument_type,
+            player_id,
+            symbol,
+            display_name,
+            current_price,
+            shares_outstanding,
+            price_impact_unit,
+            trading_status,
+            created_at,
+            updated_at
+        "#,
+    )
+    .bind(instrument_id)
+    .bind(new_price)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or(InstrumentError::NotFound(instrument_id))?;
+
+    Instrument::try_from(row)
 }
 
 impl TryFrom<InstrumentRow> for Instrument {
@@ -157,7 +226,7 @@ mod tests {
             symbol: "TEST".to_owned(),
             display_name: "Test Player Share".to_owned(),
             current_price: Decimal::new(100_0000, 4),
-            shares_outstanding: Decimal::new(1_000_000_000000, 6),
+            shares_outstanding: Decimal::new(1_000_000_000_000, 6),
             price_impact_unit: Decimal::new(1_0000, 6),
             status,
             created_at: Utc::now(),

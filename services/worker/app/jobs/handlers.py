@@ -4,8 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Callable, Mapping, Protocol
 
+from app.ingestion.fixtures import FixtureIngestionService
 from app.ingestion.players import PlayerSeedService
+from app.ingestion.stats import FixturePlayerStatsIngestionService
 from app.jobs.models import (
+    IngestFixturePlayerStatsJobPayload,
+    IngestFixturesJobPayload,
     IngestPlayersJobPayload,
     JobExecutionResult,
     JobType,
@@ -75,6 +79,53 @@ class IngestPlayersJobHandler:
             job_type=job.job_type,
             handled_at=self.clock(),
             successful_items=result.upserted_players,
+            skipped_items=0,
+            failed_items=0,
+        )
+
+
+@dataclass(frozen=True)
+class IngestFixturesJobHandler:
+    fixture_ingestion_service: FixtureIngestionService
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_FIXTURES:
+            raise UnknownJobError(f"fixture ingestion handler cannot process {job.job_type.value}")
+
+        payload = IngestFixturesJobPayload.from_payload(job.payload)
+        result = self.fixture_ingestion_service.ingest_fixtures(
+            league=payload.league,
+            season=payload.season,
+            from_date=payload.from_date,
+            to_date=payload.to_date,
+        )
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.upserted_fixtures,
+            skipped_items=0,
+            failed_items=0,
+        )
+
+
+@dataclass(frozen=True)
+class IngestFixturePlayerStatsJobHandler:
+    stats_ingestion_service: FixturePlayerStatsIngestionService
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_FIXTURE_PLAYER_STATS:
+            raise UnknownJobError(
+                f"fixture player-stats handler cannot process {job.job_type.value}"
+            )
+
+        payload = IngestFixturePlayerStatsJobPayload.from_payload(job.payload)
+        result = self.stats_ingestion_service.ingest_fixture_player_stats(payload.fixture_id)
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.upserted_observations,
             skipped_items=0,
             failed_items=0,
         )

@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.accounts.models import AccountRecord, AccountStatus, AccountType, PortfolioRecord
+from app.common.schemas import ErrorResponse
 
 
 class CreateAccountRequest(BaseModel):
@@ -74,8 +75,3 @@ class AccountResponse(BaseModel):
             updated_at=account.updated_at,
             portfolio=PortfolioResponse.from_record(account.portfolio),
         )
-
-
-class ErrorResponse(BaseModel):
-    code: str
-    message: str

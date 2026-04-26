@@ -11,6 +11,29 @@ Future module for ingesting football performance and availability data.
 - Match provider player IDs to canonical Stockball players.
 - Feed later `signals/stats` calculations.
 
+## V1 Source
+
+Use API-Football for per-fixture player statistics.
+
+Required environment:
+
+- `STOCKBALL_WORKER_DATABASE_URL` or `DATABASE_URL`
+- `STOCKBALL_API_FOOTBALL_API_KEY`
+- optional `STOCKBALL_API_FOOTBALL_API_BASE_URL`, default `https://v3.football.api-sports.io`
+- optional `STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS`, default `1.0`
+
+Command:
+
+```bash
+stockball-worker ingest-fixture-player-stats 1208040
+```
+
+The command calls API-Football `/fixtures/players?fixture={fixture_id}` and upserts rows into `player_stat_observations` by `(provider, provider_fixture_id, provider_player_id)`.
+
+API-Football player IDs are not the same as football-data.org player IDs. Until a provider-reference mapping table exists, player-stat observations store the API-Football player reference and leave `player_id` nullable unless a matching `(provider, provider_player_id)` already exists in `players`.
+
+For the free tier, avoid live polling. A normal Premier League matchweek should be ingested after final whistle with roughly one stats request per fixture, plus fixture discovery requests.
+
 ## Boundaries
 
 - Does not decide bot trades directly.

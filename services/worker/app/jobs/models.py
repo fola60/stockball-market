@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any, Mapping
 
@@ -13,6 +13,8 @@ class JobType(StrEnum):
     SYNTHETIC_TRADER_TICK = "SYNTHETIC_TRADER_TICK"
     CHECK_MARKET_FREEZES = "CHECK_MARKET_FREEZES"
     INGEST_PLAYERS = "INGEST_PLAYERS"
+    INGEST_FIXTURES = "INGEST_FIXTURES"
+    INGEST_FIXTURE_PLAYER_STATS = "INGEST_FIXTURE_PLAYER_STATS"
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,49 @@ class IngestPlayersJobPayload:
 
 
 @dataclass(frozen=True)
+class IngestFixturesJobPayload:
+    league: int
+    season: int
+    from_date: date | None = None
+    to_date: date | None = None
+
+    def to_payload(self) -> dict[str, str | int]:
+        payload: dict[str, str | int] = {
+            "league": self.league,
+            "season": self.season,
+        }
+        if self.from_date is not None:
+            payload["from_date"] = self.from_date.isoformat()
+        if self.to_date is not None:
+            payload["to_date"] = self.to_date.isoformat()
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IngestFixturesJobPayload":
+        return cls(
+            league=int(payload["league"]),
+            season=int(payload["season"]),
+            from_date=_optional_date(payload.get("from_date")),
+            to_date=_optional_date(payload.get("to_date")),
+        )
+
+
+@dataclass(frozen=True)
+class IngestFixturePlayerStatsJobPayload:
+    fixture_id: int
+
+    def to_payload(self) -> dict[str, int]:
+        return {"fixture_id": self.fixture_id}
+
+    @classmethod
+    def from_payload(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> "IngestFixturePlayerStatsJobPayload":
+        return cls(fixture_id=int(payload["fixture_id"]))
+
+
+@dataclass(frozen=True)
 class WorkerJob:
     job_type: JobType
     payload: Mapping[str, Any]
@@ -78,6 +123,20 @@ class WorkerJob:
     def ingest_players(cls, payload: IngestPlayersJobPayload) -> "WorkerJob":
         return cls(job_type=JobType.INGEST_PLAYERS, payload=payload.to_payload())
 
+    @classmethod
+    def ingest_fixtures(cls, payload: IngestFixturesJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.INGEST_FIXTURES, payload=payload.to_payload())
+
+    @classmethod
+    def ingest_fixture_player_stats(
+        cls,
+        payload: IngestFixturePlayerStatsJobPayload,
+    ) -> "WorkerJob":
+        return cls(
+            job_type=JobType.INGEST_FIXTURE_PLAYER_STATS,
+            payload=payload.to_payload(),
+        )
+
     def with_attempt(self, attempt: int) -> "WorkerJob":
         return WorkerJob(job_type=self.job_type, payload=self.payload, attempt=attempt)
 
@@ -96,3 +155,9 @@ def _normalize_timestamp(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _optional_date(value: object) -> date | None:
+    if value is None:
+        return None
+    return date.fromisoformat(str(value))

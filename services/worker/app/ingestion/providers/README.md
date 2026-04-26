@@ -49,6 +49,20 @@ Provider selection criteria:
 
 The provider layer should support a `manual_csv` provider so development and early seeding are not blocked while commercial valuation options are evaluated.
 
+### Fixture And Player Stats
+
+Use API-Football for V1 fixture and per-fixture player-stat ingestion.
+
+Provider details:
+
+- Base URL: `https://v3.football.api-sports.io`
+- Auth header: `x-apisports-key`
+- Fixture endpoint: `/fixtures`
+- Fixture player stats endpoint: `/fixtures/players`
+- Premier League id: `39`
+
+API-Football is intentionally separate from football-data.org because football-data.org is used for squad identity, while API-Football is used for match facts, ratings, and stat observations. Linkage to canonical players requires cross-provider mapping because API-Football player IDs differ from football-data.org player IDs.
+
 ## Boundaries
 
 - Provider clients should fetch data only.

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::{FromRow, PgExecutor};
+use sqlx::{FromRow, PgConnection, PgExecutor};
 use uuid::Uuid;
 
 use super::{error::PortfolioError, model::Portfolio};
@@ -58,6 +58,31 @@ pub async fn get_portfolio_for_account(
     .await?;
 
     row.map(Portfolio::try_from).transpose()
+}
+
+pub(crate) async fn lock_portfolio_by_id(
+    connection: &mut PgConnection,
+    portfolio_id: Uuid,
+) -> Result<Portfolio, PortfolioError> {
+    let row = sqlx::query_as::<_, PortfolioRow>(
+        r#"
+        SELECT
+            id,
+            account_id,
+            cash_balance,
+            created_at,
+            updated_at
+        FROM portfolios
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(portfolio_id)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or(PortfolioError::NotFound(portfolio_id))?;
+
+    Portfolio::try_from(row)
 }
 
 pub fn assert_portfolio_belongs_to_account(

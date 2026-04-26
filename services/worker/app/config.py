@@ -17,6 +17,9 @@ TRADING_ENGINE_TIMEOUT_ENV = "STOCKBALL_WORKER_TRADING_ENGINE_TIMEOUT_SECONDS"
 FOOTBALL_DATA_API_TOKEN_ENV = "STOCKBALL_FOOTBALL_DATA_API_TOKEN"
 FOOTBALL_DATA_API_BASE_URL_ENV = "STOCKBALL_FOOTBALL_DATA_API_BASE_URL"
 FOOTBALL_DATA_REQUEST_INTERVAL_ENV = "STOCKBALL_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS"
+API_FOOTBALL_API_KEY_ENV = "STOCKBALL_API_FOOTBALL_API_KEY"
+API_FOOTBALL_API_BASE_URL_ENV = "STOCKBALL_API_FOOTBALL_API_BASE_URL"
+API_FOOTBALL_REQUEST_INTERVAL_ENV = "STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS"
 SCHEDULER_POLL_SECONDS_ENV = "STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS"
 WORKER_BLOCK_SECONDS_ENV = "STOCKBALL_WORKER_BLOCK_SECONDS"
 RETRY_DELAY_SECONDS_ENV = "STOCKBALL_WORKER_RETRY_DELAY_SECONDS"
@@ -30,6 +33,8 @@ DEFAULT_SCHEDULE_CLAIM_PREFIX = "stockball:worker:schedule-claim"
 DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS = 5.0
 DEFAULT_FOOTBALL_DATA_API_BASE_URL = "https://api.football-data.org/v4"
 DEFAULT_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS = 7.0
+DEFAULT_API_FOOTBALL_API_BASE_URL = "https://v3.football.api-sports.io"
+DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS = 1.0
 DEFAULT_SCHEDULER_POLL_SECONDS = 60
 DEFAULT_WORKER_BLOCK_SECONDS = 5
 DEFAULT_RETRY_DELAY_SECONDS = 30
@@ -46,6 +51,9 @@ class Settings:
     football_data_api_token: str | None = None
     football_data_api_base_url: str = DEFAULT_FOOTBALL_DATA_API_BASE_URL
     football_data_request_interval_seconds: float = DEFAULT_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS
+    api_football_api_key: str | None = None
+    api_football_api_base_url: str = DEFAULT_API_FOOTBALL_API_BASE_URL
+    api_football_request_interval_seconds: float = DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS
     queue_name: str = DEFAULT_QUEUE_NAME
     retry_queue_name: str = DEFAULT_RETRY_QUEUE_NAME
     schedule_claim_prefix: str = DEFAULT_SCHEDULE_CLAIM_PREFIX
@@ -74,6 +82,15 @@ class Settings:
             football_data_request_interval_seconds=_float_env(
                 FOOTBALL_DATA_REQUEST_INTERVAL_ENV,
                 DEFAULT_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS,
+            ),
+            api_football_api_key=os.getenv(API_FOOTBALL_API_KEY_ENV),
+            api_football_api_base_url=os.getenv(
+                API_FOOTBALL_API_BASE_URL_ENV,
+                DEFAULT_API_FOOTBALL_API_BASE_URL,
+            ),
+            api_football_request_interval_seconds=_float_env(
+                API_FOOTBALL_REQUEST_INTERVAL_ENV,
+                DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS,
             ),
             queue_name=os.getenv(QUEUE_NAME_ENV, DEFAULT_QUEUE_NAME),
             retry_queue_name=os.getenv(RETRY_QUEUE_NAME_ENV, DEFAULT_RETRY_QUEUE_NAME),
@@ -128,6 +145,32 @@ class PlayerSeedSettings:
             football_data_request_interval_seconds=_float_env(
                 FOOTBALL_DATA_REQUEST_INTERVAL_ENV,
                 DEFAULT_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ApiFootballIngestionSettings:
+    database_url: str
+    api_key: str
+    api_base_url: str = DEFAULT_API_FOOTBALL_API_BASE_URL
+    request_interval_seconds: float = DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS
+
+    @classmethod
+    def from_env(cls) -> "ApiFootballIngestionSettings":
+        api_key = os.getenv(API_FOOTBALL_API_KEY_ENV)
+        if not api_key:
+            raise RuntimeError(f"required environment variable missing: {API_FOOTBALL_API_KEY_ENV}")
+        return cls(
+            database_url=_required_env(DATABASE_URL_ENV, DATABASE_URL_FALLBACK_ENV),
+            api_key=api_key,
+            api_base_url=os.getenv(
+                API_FOOTBALL_API_BASE_URL_ENV,
+                DEFAULT_API_FOOTBALL_API_BASE_URL,
+            ),
+            request_interval_seconds=_float_env(
+                API_FOOTBALL_REQUEST_INTERVAL_ENV,
+                DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS,
             ),
         )
 

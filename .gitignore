@@ -1,0 +1,26 @@
+# Rust
+**/target/
+
+# Python
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# JavaScript / frontend
+node_modules/
+.next/
+
+# Test and coverage output
+.coverage
+coverage/
+
+# Environment files
+.env
+.env.*
+
+# OS artifacts
+.DS_Store

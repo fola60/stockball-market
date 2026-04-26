@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import date
 
 from app.clients import HttpTradingEngineClient
-from app.config import PlayerSeedSettings, Settings
+from app.config import ApiFootballIngestionSettings, PlayerSeedSettings, Settings
+from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
 from app.ingestion.players import FootballDataClient, PlayerSeedService, PostgresPlayerRepository
-from app.jobs import JobType, IngestPlayersJobHandler, TopupJobHandler, WorkerJobRunner, WorkerProcess
+from app.ingestion.providers import ApiFootballClient
+from app.ingestion.stats import FixturePlayerStatsIngestionService, PostgresPlayerStatsRepository
+from app.jobs import (
+    IngestFixturePlayerStatsJobHandler,
+    IngestFixturesJobHandler,
+    IngestPlayersJobHandler,
+    JobType,
+    TopupJobHandler,
+    WorkerJobRunner,
+    WorkerProcess,
+)
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import SchedulerProcess, SchedulerService
 from app.topups import PostgresTopupRepository, TopupService
@@ -32,6 +44,33 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"seeded {result.upserted_players} players "
             f"from {result.clubs_seen} clubs for {args.competition}"
+        )
+        return 0
+
+    if args.command == "ingest-fixtures":
+        settings = ApiFootballIngestionSettings.from_env()
+        _configure_logging(args.log_level)
+        result = _build_fixture_ingestion_service(settings).ingest_fixtures(
+            league=args.league,
+            season=args.season,
+            from_date=_optional_date_arg(args.from_date),
+            to_date=_optional_date_arg(args.to_date),
+        )
+        print(
+            f"upserted {result.upserted_fixtures} fixtures "
+            f"for league {args.league} season {args.season}"
+        )
+        return 0
+
+    if args.command == "ingest-fixture-player-stats":
+        settings = ApiFootballIngestionSettings.from_env()
+        _configure_logging(args.log_level)
+        result = _build_fixture_player_stats_ingestion_service(
+            settings
+        ).ingest_fixture_player_stats(args.fixture_id)
+        print(
+            f"upserted {result.upserted_observations} player-stat observations "
+            f"for fixture {args.fixture_id}; matched {result.matched_players} players"
         )
         return 0
 
@@ -78,6 +117,29 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-level",
         default="INFO",
         help="log level for the one-off seed command, default: INFO",
+    )
+    ingest_fixtures = subcommands.add_parser(
+        "ingest-fixtures",
+        help="ingest fixtures from API-Football",
+    )
+    ingest_fixtures.add_argument("--league", type=int, default=39, help="API-Football league id")
+    ingest_fixtures.add_argument("--season", type=int, required=True, help="season year")
+    ingest_fixtures.add_argument("--from-date", help="optional start date YYYY-MM-DD")
+    ingest_fixtures.add_argument("--to-date", help="optional end date YYYY-MM-DD")
+    ingest_fixtures.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off ingestion command, default: INFO",
+    )
+    ingest_stats = subcommands.add_parser(
+        "ingest-fixture-player-stats",
+        help="ingest per-player stats for one API-Football fixture",
+    )
+    ingest_stats.add_argument("fixture_id", type=int, help="API-Football fixture id")
+    ingest_stats.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off ingestion command, default: INFO",
     )
     return parser
 
@@ -132,6 +194,21 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
                 )
             )
         )
+    if settings.api_football_api_key:
+        api_football_settings = ApiFootballIngestionSettings(
+            database_url=settings.database_url,
+            api_key=settings.api_football_api_key,
+            api_base_url=settings.api_football_api_base_url,
+            request_interval_seconds=settings.api_football_request_interval_seconds,
+        )
+        handlers[JobType.INGEST_FIXTURES] = IngestFixturesJobHandler(
+            fixture_ingestion_service=_build_fixture_ingestion_service(api_football_settings)
+        )
+        handlers[JobType.INGEST_FIXTURE_PLAYER_STATS] = IngestFixturePlayerStatsJobHandler(
+            stats_ingestion_service=_build_fixture_player_stats_ingestion_service(
+                api_football_settings
+            )
+        )
     runner = WorkerJobRunner(handlers)
     return WorkerProcess(
         queue=queue,
@@ -151,6 +228,38 @@ def _build_player_seed_service(settings: PlayerSeedSettings) -> PlayerSeedServic
         ),
         repository=PostgresPlayerRepository(settings.database_url),
     )
+
+
+def _build_fixture_ingestion_service(
+    settings: ApiFootballIngestionSettings,
+) -> FixtureIngestionService:
+    return FixtureIngestionService(
+        client=_build_api_football_client(settings),
+        repository=PostgresFixtureRepository(settings.database_url),
+    )
+
+
+def _build_fixture_player_stats_ingestion_service(
+    settings: ApiFootballIngestionSettings,
+) -> FixturePlayerStatsIngestionService:
+    return FixturePlayerStatsIngestionService(
+        client=_build_api_football_client(settings),
+        repository=PostgresPlayerStatsRepository(settings.database_url),
+    )
+
+
+def _build_api_football_client(settings: ApiFootballIngestionSettings) -> ApiFootballClient:
+    return ApiFootballClient(
+        api_key=settings.api_key,
+        base_url=settings.api_base_url,
+        request_interval_seconds=settings.request_interval_seconds,
+    )
+
+
+def _optional_date_arg(raw_value: str | None) -> date | None:
+    if raw_value is None:
+        return None
+    return date.fromisoformat(raw_value)
 
 
 if __name__ == "__main__":
