@@ -13,19 +13,19 @@ Ingests Premier League player identity and squad data.
 
 ## V1 Source
 
-Primary candidate: `football-data.org`.
+Use API-Football as the V1 canonical player provider.
 
 Why:
 
-- It exposes Premier League data through competition code `PL`.
-- Team resources include squad/person records with stable provider IDs.
+- It exposes Premier League players through league id `39` and season year.
+- It is the same provider used for fixtures and per-fixture player stats.
+- Using one provider for players, fixtures, and stats avoids cross-provider player ID matching in V1.
 - It is structured JSON, which is safer than scraping HTML for the core player universe.
-- The same provider can later support fixtures and match-status ingestion if its plan coverage is sufficient.
 
 Fallback candidates:
 
+- football-data.org: good for team and squad identity, but its player IDs differ from API-Football and squad endpoint access may require a paid tier.
 - Sportmonks: broader commercial football API with teams, squads, player profiles, fixtures, and stats.
-- API-Football: broad coverage and low-friction access, but verify player ID stability and Premier League squad completeness before choosing it as canonical.
 - Fantasy Premier League public data: useful as a development/bootstrap source for current Premier League player names and teams, but it should not become the canonical identity source unless we accept its unofficial/public endpoint risk and fantasy-specific fields.
 
 ## Sync Model
@@ -43,26 +43,22 @@ Transfers and promotions/relegation should be represented as changed observation
 
 ## Seed Command
 
-The current implementation seeds the `players` table from football-data.org only. It uses the football-data API base URL as the `players.provider` value, for example `https://api.football-data.org/v4`, and stores the football-data player ID in `players.provider_player_id`.
+The current implementation seeds the `players` table from API-Football. It uses the API-Football base URL as the `players.provider` value, for example `https://v3.football.api-sports.io`, and stores the API-Football player ID in `players.provider_player_id`.
 
 Required environment:
 
 - `STOCKBALL_WORKER_DATABASE_URL` or `DATABASE_URL`
-- `STOCKBALL_FOOTBALL_DATA_API_TOKEN`
-- optional `STOCKBALL_FOOTBALL_DATA_API_BASE_URL`, default `https://api.football-data.org/v4`
-- optional `STOCKBALL_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS`, default `7.0`
+- `STOCKBALL_API_FOOTBALL_API_KEY`
+- optional `STOCKBALL_API_FOOTBALL_API_BASE_URL`, default `https://v3.football.api-sports.io`
+- optional `STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS`, default `1.0`
 
 Command:
 
 ```bash
-stockball-worker seed-players --competition PL
+stockball-worker seed-players --league 39 --season 2025
 ```
 
-The command fetches `/competitions/PL/teams`, then fetches `/teams/{teamId}` for each club and upserts each squad member into `players`. Nationality, date of birth, team ID, team name, and the raw football-data squad member payload are stored in `players.metadata`.
-
-football-data.org's official API policy lists registered free-plan clients at 10 requests/minute. A full Premier League seed currently makes one competition-teams request plus one team-detail request per club, so roughly 21 calls. The default 7-second request interval keeps the worker below the free-plan limit and makes a full PL seed take about 2.5 minutes. If football-data.org still returns HTTP 429, the client honors `Retry-After` when present before retrying once.
-
-Plan coverage is separate from rate limiting. The public football-data.org pricing page currently lists `Squads` on the `Free + Deep Data` tier and above, not on the plain free tier. If a free token cannot access `/teams/{teamId}` squad data, the seed command will need an upgraded football-data.org plan or a fallback source.
+The command fetches `/players?league=39&season=2025`, follows API-Football pagination, and upserts each returned player into `players`. Nationality, date of birth, team ID, team name, age, height, weight, injury flag, photo URL, and the raw API-Football payload are stored in `players.metadata`.
 
 ## Canonical Fields
 
@@ -77,7 +73,7 @@ Canonical player rows should eventually contain source-independent fields:
 - primary position
 - active/inactive status
 
-Provider-specific fields and raw payloads should live in provider reference or observation tables. The current `players.provider` and `players.provider_player_id` columns are acceptable for the seed-only schema, but they will not be enough once market values come from a second source.
+Provider-specific fields and raw payloads should live in provider reference or observation tables. The current `players.provider` and `players.provider_player_id` columns are acceptable for V1 because players, fixtures, and player stats all use API-Football IDs. A future market-value provider will still require cross-provider references.
 
 ## Boundaries
 

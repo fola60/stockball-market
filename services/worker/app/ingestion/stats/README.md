@@ -30,7 +30,7 @@ stockball-worker ingest-fixture-player-stats 1208040
 
 The command calls API-Football `/fixtures/players?fixture={fixture_id}` and upserts rows into `player_stat_observations` by `(provider, provider_fixture_id, provider_player_id)`.
 
-API-Football player IDs are not the same as football-data.org player IDs. Until a provider-reference mapping table exists, player-stat observations store the API-Football player reference and leave `player_id` nullable unless a matching `(provider, provider_player_id)` already exists in `players`.
+Because V1 player seeding also uses API-Football, stat observations can resolve `player_id` by matching `(provider, provider_player_id)` against `players`. Observations remain nullable for defensive ingestion, but a properly seeded Premier League player universe should match most first-team fixture participants.
 
 For the free tier, avoid live polling. A normal Premier League matchweek should be ingested after final whistle with roughly one stats request per fixture, plus fixture discovery requests.
 

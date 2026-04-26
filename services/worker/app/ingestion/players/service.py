@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .client import DEFAULT_COMPETITION_CODE
 from .models import PlayerSeedResult, PremierLeaguePlayer
 
 
 class PlayerProviderClient(Protocol):
-    def list_competition_squad_players(
+    def list_league_players(
         self,
-        competition_code: str = DEFAULT_COMPETITION_CODE,
+        league: int,
+        season: int,
     ) -> list[PremierLeaguePlayer]: ...
 
 
@@ -22,10 +22,8 @@ class PlayerSeedService:
         self._client = client
         self._repository = repository
 
-    def seed_players(self, competition_code: str = DEFAULT_COMPETITION_CODE) -> PlayerSeedResult:
-        players = self._deduplicate_players(
-            self._client.list_competition_squad_players(competition_code)
-        )
+    def seed_players(self, league: int, season: int) -> PlayerSeedResult:
+        players = self._deduplicate_players(self._client.list_league_players(league, season))
         upserted = self._repository.upsert_players(players)
         clubs_seen = len({player.club for player in players if player.club})
         return PlayerSeedResult(

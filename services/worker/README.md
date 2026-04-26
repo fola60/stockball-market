@@ -36,19 +36,15 @@ It owns external data ingestion, synthetic trader decisions, recurring top-up sc
 
 ## One-Off Commands
 
-Seed current Premier League players from football-data.org:
+Seed current Premier League players from API-Football:
 
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
-STOCKBALL_FOOTBALL_DATA_API_TOKEN=... \
-stockball-worker seed-players --competition PL
+STOCKBALL_API_FOOTBALL_API_KEY=... \
+stockball-worker seed-players --league 39 --season 2025
 ```
 
-This writes `https://api.football-data.org/v4` into `players.provider` and the football-data player ID into `players.provider_player_id`.
-
-The football-data.org free plan is rate limited to 10 requests/minute for registered clients. The seed command defaults to one request every 7 seconds through `STOCKBALL_FOOTBALL_DATA_REQUEST_INTERVAL_SECONDS`, so a full Premier League seed stays under the free-tier limit.
-
-Rate limit does not guarantee endpoint coverage. football-data.org's public pricing page currently lists `Squads` on `Free + Deep Data` and higher plans, so a plain free token may not be enough for this seed command.
+This writes `https://v3.football.api-sports.io` into `players.provider` and the API-Football player ID into `players.provider_player_id`. Fixtures and player stats use the same provider IDs, so stat observations can link directly to canonical players after this seed.
 
 Ingest Premier League fixtures from API-Football:
 

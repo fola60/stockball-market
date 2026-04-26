@@ -13,7 +13,7 @@ Ingests external player market values used for initial Stockball price seeding.
 
 ## V1 Source
 
-Market value should be treated as a separate provider feed from squad/player identity unless the chosen football-data provider explicitly includes reliable player-level valuations.
+Market value should be treated as a separate provider feed from squad/player identity unless the chosen football-data provider explicitly includes reliable player-level valuations. API-Football is the V1 identity provider, but it should not be treated as a market-value source.
 
 Preferred order:
 

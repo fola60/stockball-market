@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import httpx
 
 from app.ingestion.fixtures.models import ApiFootballFixture
+from app.ingestion.players.models import PremierLeaguePlayer
 from app.ingestion.stats.models import ApiFootballPlayerStat
 
 
@@ -63,6 +64,27 @@ class ApiFootballClient:
             _fixture_from_payload(self.provider, fixture_payload, league, season)
             for fixture_payload in _response_list(payload)
         ]
+
+    def list_league_players(self, league: int, season: int) -> list[PremierLeaguePlayer]:
+        players: list[PremierLeaguePlayer] = []
+        page = 1
+        while True:
+            payload = self._get_json(
+                "/players",
+                {"league": league, "season": season, "page": page},
+            )
+            players.extend(
+                _player_from_payload(self.provider, player_payload, league, season)
+                for player_payload in _response_list(payload)
+                if isinstance(player_payload, Mapping)
+            )
+            paging = _mapping(payload.get("paging"))
+            current_page = int(paging.get("current") or page)
+            total_pages = int(paging.get("total") or current_page)
+            if current_page >= total_pages:
+                break
+            page = current_page + 1
+        return players
 
     def list_fixture_player_stats(self, fixture_id: int) -> list[ApiFootballPlayerStat]:
         payload = self._get_json("/fixtures/players", {"fixture": fixture_id})
@@ -155,6 +177,43 @@ def _fixture_from_payload(
     )
 
 
+def _player_from_payload(
+    provider: str,
+    payload: Mapping[str, Any],
+    league: int,
+    season: int,
+) -> PremierLeaguePlayer:
+    player = _mapping(payload.get("player"))
+    statistics = payload.get("statistics", [])
+    stat_payload = statistics[0] if isinstance(statistics, list) and statistics else {}
+    if not isinstance(stat_payload, Mapping):
+        stat_payload = {}
+    team = _mapping(stat_payload.get("team"))
+    games = _mapping(stat_payload.get("games"))
+
+    return PremierLeaguePlayer(
+        provider=provider,
+        provider_player_id=str(player["id"]),
+        display_name=str(player["name"]),
+        club=str(team.get("name") or ""),
+        position=_optional_str(games.get("position")),
+        metadata={
+            "league_id": str(league),
+            "season": season,
+            "team_id": _optional_str(team.get("id")),
+            "team_name": _optional_str(team.get("name")),
+            "age": player.get("age"),
+            "date_of_birth": _optional_str(_mapping(player.get("birth")).get("date")),
+            "nationality": _optional_str(player.get("nationality")),
+            "height": _optional_str(player.get("height")),
+            "weight": _optional_str(player.get("weight")),
+            "photo": _optional_str(player.get("photo")),
+            "injured": player.get("injured"),
+            "api_football_raw": dict(payload),
+        },
+    )
+
+
 def _player_stat_from_payload(
     provider: str,
     provider_fixture_id: str,
@@ -227,3 +286,4 @@ def _retry_after_seconds(raw_value: str | None, default: float) -> float:
         return max(float(raw_value), 0.0)
     except ValueError:
         return default
+

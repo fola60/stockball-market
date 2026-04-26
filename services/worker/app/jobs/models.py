@@ -38,14 +38,17 @@ class TopupJobPayload:
 
 @dataclass(frozen=True)
 class IngestPlayersJobPayload:
-    competition_code: str = "PL"
+    league: int = 39
+    season: int = 2025
 
-    def to_payload(self) -> dict[str, str]:
-        return {"competition_code": self.competition_code}
+    def to_payload(self) -> dict[str, int]:
+        return {"league": self.league, "season": self.season}
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "IngestPlayersJobPayload":
-        return cls(competition_code=str(payload.get("competition_code", "PL")))
+        if "league" in payload and "season" in payload:
+            return cls(league=int(payload["league"]), season=int(payload["season"]))
+        return cls(league=39, season=int(payload.get("season", 2025)))
 
 
 @dataclass(frozen=True)

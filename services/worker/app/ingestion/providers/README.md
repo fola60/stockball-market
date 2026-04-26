@@ -16,14 +16,14 @@ Future shared home for external provider clients.
 
 ### Player, Squad, Fixture Identity
 
-Primary V1 candidate:
+Primary V1 provider:
 
-- `football-data.org`: structured football API with Premier League competition, teams, team squads, fixtures, and player/person IDs.
+- API-Football: structured football API with Premier League players, fixtures, per-fixture player stats, and ratings.
 
 Alternatives to evaluate before implementation if cost or coverage is an issue:
 
+- football-data.org
 - Sportmonks
-- API-Football
 - Fantasy Premier League public data for local/dev bootstrap only
 
 Selection criteria:
@@ -57,11 +57,12 @@ Provider details:
 
 - Base URL: `https://v3.football.api-sports.io`
 - Auth header: `x-apisports-key`
+- Players endpoint: `/players`
 - Fixture endpoint: `/fixtures`
 - Fixture player stats endpoint: `/fixtures/players`
 - Premier League id: `39`
 
-API-Football is intentionally separate from football-data.org because football-data.org is used for squad identity, while API-Football is used for match facts, ratings, and stat observations. Linkage to canonical players requires cross-provider mapping because API-Football player IDs differ from football-data.org player IDs.
+API-Football is the V1 canonical provider for players, fixtures, and player stats. That means `players.provider = https://v3.football.api-sports.io` and `players.provider_player_id` can be used to link `/fixtures/players` stat rows directly to canonical Stockball players.
 
 ## Boundaries
 

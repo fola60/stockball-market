@@ -5,9 +5,9 @@ import logging
 from datetime import date
 
 from app.clients import HttpTradingEngineClient
-from app.config import ApiFootballIngestionSettings, PlayerSeedSettings, Settings
+from app.config import ApiFootballIngestionSettings, Settings
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
-from app.ingestion.players import FootballDataClient, PlayerSeedService, PostgresPlayerRepository
+from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
 from app.ingestion.providers import ApiFootballClient
 from app.ingestion.stats import FixturePlayerStatsIngestionService, PostgresPlayerStatsRepository
 from app.jobs import (
@@ -29,13 +29,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "seed-players":
-        settings = PlayerSeedSettings.from_env()
+        settings = ApiFootballIngestionSettings.from_env()
         _configure_logging(args.log_level)
-        result = _build_player_seed_service(settings).seed_players(args.competition)
+        result = _build_player_seed_service(settings).seed_players(args.league, args.season)
         logging.getLogger(__name__).info(
-            "seeded players from football-data.org",
+            "seeded players from API-Football",
             extra={
-                "competition": args.competition,
+                "league": args.league,
+                "season": args.season,
                 "fetched_players": result.fetched_players,
                 "upserted_players": result.upserted_players,
                 "clubs_seen": result.clubs_seen,
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(
             f"seeded {result.upserted_players} players "
-            f"from {result.clubs_seen} clubs for {args.competition}"
+            f"from {result.clubs_seen} clubs for league {args.league} season {args.season}"
         )
         return 0
 
@@ -106,12 +107,19 @@ def _build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser("work-once", help="consume and execute at most one queued job")
     seed_players = subcommands.add_parser(
         "seed-players",
-        help="ingest current Premier League squads from football-data.org into players",
+        help="ingest league players from API-Football into players",
     )
     seed_players.add_argument(
-        "--competition",
-        default="PL",
-        help="football-data.org competition code to seed, default: PL",
+        "--league",
+        type=int,
+        default=39,
+        help="API-Football league id, default: 39",
+    )
+    seed_players.add_argument(
+        "--season",
+        type=int,
+        required=True,
+        help="season year",
     )
     seed_players.add_argument(
         "--log-level",
@@ -181,25 +189,15 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
     handlers = {
         JobType.APPLY_TOPUPS: TopupJobHandler(topup_service=topup_service),
     }
-    if settings.football_data_api_token:
-        handlers[JobType.INGEST_PLAYERS] = IngestPlayersJobHandler(
-            player_seed_service=_build_player_seed_service(
-                PlayerSeedSettings(
-                    database_url=settings.database_url,
-                    football_data_api_token=settings.football_data_api_token,
-                    football_data_api_base_url=settings.football_data_api_base_url,
-                    football_data_request_interval_seconds=(
-                        settings.football_data_request_interval_seconds
-                    ),
-                )
-            )
-        )
     if settings.api_football_api_key:
         api_football_settings = ApiFootballIngestionSettings(
             database_url=settings.database_url,
             api_key=settings.api_football_api_key,
             api_base_url=settings.api_football_api_base_url,
             request_interval_seconds=settings.api_football_request_interval_seconds,
+        )
+        handlers[JobType.INGEST_PLAYERS] = IngestPlayersJobHandler(
+            player_seed_service=_build_player_seed_service(api_football_settings)
         )
         handlers[JobType.INGEST_FIXTURES] = IngestFixturesJobHandler(
             fixture_ingestion_service=_build_fixture_ingestion_service(api_football_settings)
@@ -219,13 +217,9 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
     )
 
 
-def _build_player_seed_service(settings: PlayerSeedSettings) -> PlayerSeedService:
+def _build_player_seed_service(settings: ApiFootballIngestionSettings) -> PlayerSeedService:
     return PlayerSeedService(
-        client=FootballDataClient(
-            api_token=settings.football_data_api_token,
-            base_url=settings.football_data_api_base_url,
-            request_interval_seconds=settings.football_data_request_interval_seconds,
-        ),
+        client=_build_api_football_client(settings),
         repository=PostgresPlayerRepository(settings.database_url),
     )
 

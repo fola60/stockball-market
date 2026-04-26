@@ -74,7 +74,7 @@ class IngestPlayersJobHandler:
             raise UnknownJobError(f"player ingestion handler cannot process {job.job_type.value}")
 
         payload = IngestPlayersJobPayload.from_payload(job.payload)
-        result = self.player_seed_service.seed_players(payload.competition_code)
+        result = self.player_seed_service.seed_players(payload.league, payload.season)
         return JobExecutionResult(
             job_type=job.job_type,
             handled_at=self.clock(),

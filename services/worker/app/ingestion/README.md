@@ -30,7 +30,7 @@ Use a provider-backed ingestion flow rather than one-off seed SQL for the Premie
 
 Recommended source split:
 
-- Player identity, squads, clubs, positions, nationality, and date of birth: use a structured football-data provider as the primary canonical source. `football-data.org` is the preferred V1 candidate because its API exposes competitions, teams, and team squads with provider person IDs. Sportmonks or API-Football can be kept as alternatives if coverage, pricing, or rate limits become a blocker.
+- Player identity, squads, clubs, positions, nationality, and date of birth: use API-Football as the V1 canonical provider. API-Football also supplies fixtures and per-fixture player stats, so using it for players avoids cross-provider ID matching for V1 stats ingestion.
 - Market value: do not assume the squad provider will supply usable player market values. Most football fixture/stat APIs do not provide Transfermarkt-style market valuations. Use a separate market-value provider or licensed dataset if we need real transfer-market-style valuations.
 - Development fallback: allow a manually curated CSV for market values so local seeding can proceed without scraping or committing to a paid provider. The CSV should include source, source player ID or source URL, value, currency, observed date, and enough identity fields to reconcile to a canonical player.
 
