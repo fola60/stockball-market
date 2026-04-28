@@ -17,7 +17,7 @@ Signals answer: "What does the external data mean for bot behavior?"
 
 - `social`: mention volume, sentiment, and hype-spike signals.
 - `stats`: football performance and availability signals.
-- Future `market`: price momentum, volatility, and order-flow signals.
+- Future `market`: Stockball price momentum, volatility, order-flow signals, and external pre-match betting market context.
 
 ## Boundaries
 

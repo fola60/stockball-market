@@ -42,6 +42,8 @@ Bot strategy families in V1:
 
 Synthetic traders will decide whether to buy or sell based on multiple factors, but price formation itself will remain simple: prices move only because shares are bought or sold.
 
+Future strategy inputs may include pre-match betting market observations such as bookmaker or exchange odds and implied probabilities. These should be treated as external context for bots and admin analysis, not as direct Stockball price inputs unless a later pricing milestone explicitly changes the price-formation rules.
+
 ## Price Formation Spec
 
 ### Initial Seeding
@@ -177,6 +179,7 @@ Key entities:
 - V1 is a simulation only, with no real-money trading.
 - Price movement is intentionally simple in V1 and depends only on shares bought and sold.
 - External stats and sentiment signals are used for bot decision-making, not direct valuation.
+- Future pre-match betting market reads may be used as bot/context signals, not direct Stockball price setters.
 - Premier League player identity, fixtures, and per-fixture player stats should use API-Football as the V1 canonical provider so player stat observations can link through one provider player ID.
 - Player market values may need a separate licensed/commercial source or manual CSV import; direct Transfermarkt scraping should not be the default production path.
 - Stockball should keep canonical `players.id` values and store provider IDs in separate mapping/observation tables so players can be reconciled across providers and future imports.

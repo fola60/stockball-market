@@ -24,3 +24,6 @@ coverage/
 
 # OS artifacts
 .DS_Store
+
+# Local downloaded market-value datasets
+services/worker/app/ingestion/market_values/archive*/

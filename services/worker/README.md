@@ -61,3 +61,12 @@ STOCKBALL_WORKER_DATABASE_URL=postgres://... \
 STOCKBALL_API_FOOTBALL_API_KEY=... \
 stockball-worker ingest-fixture-player-stats 1208040
 ```
+
+Import Transfermarkt-derived market values from downloaded CSV files:
+
+```bash
+STOCKBALL_WORKER_DATABASE_URL=postgres://... \
+stockball-worker import-market-values \
+  --players-csv /path/to/players.csv \
+  --valuations-csv /path/to/player_valuations.csv
+```

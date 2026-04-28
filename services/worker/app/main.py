@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import logging
 from datetime import date
+from pathlib import Path
 
 from app.clients import HttpTradingEngineClient
-from app.config import ApiFootballIngestionSettings, Settings
+from app.config import ApiFootballIngestionSettings, DatabaseSettings, Settings
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
+from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
 from app.ingestion.providers import ApiFootballClient
 from app.ingestion.stats import FixturePlayerStatsIngestionService, PostgresPlayerStatsRepository
@@ -72,6 +74,24 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"upserted {result.upserted_observations} player-stat observations "
             f"for fixture {args.fixture_id}; matched {result.matched_players} players"
+        )
+        return 0
+
+    if args.command == "import-market-values":
+        settings = DatabaseSettings.from_env()
+        _configure_logging(args.log_level)
+        result = _build_market_value_import_service(settings).import_transfermarkt_csv(
+            valuations_csv_path=Path(args.valuations_csv),
+            players_csv_path=None if args.players_csv is None else Path(args.players_csv),
+            source=args.source,
+            currency=args.currency,
+        )
+        print(
+            f"imported market values batch {result.batch_id}: "
+            f"{result.matched_rows} matched, "
+            f"{result.ambiguous_rows} ambiguous, "
+            f"{result.unmatched_rows} unmatched, "
+            f"{result.rejected_rows} rejected"
         )
         return 0
 
@@ -148,6 +168,34 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-level",
         default="INFO",
         help="log level for the one-off ingestion command, default: INFO",
+    )
+    import_market_values = subcommands.add_parser(
+        "import-market-values",
+        help="import Transfermarkt-derived market values from CSV files",
+    )
+    import_market_values.add_argument(
+        "--valuations-csv",
+        required=True,
+        help="path to player_valuations.csv",
+    )
+    import_market_values.add_argument(
+        "--players-csv",
+        help="optional path to players.csv for names, clubs, DOBs, and source URLs",
+    )
+    import_market_values.add_argument(
+        "--source",
+        default="transfermarkt_csv",
+        help="source label to store with import rows, default: transfermarkt_csv",
+    )
+    import_market_values.add_argument(
+        "--currency",
+        default="EUR",
+        help="currency for market values, default: EUR",
+    )
+    import_market_values.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off import command, default: INFO",
     )
     return parser
 
@@ -239,6 +287,12 @@ def _build_fixture_player_stats_ingestion_service(
     return FixturePlayerStatsIngestionService(
         client=_build_api_football_client(settings),
         repository=PostgresPlayerStatsRepository(settings.database_url),
+    )
+
+
+def _build_market_value_import_service(settings: DatabaseSettings) -> MarketValueImportService:
+    return MarketValueImportService(
+        repository=PostgresMarketValueRepository(settings.database_url),
     )
 
 

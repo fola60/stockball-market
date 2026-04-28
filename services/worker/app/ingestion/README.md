@@ -20,6 +20,7 @@ Ingestion answers: "What did the outside world say?"
 - `market_values`: external player market-value data.
 - `fixtures`: fixture, lineup, and match-status data.
 - Future `stats`: player performance data from external providers.
+- Future `betting_markets`: pre-match bookmaker/exchange odds and implied-probability snapshots.
 - Future `social`: social mention and post data from external providers.
 - Future `news`: football news and transfer-rumor data.
 - Future `providers`: shared provider clients, auth, rate limiting, and response normalization.
@@ -74,6 +75,29 @@ Player and valuation ingestion should be idempotent.
 - A player leaving the Premier League should not be deleted. Mark them inactive/out-of-universe and let the instrument policy decide whether to keep trading, freeze, or delist.
 - A market-value sync should append a new observed value when the provider value or observation timestamp changes. It should not overwrite history.
 - Instrument creation should be a separate seeding step that reads canonical players plus the latest accepted market value.
+
+## Future Betting Market Reads
+
+Future versions may ingest pre-match betting market data as another external signal source.
+
+Scope:
+
+- Match-level 1X2, draw-no-bet, Asian handicap, total goals, both-teams-to-score, and correct-score markets.
+- Team and player prop markets only if the provider licensing and coverage are clear.
+- Bookmaker or exchange name, market type, selection, odds, currency where applicable, observed timestamp, and fixture/provider IDs.
+- Derived implied probabilities after removing or recording bookmaker margin.
+
+Usage:
+
+- Betting market observations can inform synthetic trader decisions, risk context, and admin analysis.
+- Betting market observations must not directly mutate Stockball instrument prices in V1.
+- Any future direct use in pricing would require a separate product decision and trading-engine rule change.
+
+Provider constraints:
+
+- Prefer licensed odds APIs or exchange APIs with explicit permission for storage and product use.
+- Preserve raw payloads and provider IDs because odds can move quickly and may be disputed later.
+- Snapshot frequency should be conservative; pre-match reads are enough for the initial future version.
 
 ## Boundaries
 

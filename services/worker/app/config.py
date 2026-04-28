@@ -132,6 +132,15 @@ class ApiFootballIngestionSettings:
         )
 
 
+@dataclass(frozen=True)
+class DatabaseSettings:
+    database_url: str
+
+    @classmethod
+    def from_env(cls) -> "DatabaseSettings":
+        return cls(database_url=_required_env(DATABASE_URL_ENV, DATABASE_URL_FALLBACK_ENV))
+
+
 def _required_env(primary: str, fallback: str) -> str:
     value = os.getenv(primary) or os.getenv(fallback)
     if value:

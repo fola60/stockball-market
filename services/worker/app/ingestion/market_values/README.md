@@ -25,7 +25,22 @@ Do not make direct Transfermarkt scraping the default production ingestion path.
 
 ## CSV Fallback Contract
 
-The fallback importer should accept rows like:
+The implemented importer supports the downloaded Transfermarkt-style dataset with:
+
+- `players.csv`
+- `player_valuations.csv`
+
+Command:
+
+```bash
+stockball-worker import-market-values \
+  --players-csv /path/to/players.csv \
+  --valuations-csv /path/to/player_valuations.csv
+```
+
+The importer reads the latest valuation per Transfermarkt `player_id`, stages every latest row in `market_value_import_rows`, and writes matched rows to `player_market_value_observations`.
+
+A generic/manual importer should accept rows like:
 
 ```csv
 source,source_player_id,source_url,display_name,date_of_birth,nationality,club,value,currency,observed_at
@@ -41,9 +56,9 @@ Market-value records must link through canonical `players.id`.
 Matching order:
 
 1. Existing provider reference for the value source.
-2. Existing verified cross-provider reference.
-3. Exact normalized identity match using name, date of birth, nationality, and club.
-4. Manual review queue for ambiguous matches.
+2. Exact normalized name plus date of birth.
+3. Exact normalized name plus club.
+4. Manual review queue for ambiguous or unmatched rows.
 
 Never silently match on name alone. Premier League squads include duplicate or near-duplicate names, name spelling differences, initials, accents, and academy players with limited metadata.
 
