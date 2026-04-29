@@ -7,6 +7,7 @@ use axum::{
 
 use crate::http::{
     error::ApiError, executor::OrderExecutor, ExecuteOrderRequest, ExecuteOrderResponse,
+    SeedPlayerSharesResponse,
 };
 
 #[derive(Debug, Clone)]
@@ -26,6 +27,10 @@ where
 {
     Router::new()
         .route("/internal/v1/orders/execute", post(execute_order::<E>))
+        .route(
+            "/internal/v1/instruments/player-shares/seed",
+            post(seed_player_shares::<E>),
+        )
         .with_state(state)
 }
 
@@ -37,6 +42,16 @@ where
     E: OrderExecutor,
 {
     let result = state.executor.execute_order(request).await?;
+    Ok(Json(result))
+}
+
+async fn seed_player_shares<E>(
+    State(state): State<AppState<E>>,
+) -> Result<Json<SeedPlayerSharesResponse>, ApiError>
+where
+    E: OrderExecutor,
+{
+    let result = state.executor.seed_player_shares().await?;
     Ok(Json(result))
 }
 

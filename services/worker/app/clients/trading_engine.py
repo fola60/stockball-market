@@ -22,6 +22,7 @@ class LedgerReason(StrEnum):
 @dataclass(frozen=True)
 class TradingEngineEndpoints:
     execute_order: str = "/internal/v1/orders/execute"
+    seed_player_shares: str = "/internal/v1/instruments/player-shares/seed"
     apply_topup: str = "/internal/v1/ledger/topups/apply"
     freeze_instrument: str = "/internal/v1/instruments/freeze"
     unfreeze_instrument: str = "/internal/v1/instruments/unfreeze"
@@ -133,6 +134,28 @@ class CashLedgerEntryRecord:
 
 
 @dataclass(frozen=True)
+class SeedPlayerSharesRecord:
+    created_count: int
+    skipped_existing_count: int
+    market_value_priced_count: int
+    fallback_priced_count: int
+    created_instrument_ids: tuple[UUID, ...]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SeedPlayerSharesRecord":
+        return cls(
+            created_count=int(payload["created_count"]),
+            skipped_existing_count=int(payload["skipped_existing_count"]),
+            market_value_priced_count=int(payload["market_value_priced_count"]),
+            fallback_priced_count=int(payload["fallback_priced_count"]),
+            created_instrument_ids=tuple(
+                UUID(str(instrument_id))
+                for instrument_id in payload["created_instrument_ids"]
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class FreezeInstrumentCommand:
     request_id: str
     instrument_id: UUID
@@ -162,6 +185,8 @@ class UnfreezeInstrumentCommand:
 
 class TradingEngineClient(Protocol):
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
+
+    def seed_player_shares(self) -> SeedPlayerSharesRecord: ...
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord: ...
 
@@ -201,6 +226,10 @@ class HttpTradingEngineClient:
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
         payload = self._post(self._endpoints.execute_order, command.to_payload())
         return OrderExecutionRecord.from_payload(payload)
+
+    def seed_player_shares(self) -> SeedPlayerSharesRecord:
+        payload = self._post(self._endpoints.seed_player_shares, {})
+        return SeedPlayerSharesRecord.from_payload(payload)
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord:
         payload = self._post(self._endpoints.apply_topup, command.to_payload())

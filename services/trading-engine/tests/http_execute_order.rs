@@ -9,7 +9,7 @@ use stockball_trading_engine::{
     execution::{ExecuteOrderResult, ExecutionError},
     freezes::FreezeError,
     http::{build_router, AppState, OrderExecutor},
-    instruments::{InstrumentError, InstrumentStatus},
+    instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
     orders::{ExecuteOrderCommand, OrderError, OrderSide},
 };
 use tower::ServiceExt;
@@ -127,6 +127,36 @@ async fn execute_order_maps_trading_rule_rejection_to_422() {
     assert_eq!(body["code"], "non_positive_quantity");
 }
 
+#[tokio::test]
+async fn seed_player_shares_returns_success_response() {
+    let instrument_id = Uuid::new_v4();
+    let response = build_router(AppState::new(StubExecutor::seed_success(
+        SeedPlayerSharesResult {
+            created_count: 1,
+            skipped_existing_count: 2,
+            market_value_priced_count: 1,
+            fallback_priced_count: 0,
+            created_instrument_ids: vec![instrument_id],
+        },
+    )))
+    .oneshot(
+        Request::post("/internal/v1/instruments/player-shares/seed")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = read_body(response).await;
+    assert_eq!(body["created_count"], 1);
+    assert_eq!(body["skipped_existing_count"], 2);
+    assert_eq!(body["market_value_priced_count"], 1);
+    assert_eq!(body["fallback_priced_count"], 0);
+    assert_eq!(body["created_instrument_ids"][0], instrument_id.to_string());
+}
+
 #[derive(Debug, Clone)]
 struct StubExecutor {
     outcome: StubOutcome,
@@ -155,6 +185,12 @@ impl StubExecutor {
 
         Self { outcome }
     }
+
+    fn seed_success(result: SeedPlayerSharesResult) -> Self {
+        Self {
+            outcome: StubOutcome::SeedSuccess(result),
+        }
+    }
 }
 
 #[async_trait]
@@ -176,6 +212,14 @@ impl OrderExecutor for StubExecutor {
             StubOutcome::NonPositiveQuantity(quantity) => Err(ExecutionError::Order(
                 OrderError::NonPositiveQuantity(*quantity),
             )),
+            StubOutcome::SeedSuccess(_) => panic!("seed stub cannot execute orders"),
+        }
+    }
+
+    async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError> {
+        match &self.outcome {
+            StubOutcome::SeedSuccess(result) => Ok(result.clone()),
+            _ => panic!("order stub cannot seed player shares"),
         }
     }
 }
@@ -186,6 +230,7 @@ enum StubOutcome {
     InstrumentNotFound(Uuid),
     Frozen(Uuid),
     NonPositiveQuantity(Decimal),
+    SeedSuccess(SeedPlayerSharesResult),
 }
 
 fn sample_request() -> Value {

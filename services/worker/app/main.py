@@ -95,6 +95,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "seed-player-shares":
+        settings = Settings.from_env()
+        _configure_logging(args.log_level)
+        result = HttpTradingEngineClient(
+            settings.trading_engine_url,
+            timeout_seconds=settings.trading_engine_timeout_seconds,
+        ).seed_player_shares()
+        print(
+            f"seeded player shares: {result.created_count} created, "
+            f"{result.skipped_existing_count} skipped existing, "
+            f"{result.market_value_priced_count} market-value priced, "
+            f"{result.fallback_priced_count} fallback priced"
+        )
+        return 0
+
     settings = Settings.from_env()
     _configure_logging(settings.log_level)
 
@@ -196,6 +211,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-level",
         default="INFO",
         help="log level for the one-off import command, default: INFO",
+    )
+    seed_player_shares = subcommands.add_parser(
+        "seed-player-shares",
+        help="create PLAYER_SHARE instruments from players and market values",
+    )
+    seed_player_shares.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off seed command, default: INFO",
     )
     return parser
 

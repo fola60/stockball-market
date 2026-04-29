@@ -1,5 +1,6 @@
 pub type ExecuteOrderRequest = crate::orders::ExecuteOrderCommand;
 pub type ExecuteOrderResponse = crate::execution::ExecuteOrderResult;
+pub type SeedPlayerSharesResponse = crate::instruments::SeedPlayerSharesResult;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ErrorResponse {

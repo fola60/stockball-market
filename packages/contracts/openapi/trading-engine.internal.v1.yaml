@@ -4,6 +4,44 @@ info:
   version: 0.1.0
   description: Internal REST contract for trading-engine commands used by Stockball services.
 paths:
+  /internal/v1/instruments/player-shares/seed:
+    post:
+      operationId: seedPlayerShares
+      summary: Create initial player-share instruments
+      description: >
+        Creates PLAYER_SHARE instruments from canonical players and the latest
+        matched EUR market-value observations. The operation is rerunnable and
+        skips players that already have a PLAYER_SHARE instrument.
+      tags:
+        - Instruments
+      responses:
+        "200":
+          description: Player-share seeding completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeedPlayerSharesResponse"
+              examples:
+                seeded:
+                  value:
+                    created_count: 2
+                    skipped_existing_count: 1
+                    market_value_priced_count: 1
+                    fallback_priced_count: 1
+                    created_instrument_ids:
+                      - 10000000-0000-0000-0000-000000000001
+        "422":
+          description: A seed value was invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected trading-engine error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /internal/v1/orders/execute:
     post:
       operationId: executeOrder
@@ -91,5 +129,7 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderRequest"
     ExecuteOrderResponse:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderResponse"
+    SeedPlayerSharesResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/SeedPlayerSharesResponse"
     ErrorResponse:
       $ref: "../schemas/common.schema.json#/$defs/ErrorResponse"

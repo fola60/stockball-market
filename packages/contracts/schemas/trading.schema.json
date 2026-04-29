@@ -425,6 +425,41 @@
           "$ref": "./common.schema.json#/$defs/Timestamp"
         }
       }
+    },
+    "SeedPlayerSharesResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created_count",
+        "skipped_existing_count",
+        "market_value_priced_count",
+        "fallback_priced_count",
+        "created_instrument_ids"
+      ],
+      "properties": {
+        "created_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped_existing_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "market_value_priced_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fallback_priced_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "created_instrument_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/Uuid"
+          }
+        }
+      }
     }
   }
 }

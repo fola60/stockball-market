@@ -3,6 +3,7 @@ use sqlx::PgPool;
 
 use crate::{
     execution::{self, ExecuteOrderResult, ExecutionError},
+    instruments::{self, InstrumentError, SeedPlayerSharesResult},
     orders::ExecuteOrderCommand,
 };
 
@@ -12,6 +13,8 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
         &self,
         command: ExecuteOrderCommand,
     ) -> Result<ExecuteOrderResult, ExecutionError>;
+
+    async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError>;
 }
 
 #[derive(Debug, Clone)]
@@ -32,5 +35,9 @@ impl OrderExecutor for SqlOrderExecutor {
         command: ExecuteOrderCommand,
     ) -> Result<ExecuteOrderResult, ExecutionError> {
         execution::execute_order(&self.pool, command).await
+    }
+
+    async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError> {
+        instruments::seed_player_shares(&self.pool).await
     }
 }

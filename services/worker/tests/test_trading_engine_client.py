@@ -121,6 +121,38 @@ class TradingEngineClientTests(unittest.TestCase):
         self.assertEqual(result.reason, LedgerReason.WEEKLY_TOPUP)
         self.assertEqual(result.amount_delta, "250.0000")
 
+    def test_seed_player_shares_posts_to_seed_endpoint(self) -> None:
+        instrument_id = uuid4()
+        request: httpx.Request | None = None
+
+        def handler(incoming: httpx.Request) -> httpx.Response:
+            nonlocal request
+            request = incoming
+            return httpx.Response(
+                200,
+                json={
+                    "created_count": 1,
+                    "skipped_existing_count": 2,
+                    "market_value_priced_count": 1,
+                    "fallback_priced_count": 0,
+                    "created_instrument_ids": [str(instrument_id)],
+                },
+            )
+
+        client = HttpTradingEngineClient(
+            base_url="http://trading-engine.test",
+            transport=httpx.MockTransport(handler),
+        )
+
+        result = client.seed_player_shares()
+
+        assert request is not None
+        self.assertEqual(request.url.path, "/internal/v1/instruments/player-shares/seed")
+        self.assertEqual(json.loads(request.content.decode("utf-8")), {})
+        self.assertEqual(result.created_count, 1)
+        self.assertEqual(result.skipped_existing_count, 2)
+        self.assertEqual(result.created_instrument_ids, (instrument_id,))
+
     def test_freeze_instrument_uses_configured_path(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             self.assertEqual(request.url.path, "/internal/v1/instruments/freeze")

@@ -81,6 +81,12 @@ impl From<ExecutionError> for ApiError {
     }
 }
 
+impl From<InstrumentError> for ApiError {
+    fn from(error: InstrumentError) -> Self {
+        instrument_error(error)
+    }
+}
+
 fn order_error(error: OrderError) -> ApiError {
     match error {
         OrderError::NotFound(order_id) => ApiError::new(
@@ -248,6 +254,13 @@ fn instrument_error(error: InstrumentError) -> ApiError {
             "order would result in an invalid instrument price.",
             None,
         ),
+        InstrumentError::InvalidSeedValue { reason } => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_seed_value",
+            "player-share seed value is invalid.",
+            Some(json!({ "reason": reason })),
+        ),
+        InstrumentError::Snapshot(error) => snapshot_error(error),
         InstrumentError::Database(error) => internal_error(
             "database_error",
             "Unexpected database error while working with instruments.",

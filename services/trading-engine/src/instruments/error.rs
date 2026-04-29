@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use crate::snapshots::SnapshotError;
+
 use super::model::InstrumentStatus;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +32,12 @@ pub enum InstrumentError {
 
     #[error("instrument price cannot be negative")]
     NegativePrice,
+
+    #[error("player-share seed value is invalid: {reason}")]
+    InvalidSeedValue { reason: String },
+
+    #[error(transparent)]
+    Snapshot(#[from] SnapshotError),
 
     #[error(transparent)]
     Database(#[from] sqlx::Error),
