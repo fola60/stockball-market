@@ -1,0 +1,110 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stockball}
+      POSTGRES_USER: ${POSTGRES_USER:-stockball}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockball}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  trading-engine:
+    build:
+      context: .
+      dockerfile: services/trading-engine/Dockerfile
+    environment:
+      STOCKBALL_TRADING_ENGINE_DATABASE_URL: ${STOCKBALL_TRADING_ENGINE_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
+      STOCKBALL_TRADING_ENGINE_BIND_ADDR: ${STOCKBALL_TRADING_ENGINE_BIND_ADDR:-0.0.0.0:3000}
+    ports:
+      - "${TRADING_ENGINE_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      STOCKBALL_API_DATABASE_URL: ${STOCKBALL_API_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
+      STOCKBALL_API_TRADING_ENGINE_URL: ${STOCKBALL_API_TRADING_ENGINE_URL:-http://trading-engine:3000}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      trading-engine:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    command: ["stockball-worker", "worker"]
+    profiles: ["worker"]
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
+      STOCKBALL_WORKER_REDIS_URL: ${STOCKBALL_WORKER_REDIS_URL:-redis://redis:6379/0}
+      STOCKBALL_WORKER_TRADING_ENGINE_URL: ${STOCKBALL_WORKER_TRADING_ENGINE_URL:-http://trading-engine:3000}
+      STOCKBALL_WORKER_LOG_LEVEL: ${STOCKBALL_WORKER_LOG_LEVEL:-INFO}
+      STOCKBALL_WORKER_BLOCK_SECONDS: ${STOCKBALL_WORKER_BLOCK_SECONDS:-5}
+      STOCKBALL_WORKER_RETRY_DELAY_SECONDS: ${STOCKBALL_WORKER_RETRY_DELAY_SECONDS:-30}
+      STOCKBALL_WORKER_MAX_ATTEMPTS: ${STOCKBALL_WORKER_MAX_ATTEMPTS:-5}
+      STOCKBALL_API_FOOTBALL_API_KEY: ${STOCKBALL_API_FOOTBALL_API_KEY:-}
+      STOCKBALL_API_FOOTBALL_API_BASE_URL: ${STOCKBALL_API_FOOTBALL_API_BASE_URL:-https://v3.football.api-sports.io}
+      STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS:-1.0}
+    volumes:
+      - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      trading-engine:
+        condition: service_started
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    command: ["stockball-worker", "scheduler"]
+    profiles: ["worker"]
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
+      STOCKBALL_WORKER_REDIS_URL: ${STOCKBALL_WORKER_REDIS_URL:-redis://redis:6379/0}
+      STOCKBALL_WORKER_TRADING_ENGINE_URL: ${STOCKBALL_WORKER_TRADING_ENGINE_URL:-http://trading-engine:3000}
+      STOCKBALL_WORKER_LOG_LEVEL: ${STOCKBALL_WORKER_LOG_LEVEL:-INFO}
+      STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS: ${STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS:-60}
+      STOCKBALL_API_FOOTBALL_API_KEY: ${STOCKBALL_API_FOOTBALL_API_KEY:-}
+      STOCKBALL_API_FOOTBALL_API_BASE_URL: ${STOCKBALL_API_FOOTBALL_API_BASE_URL:-https://v3.football.api-sports.io}
+      STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS:-1.0}
+    volumes:
+      - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      trading-engine:
+        condition: service_started
+
+volumes:
+  postgres-data:

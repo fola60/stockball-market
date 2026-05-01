@@ -17,6 +17,10 @@ DEFAULT_REQUEST_INTERVAL_SECONDS = 1.0
 DEFAULT_RATE_LIMIT_RETRY_SECONDS = 60.0
 
 
+class ApiFootballError(Exception):
+    pass
+
+
 class ApiFootballClient:
     def __init__(
         self,
@@ -130,6 +134,7 @@ class ApiFootballClient:
         payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("API-Football response must be a JSON object")
+        _raise_for_api_errors(payload)
         return payload
 
     def _throttle(self) -> None:
@@ -254,6 +259,21 @@ def _response_list(payload: Mapping[str, Any]) -> list[Any]:
     return response
 
 
+def _raise_for_api_errors(payload: Mapping[str, Any]) -> None:
+    errors = payload.get("errors")
+    if errors in (None, [], {}, ""):
+        return
+    raise ApiFootballError(f"API-Football returned errors: {_format_api_errors(errors)}")
+
+
+def _format_api_errors(errors: object) -> str:
+    if isinstance(errors, Mapping):
+        return "; ".join(f"{key}: {value}" for key, value in errors.items())
+    if isinstance(errors, list):
+        return "; ".join(str(error) for error in errors)
+    return str(errors)
+
+
 def _mapping(value: object) -> Mapping[str, Any]:
     if isinstance(value, Mapping):
         return value
@@ -286,4 +306,3 @@ def _retry_after_seconds(raw_value: str | None, default: float) -> float:
         return max(float(raw_value), 0.0)
     except ValueError:
         return default
-

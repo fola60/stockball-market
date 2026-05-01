@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import httpx
 
 from app.ingestion.players import FootballDataClient, PlayerSeedService, PremierLeaguePlayer
-from app.ingestion.providers import ApiFootballClient
+from app.ingestion.providers import ApiFootballClient, ApiFootballError
 from app.jobs import IngestPlayersJobHandler, IngestPlayersJobPayload, JobType, WorkerJob
 
 
@@ -81,6 +81,30 @@ class ApiFootballPlayerClientTests(unittest.TestCase):
         self.assertEqual(players[0].position, "Attacker")
         self.assertEqual(players[0].metadata["league_id"], "39")
         self.assertEqual(players[0].metadata["team_id"], "42")
+
+    def test_list_league_players_raises_for_api_errors_in_success_response(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                {
+                    "errors": {
+                        "plan": "Free plans do not have access to this season, try from 2022 to 2024."
+                    },
+                    "paging": {"current": 1, "total": 1},
+                    "response": [],
+                }
+            )
+
+        client = ApiFootballClient(
+            api_key="token",
+            request_interval_seconds=0,
+            transport=httpx.MockTransport(handler),
+        )
+
+        with self.assertRaises(ApiFootballError) as context:
+            client.list_league_players(league=39, season=2025)
+
+        self.assertIn("plan", str(context.exception))
+        self.assertIn("2022 to 2024", str(context.exception))
 
 
 class FootballDataClientTests(unittest.TestCase):
