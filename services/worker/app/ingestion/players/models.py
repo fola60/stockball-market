@@ -5,7 +5,7 @@ from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
-class PremierLeaguePlayer:
+class ExternalPlayer:
     provider: str
     provider_player_id: str
     display_name: str

@@ -3,14 +3,14 @@ from __future__ import annotations
 import psycopg2
 from psycopg2.extras import Json
 
-from .models import ApiFootballFixture
+from .models import ExternalFixture
 
 
 class PostgresFixtureRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 
-    def upsert_fixtures(self, fixtures: list[ApiFootballFixture]) -> int:
+    def upsert_fixtures(self, fixtures: list[ExternalFixture]) -> int:
         if not fixtures:
             return 0
 
@@ -33,9 +33,12 @@ class PostgresFixtureRepository:
                             status_long,
                             elapsed,
                             raw_payload,
+                            competition,
+                            source_url,
+                            provider_match_id,
                             updated_at
                         ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                         )
                         ON CONFLICT (provider, provider_fixture_id) DO UPDATE
                         SET
@@ -50,6 +53,9 @@ class PostgresFixtureRepository:
                             status_long = EXCLUDED.status_long,
                             elapsed = EXCLUDED.elapsed,
                             raw_payload = EXCLUDED.raw_payload,
+                            competition = EXCLUDED.competition,
+                            source_url = EXCLUDED.source_url,
+                            provider_match_id = EXCLUDED.provider_match_id,
                             updated_at = now()
                         """,
                         (
@@ -66,6 +72,9 @@ class PostgresFixtureRepository:
                             fixture.status_long,
                             fixture.elapsed,
                             Json(dict(fixture.raw_payload)),
+                            fixture.competition,
+                            fixture.source_url,
+                            fixture.provider_match_id,
                         ),
                     )
             connection.commit()

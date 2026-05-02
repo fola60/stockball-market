@@ -5,7 +5,7 @@ from typing import Any, Mapping
 
 import httpx
 
-from .models import PremierLeaguePlayer
+from .models import ExternalPlayer
 
 
 DEFAULT_COMPETITION_CODE = "PL"
@@ -45,13 +45,13 @@ class FootballDataClient:
     def list_competition_squad_players(
         self,
         competition_code: str = DEFAULT_COMPETITION_CODE,
-    ) -> list[PremierLeaguePlayer]:
+    ) -> list[ExternalPlayer]:
         teams_payload = self._get_json(f"/competitions/{competition_code}/teams")
         teams = teams_payload.get("teams", [])
         if not isinstance(teams, list):
             raise ValueError("football-data teams response must include a teams list")
 
-        players: list[PremierLeaguePlayer] = []
+        players: list[ExternalPlayer] = []
         for team in teams:
             if not isinstance(team, Mapping):
                 continue
@@ -66,14 +66,14 @@ class FootballDataClient:
         team_id: str,
         team_summary: Mapping[str, Any],
         competition_code: str,
-    ) -> list[PremierLeaguePlayer]:
+    ) -> list[ExternalPlayer]:
         team_payload = self._get_json(f"/teams/{team_id}")
         squad = team_payload.get("squad", [])
         if not isinstance(squad, list):
             raise ValueError("football-data team response must include a squad list")
 
         club_name = str(team_payload.get("name") or team_summary.get("name") or "")
-        players: list[PremierLeaguePlayer] = []
+        players: list[ExternalPlayer] = []
         for squad_member in squad:
             if not isinstance(squad_member, Mapping):
                 continue
@@ -82,7 +82,7 @@ class FootballDataClient:
             if player_id is None or not display_name:
                 continue
             players.append(
-                PremierLeaguePlayer(
+                ExternalPlayer(
                     provider=self.provider,
                     provider_player_id=str(player_id),
                     display_name=str(display_name),

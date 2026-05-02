@@ -6,10 +6,10 @@ from typing import Callable, Mapping, Protocol
 
 from app.ingestion.fixtures import FixtureIngestionService
 from app.ingestion.players import PlayerSeedService
-from app.ingestion.stats import FixturePlayerStatsIngestionService
+from app.ingestion.stats import PlayerStatsIngestionService
 from app.jobs.models import (
-    IngestFixturePlayerStatsJobPayload,
     IngestFixturesJobPayload,
+    IngestPlayerStatsJobPayload,
     IngestPlayersJobPayload,
     JobExecutionResult,
     JobType,
@@ -110,18 +110,22 @@ class IngestFixturesJobHandler:
 
 
 @dataclass(frozen=True)
-class IngestFixturePlayerStatsJobHandler:
-    stats_ingestion_service: FixturePlayerStatsIngestionService
+class IngestPlayerStatsJobHandler:
+    stats_ingestion_service: PlayerStatsIngestionService
     clock: Callable[[], datetime] = _utc_now
 
     def handle(self, job: WorkerJob) -> JobExecutionResult:
-        if job.job_type is not JobType.INGEST_FIXTURE_PLAYER_STATS:
+        if job.job_type is not JobType.INGEST_PLAYER_STATS:
             raise UnknownJobError(
-                f"fixture player-stats handler cannot process {job.job_type.value}"
+                f"player-stats handler cannot process {job.job_type.value}"
             )
 
-        payload = IngestFixturePlayerStatsJobPayload.from_payload(job.payload)
-        result = self.stats_ingestion_service.ingest_fixture_player_stats(payload.fixture_id)
+        payload = IngestPlayerStatsJobPayload.from_payload(job.payload)
+        result = self.stats_ingestion_service.ingest_player_stats(
+            league=payload.league,
+            season=payload.season,
+            stat_types=payload.stat_types or None,
+        )
         return JobExecutionResult(
             job_type=job.job_type,
             handled_at=self.clock(),

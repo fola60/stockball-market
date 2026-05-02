@@ -1,3 +1,3 @@
-from .api_football import ApiFootballClient, ApiFootballError
+from app.ingestion.fbref import FbrefClient, FbrefError
 
-__all__ = ["ApiFootballClient", "ApiFootballError"]
+__all__ = ["FbrefClient", "FbrefError"]

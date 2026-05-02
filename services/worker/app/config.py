@@ -14,9 +14,10 @@ QUEUE_NAME_ENV = "STOCKBALL_WORKER_QUEUE_NAME"
 RETRY_QUEUE_NAME_ENV = "STOCKBALL_WORKER_RETRY_QUEUE_NAME"
 SCHEDULE_CLAIM_PREFIX_ENV = "STOCKBALL_WORKER_SCHEDULE_CLAIM_PREFIX"
 TRADING_ENGINE_TIMEOUT_ENV = "STOCKBALL_WORKER_TRADING_ENGINE_TIMEOUT_SECONDS"
-API_FOOTBALL_API_KEY_ENV = "STOCKBALL_API_FOOTBALL_API_KEY"
-API_FOOTBALL_API_BASE_URL_ENV = "STOCKBALL_API_FOOTBALL_API_BASE_URL"
-API_FOOTBALL_REQUEST_INTERVAL_ENV = "STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS"
+FBREF_BASE_URL_ENV = "STOCKBALL_FBREF_BASE_URL"
+FBREF_REQUEST_INTERVAL_ENV = "STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS"
+FBREF_USER_AGENT_ENV = "STOCKBALL_FBREF_USER_AGENT"
+FBREF_CACHE_TTL_SECONDS_ENV = "STOCKBALL_FBREF_CACHE_TTL_SECONDS"
 SCHEDULER_POLL_SECONDS_ENV = "STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS"
 WORKER_BLOCK_SECONDS_ENV = "STOCKBALL_WORKER_BLOCK_SECONDS"
 RETRY_DELAY_SECONDS_ENV = "STOCKBALL_WORKER_RETRY_DELAY_SECONDS"
@@ -28,8 +29,13 @@ DEFAULT_QUEUE_NAME = "stockball:worker:jobs"
 DEFAULT_RETRY_QUEUE_NAME = "stockball:worker:jobs:retry"
 DEFAULT_SCHEDULE_CLAIM_PREFIX = "stockball:worker:schedule-claim"
 DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS = 5.0
-DEFAULT_API_FOOTBALL_API_BASE_URL = "https://v3.football.api-sports.io"
-DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS = 1.0
+DEFAULT_FBREF_BASE_URL = "https://fbref.com"
+DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS = 6.5
+DEFAULT_FBREF_USER_AGENT = (
+    "StockballMarketWorker/0.1 "
+    "(contact: engineering@stockball.local; provider=FBREF)"
+)
+DEFAULT_FBREF_CACHE_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_SCHEDULER_POLL_SECONDS = 60
 DEFAULT_WORKER_BLOCK_SECONDS = 5
 DEFAULT_RETRY_DELAY_SECONDS = 30
@@ -43,9 +49,10 @@ class Settings:
     database_url: str
     redis_url: str
     trading_engine_url: str
-    api_football_api_key: str | None = None
-    api_football_api_base_url: str = DEFAULT_API_FOOTBALL_API_BASE_URL
-    api_football_request_interval_seconds: float = DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS
+    fbref_base_url: str = DEFAULT_FBREF_BASE_URL
+    fbref_request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS
+    fbref_user_agent: str = DEFAULT_FBREF_USER_AGENT
+    fbref_cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS
     queue_name: str = DEFAULT_QUEUE_NAME
     retry_queue_name: str = DEFAULT_RETRY_QUEUE_NAME
     schedule_claim_prefix: str = DEFAULT_SCHEDULE_CLAIM_PREFIX
@@ -66,14 +73,15 @@ class Settings:
                 TRADING_ENGINE_URL_ENV,
                 TRADING_ENGINE_URL_FALLBACK_ENV,
             ),
-            api_football_api_key=os.getenv(API_FOOTBALL_API_KEY_ENV),
-            api_football_api_base_url=os.getenv(
-                API_FOOTBALL_API_BASE_URL_ENV,
-                DEFAULT_API_FOOTBALL_API_BASE_URL,
+            fbref_base_url=os.getenv(FBREF_BASE_URL_ENV, DEFAULT_FBREF_BASE_URL),
+            fbref_request_interval_seconds=_float_env(
+                FBREF_REQUEST_INTERVAL_ENV,
+                DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS,
             ),
-            api_football_request_interval_seconds=_float_env(
-                API_FOOTBALL_REQUEST_INTERVAL_ENV,
-                DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS,
+            fbref_user_agent=os.getenv(FBREF_USER_AGENT_ENV, DEFAULT_FBREF_USER_AGENT),
+            fbref_cache_ttl_seconds=_int_env(
+                FBREF_CACHE_TTL_SECONDS_ENV,
+                DEFAULT_FBREF_CACHE_TTL_SECONDS,
             ),
             queue_name=os.getenv(QUEUE_NAME_ENV, DEFAULT_QUEUE_NAME),
             retry_queue_name=os.getenv(RETRY_QUEUE_NAME_ENV, DEFAULT_RETRY_QUEUE_NAME),
@@ -107,27 +115,26 @@ class Settings:
 
 
 @dataclass(frozen=True)
-class ApiFootballIngestionSettings:
+class FbrefIngestionSettings:
     database_url: str
-    api_key: str
-    api_base_url: str = DEFAULT_API_FOOTBALL_API_BASE_URL
-    request_interval_seconds: float = DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS
+    base_url: str = DEFAULT_FBREF_BASE_URL
+    request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS
+    user_agent: str = DEFAULT_FBREF_USER_AGENT
+    cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS
 
     @classmethod
-    def from_env(cls) -> "ApiFootballIngestionSettings":
-        api_key = os.getenv(API_FOOTBALL_API_KEY_ENV)
-        if not api_key:
-            raise RuntimeError(f"required environment variable missing: {API_FOOTBALL_API_KEY_ENV}")
+    def from_env(cls) -> "FbrefIngestionSettings":
         return cls(
             database_url=_required_env(DATABASE_URL_ENV, DATABASE_URL_FALLBACK_ENV),
-            api_key=api_key,
-            api_base_url=os.getenv(
-                API_FOOTBALL_API_BASE_URL_ENV,
-                DEFAULT_API_FOOTBALL_API_BASE_URL,
-            ),
+            base_url=os.getenv(FBREF_BASE_URL_ENV, DEFAULT_FBREF_BASE_URL),
             request_interval_seconds=_float_env(
-                API_FOOTBALL_REQUEST_INTERVAL_ENV,
-                DEFAULT_API_FOOTBALL_REQUEST_INTERVAL_SECONDS,
+                FBREF_REQUEST_INTERVAL_ENV,
+                DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS,
+            ),
+            user_agent=os.getenv(FBREF_USER_AGENT_ENV, DEFAULT_FBREF_USER_AGENT),
+            cache_ttl_seconds=_int_env(
+                FBREF_CACHE_TTL_SECONDS_ENV,
+                DEFAULT_FBREF_CACHE_TTL_SECONDS,
             ),
         )
 

@@ -13,28 +13,29 @@ Ingests Premier League fixture and match-status data.
 
 ## V1 Source
 
-Use API-Football for fixture ingestion.
+Use FBref for fixture ingestion.
 
 Default Premier League settings:
 
-- API-Football league id: `39`
+- FBref competition id: `9`
 - Season: the season start year, for example `2025` for the 2025/26 season.
-- Provider URL stored in fixtures: `https://v3.football.api-sports.io`
+- Provider stored in fixtures: `FBREF`
 
-Required environment:
+Environment:
 
 - `STOCKBALL_WORKER_DATABASE_URL` or `DATABASE_URL`
-- `STOCKBALL_API_FOOTBALL_API_KEY`
-- optional `STOCKBALL_API_FOOTBALL_API_BASE_URL`, default `https://v3.football.api-sports.io`
-- optional `STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS`, default `1.0`
+- optional `STOCKBALL_FBREF_BASE_URL`, default `https://fbref.com`
+- optional `STOCKBALL_FBREF_USER_AGENT`, should identify Stockball and a contact
+- optional `STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS`, default `6.5`
+- optional `STOCKBALL_FBREF_CACHE_TTL_SECONDS`, default `86400`
 
 Command:
 
 ```bash
-stockball-worker ingest-fixtures --league 39 --season 2025 --from-date 2025-08-01 --to-date 2026-05-31
+stockball-worker ingest-fixtures --league 9 --season 2025 --from-date 2025-08-01 --to-date 2026-05-31
 ```
 
-The command calls API-Football `/fixtures` with `league`, `season`, and optional date bounds, then upserts into `fixtures` by `(provider, provider_fixture_id)`.
+The command reads the FBref Premier League scores-and-fixtures table, preserves the raw parsed row, and upserts into `fixtures` by `(provider, provider_fixture_id)`. FBref match IDs are stored when a match-report URL is available; otherwise the provider fixture key is derived from competition, season, gameweek, and team provider IDs for rerunnable imports.
 
 ## Boundaries
 

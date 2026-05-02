@@ -14,6 +14,12 @@ Synthetic traders are tagged accounts that behave like users but are controlled 
 - Respect bot position limits and risk settings.
 - Send trade decisions to the trading engine through the worker client.
 
+## Design Notes
+
+- [Strategy engines](./STRATEGY_ENGINES.md) define reusable bot decision formulas and profile configuration ideas.
+- `synthetic_trader_bot_configs` stores reusable strategy-engine profile configs.
+- `synthetic_trader_bots` maps one tagged synthetic trader account from `accounts` to one config, with optional per-bot JSON overrides.
+
 ## Boundaries
 
 - Does not execute trades directly.

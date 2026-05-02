@@ -14,7 +14,7 @@ class JobType(StrEnum):
     CHECK_MARKET_FREEZES = "CHECK_MARKET_FREEZES"
     INGEST_PLAYERS = "INGEST_PLAYERS"
     INGEST_FIXTURES = "INGEST_FIXTURES"
-    INGEST_FIXTURE_PLAYER_STATS = "INGEST_FIXTURE_PLAYER_STATS"
+    INGEST_PLAYER_STATS = "INGEST_PLAYER_STATS"
     IMPORT_MARKET_VALUES = "IMPORT_MARKET_VALUES"
 
 
@@ -39,7 +39,7 @@ class TopupJobPayload:
 
 @dataclass(frozen=True)
 class IngestPlayersJobPayload:
-    league: int = 39
+    league: int = 9
     season: int = 2025
 
     def to_payload(self) -> dict[str, int]:
@@ -49,7 +49,7 @@ class IngestPlayersJobPayload:
     def from_payload(cls, payload: Mapping[str, Any]) -> "IngestPlayersJobPayload":
         if "league" in payload and "season" in payload:
             return cls(league=int(payload["league"]), season=int(payload["season"]))
-        return cls(league=39, season=int(payload.get("season", 2025)))
+        return cls(league=9, season=int(payload.get("season", 2025)))
 
 
 @dataclass(frozen=True)
@@ -81,18 +81,34 @@ class IngestFixturesJobPayload:
 
 
 @dataclass(frozen=True)
-class IngestFixturePlayerStatsJobPayload:
-    fixture_id: int
+class IngestPlayerStatsJobPayload:
+    league: int = 9
+    season: int = 2025
+    stat_types: tuple[str, ...] = ()
 
-    def to_payload(self) -> dict[str, int]:
-        return {"fixture_id": self.fixture_id}
+    def to_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {"league": self.league, "season": self.season}
+        if self.stat_types:
+            payload["stat_types"] = list(self.stat_types)
+        return payload
 
     @classmethod
     def from_payload(
         cls,
         payload: Mapping[str, Any],
-    ) -> "IngestFixturePlayerStatsJobPayload":
-        return cls(fixture_id=int(payload["fixture_id"]))
+    ) -> "IngestPlayerStatsJobPayload":
+        raw_stat_types = payload.get("stat_types", ())
+        if raw_stat_types in (None, ""):
+            stat_types = ()
+        elif isinstance(raw_stat_types, str):
+            stat_types = (raw_stat_types,)
+        else:
+            stat_types = tuple(str(stat_type) for stat_type in raw_stat_types)
+        return cls(
+            league=int(payload.get("league", 9)),
+            season=int(payload.get("season", 2025)),
+            stat_types=stat_types,
+        )
 
 
 @dataclass(frozen=True)
@@ -132,12 +148,12 @@ class WorkerJob:
         return cls(job_type=JobType.INGEST_FIXTURES, payload=payload.to_payload())
 
     @classmethod
-    def ingest_fixture_player_stats(
+    def ingest_player_stats(
         cls,
-        payload: IngestFixturePlayerStatsJobPayload,
+        payload: IngestPlayerStatsJobPayload,
     ) -> "WorkerJob":
         return cls(
-            job_type=JobType.INGEST_FIXTURE_PLAYER_STATS,
+            job_type=JobType.INGEST_PLAYER_STATS,
             payload=payload.to_payload(),
         )
 

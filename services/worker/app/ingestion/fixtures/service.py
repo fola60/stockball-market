@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Protocol
 
-from .models import ApiFootballFixture, FixtureIngestionResult
+from .models import ExternalFixture, FixtureIngestionResult
 
 
 class FixtureProviderClient(Protocol):
@@ -13,11 +13,11 @@ class FixtureProviderClient(Protocol):
         season: int,
         from_date: date | None = None,
         to_date: date | None = None,
-    ) -> list[ApiFootballFixture]: ...
+    ) -> list[ExternalFixture]: ...
 
 
 class FixtureRepository(Protocol):
-    def upsert_fixtures(self, fixtures: list[ApiFootballFixture]) -> int: ...
+    def upsert_fixtures(self, fixtures: list[ExternalFixture]) -> int: ...
 
 
 class FixtureIngestionService:

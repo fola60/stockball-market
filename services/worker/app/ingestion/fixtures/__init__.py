@@ -1,9 +1,9 @@
-from .models import ApiFootballFixture, FixtureIngestionResult
+from .models import ExternalFixture, FixtureIngestionResult
 from .repository import PostgresFixtureRepository
 from .service import FixtureIngestionService
 
 __all__ = [
-    "ApiFootballFixture",
+    "ExternalFixture",
     "FixtureIngestionResult",
     "FixtureIngestionService",
     "PostgresFixtureRepository",

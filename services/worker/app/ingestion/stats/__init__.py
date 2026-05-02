@@ -1,10 +1,10 @@
-from .models import ApiFootballPlayerStat, FixturePlayerStatsIngestionResult
+from .models import ExternalPlayerStat, PlayerStatsIngestionResult
 from .repository import PostgresPlayerStatsRepository
-from .service import FixturePlayerStatsIngestionService
+from .service import PlayerStatsIngestionService
 
 __all__ = [
-    "ApiFootballPlayerStat",
-    "FixturePlayerStatsIngestionResult",
-    "FixturePlayerStatsIngestionService",
+    "ExternalPlayerStat",
+    "PlayerStatsIngestionResult",
+    "PlayerStatsIngestionService",
     "PostgresPlayerStatsRepository",
 ]

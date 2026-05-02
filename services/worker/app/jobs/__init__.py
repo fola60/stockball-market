@@ -1,6 +1,6 @@
 from .handlers import (
-    IngestFixturePlayerStatsJobHandler,
     IngestFixturesJobHandler,
+    IngestPlayerStatsJobHandler,
     IngestPlayersJobHandler,
     RetryableJobError,
     TopupJobHandler,
@@ -8,8 +8,8 @@ from .handlers import (
     WorkerJobRunner,
 )
 from .models import (
-    IngestFixturePlayerStatsJobPayload,
     IngestFixturesJobPayload,
+    IngestPlayerStatsJobPayload,
     IngestPlayersJobPayload,
     JobExecutionResult,
     JobType,
@@ -20,10 +20,10 @@ from .runtime import BlockingJobQueue, RetryQueue, WorkerProcess
 
 __all__ = [
     "BlockingJobQueue",
-    "IngestFixturePlayerStatsJobHandler",
-    "IngestFixturePlayerStatsJobPayload",
     "IngestFixturesJobHandler",
     "IngestFixturesJobPayload",
+    "IngestPlayerStatsJobHandler",
+    "IngestPlayerStatsJobPayload",
     "IngestPlayersJobHandler",
     "IngestPlayersJobPayload",
     "JobExecutionResult",

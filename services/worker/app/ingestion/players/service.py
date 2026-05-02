@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import PlayerSeedResult, PremierLeaguePlayer
+from .models import ExternalPlayer, PlayerSeedResult
 
 
 class PlayerProviderClient(Protocol):
@@ -10,11 +10,11 @@ class PlayerProviderClient(Protocol):
         self,
         league: int,
         season: int,
-    ) -> list[PremierLeaguePlayer]: ...
+    ) -> list[ExternalPlayer]: ...
 
 
 class PlayerRepository(Protocol):
-    def upsert_players(self, players: list[PremierLeaguePlayer]) -> int: ...
+    def upsert_players(self, players: list[ExternalPlayer]) -> int: ...
 
 
 class PlayerSeedService:
@@ -32,8 +32,8 @@ class PlayerSeedService:
             clubs_seen=clubs_seen,
         )
 
-    def _deduplicate_players(self, players: list[PremierLeaguePlayer]) -> list[PremierLeaguePlayer]:
-        deduped: dict[tuple[str, str], PremierLeaguePlayer] = {}
+    def _deduplicate_players(self, players: list[ExternalPlayer]) -> list[ExternalPlayer]:
+        deduped: dict[tuple[str, str], ExternalPlayer] = {}
         for player in players:
             deduped[(player.provider, player.provider_player_id)] = player
         return list(deduped.values())

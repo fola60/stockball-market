@@ -36,30 +36,30 @@ It owns external data ingestion, synthetic trader decisions, recurring top-up sc
 
 ## One-Off Commands
 
-Seed current Premier League players from API-Football:
+Seed current Premier League players from FBref:
 
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
-STOCKBALL_API_FOOTBALL_API_KEY=... \
-stockball-worker seed-players --league 39 --season 2025
+STOCKBALL_FBREF_USER_AGENT="StockballMarketWorker/0.1 (contact: ops@example.com)" \
+stockball-worker seed-players --league 9 --season 2025
 ```
 
-This writes `https://v3.football.api-sports.io` into `players.provider` and the API-Football player ID into `players.provider_player_id`. Fixtures and player stats use the same provider IDs, so stat observations can link directly to canonical players after this seed.
+This writes `FBREF` into `players.provider`, stores the FBref player ID in `players.provider_player_id`, and records FBref URLs/raw rows in provider metadata and `player_provider_refs`.
 
-Ingest Premier League fixtures from API-Football:
+Ingest Premier League fixtures from FBref:
 
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
-STOCKBALL_API_FOOTBALL_API_KEY=... \
-stockball-worker ingest-fixtures --league 39 --season 2025
+STOCKBALL_FBREF_USER_AGENT="StockballMarketWorker/0.1 (contact: ops@example.com)" \
+stockball-worker ingest-fixtures --league 9 --season 2025
 ```
 
-Ingest per-player stats for one API-Football fixture:
+Ingest Premier League player stat tables from FBref:
 
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
-STOCKBALL_API_FOOTBALL_API_KEY=... \
-stockball-worker ingest-fixture-player-stats 1208040
+STOCKBALL_FBREF_USER_AGENT="StockballMarketWorker/0.1 (contact: ops@example.com)" \
+stockball-worker ingest-player-stats --league 9 --season 2025 --stat-type standard --stat-type shooting
 ```
 
 Import Transfermarkt-derived market values from downloaded CSV files:

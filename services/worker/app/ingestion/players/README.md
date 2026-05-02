@@ -6,74 +6,48 @@ Ingests Premier League player identity and squad data.
 
 ## Responsibilities
 
-- Fetch Premier League squads.
-- Store player names, clubs, positions, nationality, age, and provider IDs.
-- Maintain canonical player records.
+- Fetch Premier League squad/player identity from the configured provider.
+- Store player names, clubs, positions, provider IDs, provider URLs, and raw provider rows.
+- Maintain canonical `players.id` as the internal Stockball player ID.
 - Support player-to-`PLAYER_SHARE` instrument creation during market seeding.
 
-## V1 Source
+## Current Source
 
-Use API-Football as the V1 canonical player provider.
+FBref is the current provider for Premier League player identity and squad data.
 
-Why:
+Default settings:
 
-- It exposes Premier League players through league id `39` and season year.
-- It is the same provider used for fixtures and per-fixture player stats.
-- Using one provider for players, fixtures, and stats avoids cross-provider player ID matching in V1.
-- It is structured JSON, which is safer than scraping HTML for the core player universe.
+- Provider: `FBREF`
+- FBref competition id: `9`
+- Season: the season start year, for example `2025` for the 2025/26 season.
 
-Fallback candidates:
-
-- football-data.org: good for team and squad identity, but its player IDs differ from API-Football and squad endpoint access may require a paid tier.
-- Sportmonks: broader commercial football API with teams, squads, player profiles, fixtures, and stats.
-- Fantasy Premier League public data: useful as a development/bootstrap source for current Premier League player names and teams, but it should not become the canonical identity source unless we accept its unofficial/public endpoint risk and fantasy-specific fields.
-
-## Sync Model
-
-The player job should be rerunnable and season-aware.
-
-1. Fetch current Premier League teams.
-2. Fetch each team's squad.
-3. Upsert provider references by `(provider, provider_player_id)`.
-4. Upsert canonical player fields from the primary provider.
-5. Mark `current_club`, `position`, `nationality`, `date_of_birth`, and Premier League membership as of the sync timestamp.
-6. Mark previously seen Premier League players who are no longer returned as out-of-universe, not deleted.
-
-Transfers and promotions/relegation should be represented as changed observations, not new Stockball players, when the provider ID or reconciliation rules identify the same person.
-
-## Seed Command
-
-The current implementation seeds the `players` table from API-Football. It uses the API-Football base URL as the `players.provider` value, for example `https://v3.football.api-sports.io`, and stores the API-Football player ID in `players.provider_player_id`.
-
-Required environment:
+Environment:
 
 - `STOCKBALL_WORKER_DATABASE_URL` or `DATABASE_URL`
-- `STOCKBALL_API_FOOTBALL_API_KEY`
-- optional `STOCKBALL_API_FOOTBALL_API_BASE_URL`, default `https://v3.football.api-sports.io`
-- optional `STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS`, default `1.0`
+- optional `STOCKBALL_FBREF_BASE_URL`, default `https://fbref.com`
+- optional `STOCKBALL_FBREF_USER_AGENT`, should identify Stockball and a contact
+- optional `STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS`, default `6.5`
+- optional `STOCKBALL_FBREF_CACHE_TTL_SECONDS`, default `86400`
 
 Command:
 
 ```bash
-stockball-worker seed-players --league 39 --season 2025
+stockball-worker seed-players --league 9 --season 2025
 ```
 
-The command fetches `/players?league=39&season=2025`, follows API-Football pagination, and upserts each returned player into `players`. Nationality, date of birth, team ID, team name, age, height, weight, injury flag, photo URL, and the raw API-Football payload are stored in `players.metadata`.
+The command reads FBref's Premier League player standard stats table, extracts player IDs from `/en/players/{id}/...` links, extracts team IDs from `/en/squads/{id}/...` links, and upserts canonical player rows by `(provider, provider_player_id)`.
 
-## Canonical Fields
+## Sync Model
 
-Canonical player rows should eventually contain source-independent fields:
+The player job is rerunnable and season-aware.
 
-- display name
-- normalized search name
-- date of birth
-- nationality
-- current club
-- current league or `is_current_premier_league`
-- primary position
-- active/inactive status
+1. Fetch the FBref standard stats page for the configured competition and season.
+2. Parse player rows from comment-wrapped or normal HTML tables.
+3. Upsert `players` using provider `FBREF`.
+4. Upsert `player_provider_refs` with FBref player URL and raw identity metadata.
+5. Preserve the raw parsed row in `players.metadata.fbref_raw_row`.
 
-Provider-specific fields and raw payloads should live in provider reference or observation tables. The current `players.provider` and `players.provider_player_id` columns are acceptable for V1 because players, fixtures, and player stats all use API-Football IDs. A future market-value provider will still require cross-provider references.
+Players leaving the Premier League are not deleted. Instrument lifecycle decisions stay outside ingestion.
 
 ## Boundaries
 

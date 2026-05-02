@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
-class ApiFootballPlayerStat:
+class ExternalPlayerStat:
     provider: str
     provider_fixture_id: str
     provider_player_id: str
@@ -16,10 +16,14 @@ class ApiFootballPlayerStat:
     rating: Decimal | None
     stats: Mapping[str, Any]
     raw_payload: Mapping[str, Any]
+    stat_type: str | None = None
+    season: int | None = None
+    competition: str | None = None
+    source_url: str | None = None
 
 
 @dataclass(frozen=True)
-class FixturePlayerStatsIngestionResult:
+class PlayerStatsIngestionResult:
     fetched_observations: int
     upserted_observations: int
     matched_players: int

@@ -5,14 +5,14 @@ from uuid import UUID
 import psycopg2
 from psycopg2.extras import Json
 
-from .models import ApiFootballPlayerStat
+from .models import ExternalPlayerStat
 
 
 class PostgresPlayerStatsRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 
-    def upsert_player_stats(self, observations: list[ApiFootballPlayerStat]) -> tuple[int, int]:
+    def upsert_player_stats(self, observations: list[ExternalPlayerStat]) -> tuple[int, int]:
         if not observations:
             return 0, 0
 
@@ -46,9 +46,13 @@ class PostgresPlayerStatsRepository:
                             rating,
                             stats,
                             raw_payload,
+                            stat_type,
+                            season,
+                            competition,
+                            source_url,
                             updated_at
                         ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                         )
                         ON CONFLICT (provider, provider_fixture_id, provider_player_id)
                         DO UPDATE
@@ -61,6 +65,10 @@ class PostgresPlayerStatsRepository:
                             rating = EXCLUDED.rating,
                             stats = EXCLUDED.stats,
                             raw_payload = EXCLUDED.raw_payload,
+                            stat_type = EXCLUDED.stat_type,
+                            season = EXCLUDED.season,
+                            competition = EXCLUDED.competition,
+                            source_url = EXCLUDED.source_url,
                             observed_at = now(),
                             updated_at = now()
                         """,
@@ -76,6 +84,10 @@ class PostgresPlayerStatsRepository:
                             observation.rating,
                             Json(dict(observation.stats)),
                             Json(dict(observation.raw_payload)),
+                            observation.stat_type,
+                            observation.season,
+                            observation.competition,
+                            observation.source_url,
                         ),
                     )
             connection.commit()

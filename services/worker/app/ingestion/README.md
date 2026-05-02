@@ -19,29 +19,32 @@ Ingestion answers: "What did the outside world say?"
 - `players`: Premier League player identity and squad data.
 - `market_values`: external player market-value data.
 - `fixtures`: fixture, lineup, and match-status data.
-- Future `stats`: player performance data from external providers.
+- `stats`: player performance data from external providers.
 - Future `betting_markets`: pre-match bookmaker/exchange odds and implied-probability snapshots.
 - Future `social`: social mention and post data from external providers.
 - Future `news`: football news and transfer-rumor data.
-- Future `providers`: shared provider clients, auth, rate limiting, and response normalization.
+- `fbref`: isolated FBref client, parser, raw-page cache, and provider service.
+- `providers`: shared provider exports.
 
 ## V1 Player Universe And Valuation Approach
 
 Use a provider-backed ingestion flow rather than one-off seed SQL for the Premier League player universe. The same job must be safe to rerun because player club and league membership changes over time.
 
-Recommended source split:
+Current source split:
 
-- Player identity, squads, clubs, positions, nationality, and date of birth: use API-Football as the V1 canonical provider. API-Football also supplies fixtures and per-fixture player stats, so using it for players avoids cross-provider ID matching for V1 stats ingestion.
+- Player identity, squads, fixtures, and player stat tables: use FBref as the current provider with `provider = 'FBREF'`.
 - Market value: do not assume the squad provider will supply usable player market values. Most football fixture/stat APIs do not provide Transfermarkt-style market valuations. Use a separate market-value provider or licensed dataset if we need real transfer-market-style valuations.
 - Development fallback: allow a manually curated CSV for market values so local seeding can proceed without scraping or committing to a paid provider. The CSV should include source, source player ID or source URL, value, currency, observed date, and enough identity fields to reconcile to a canonical player.
 
 Avoid building against direct Transfermarkt scraping as the default path. Transfermarkt is the obvious market-value reference, but scraping creates operational and licensing risk. If Transfermarkt-derived values are used, prefer a licensed provider, explicit permission, or an internal/manual import path that records the source and observation date.
 
+FBref is also HTML-scraped and governed by restrictive Sports Reference terms and bot-traffic guidance. Keep the provider isolated under `ingestion/fbref`, cache fetched pages, use conservative request cadence, and be ready to replace it with a licensed provider.
+
 ## Provider Identity Strategy
 
 Do not use one external provider ID as the Stockball player ID. Stockball should maintain a canonical `players.id`, then attach provider references to that player.
 
-The current schema stores `provider` and `provider_player_id` on `players`. Before multi-source ingestion, replace or augment that with a mapping table such as:
+The current schema stores `provider` and `provider_player_id` on `players` and augments that with `player_provider_refs`:
 
 ```sql
 player_provider_refs (

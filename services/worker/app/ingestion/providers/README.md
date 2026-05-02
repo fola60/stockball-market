@@ -2,70 +2,35 @@
 
 ## Purpose
 
-Future shared home for external provider clients.
+Shared provider exports for external ingestion clients.
 
-## Responsibilities
+## Current Provider
 
-- Store provider-specific HTTP clients.
-- Handle API keys and authentication.
-- Handle rate limits and retries.
-- Normalize provider errors.
-- Preserve provider IDs for reconciliation.
+FBref is the first-class provider for Premier League fixtures, players, and player stat tables.
 
-## Provider Candidates
-
-### Player, Squad, Fixture Identity
-
-Primary V1 provider:
-
-- API-Football: structured football API with Premier League players, fixtures, per-fixture player stats, and ratings.
-
-Alternatives to evaluate before implementation if cost or coverage is an issue:
-
-- football-data.org
-- Sportmonks
-- Fantasy Premier League public data for local/dev bootstrap only
-
-Selection criteria:
-
-- current Premier League squad completeness
-- stable player/person IDs across seasons and clubs
-- date of birth, nationality, position, team, and competition coverage
-- fixture and lineup coverage for later freeze jobs
-- clear terms of use for the intended product
-- affordable rate limits for scheduled syncs
-
-### Market Values
-
-Treat market values as a distinct provider category.
-
-Provider selection criteria:
-
-- player-level valuation, not only squad/team aggregate value
-- stable source player ID or URL
-- currency and observed/update date
-- clear licensing for product use
-- enough identity fields to reconcile to canonical Stockball players
-
-The provider layer should support a `manual_csv` provider so development and early seeding are not blocked while commercial valuation options are evaluated.
-
-### Fixture And Player Stats
-
-Use API-Football for V1 fixture and per-fixture player-stat ingestion.
+Implementation lives in `services/worker/app/ingestion/fbref` so FBref-specific URL shapes, selectors, table IDs, comment handling, and parsing assumptions do not leak into generic ingestion services.
 
 Provider details:
 
-- Base URL: `https://v3.football.api-sports.io`
-- Auth header: `x-apisports-key`
-- Players endpoint: `/players`
-- Fixture endpoint: `/fixtures`
-- Fixture player stats endpoint: `/fixtures/players`
-- Premier League id: `39`
+- Provider name: `FBREF`
+- Base URL: `https://fbref.com`
+- Premier League competition id: `9`
+- Default request interval: `6.5` seconds
+- Raw page cache table: `provider_raw_documents`
 
-API-Football is the V1 canonical provider for players, fixtures, and player stats. That means `players.provider = https://v3.football.api-sports.io` and `players.provider_player_id` can be used to link `/fixtures/players` stat rows directly to canonical Stockball players.
+Supported table families:
+
+- Scores and fixtures
+- Player standard stats, used for identity and squad membership
+- Player shooting, passing, defensive, and keeper stat tables when available
 
 ## Boundaries
 
 - Provider clients should fetch data only.
 - Provider clients should not contain Stockball trading rules.
 - Provider clients should be used by concrete ingestion modules such as players, fixtures, stats, social, and news.
+- Provider code must not bypass access controls or CAPTCHA/anti-bot systems.
+
+## Replacement
+
+Treat FBref as replaceable. If a licensed provider is adopted, keep the domain services and repositories on provider-neutral models and add a new provider package that emits the same ingestion records.

@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
-class ApiFootballFixture:
+class ExternalFixture:
     provider: str
     provider_fixture_id: str
     league_provider_id: str
@@ -20,6 +20,9 @@ class ApiFootballFixture:
     status_long: str | None
     elapsed: int | None
     raw_payload: Mapping[str, Any]
+    competition: str | None = None
+    source_url: str | None = None
+    provider_match_id: str | None = None
 
 
 @dataclass(frozen=True)
