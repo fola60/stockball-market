@@ -20,3 +20,5 @@ Redis stores jobs. This module executes them.
 - Job handlers should orchestrate work, not hide domain logic.
 - Retry-sensitive jobs must use idempotency keys when calling the trading engine.
 - Important results must be written to PostgreSQL, not only Redis.
+- The synthetic trader tick handler delegates strategy and risk decisions to `app.synthetic_traders.service`.
+- Synthetic trader jobs must never write orders, trades, positions, ledger entries, or prices directly; they only call the trading-engine client.

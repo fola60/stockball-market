@@ -1,4 +1,4 @@
-from .client import FbrefClient, FbrefError
+from .client import FbrefAccessDeniedError, FbrefClient, FbrefError
 from .models import (
     DEFAULT_FBREF_BASE_URL,
     DEFAULT_FBREF_CACHE_TTL_SECONDS,
@@ -23,6 +23,7 @@ __all__ = [
     "DEFAULT_FBREF_STAT_TYPES",
     "DEFAULT_FBREF_USER_AGENT",
     "FBREF_PROVIDER",
+    "FbrefAccessDeniedError",
     "FbrefClient",
     "FbrefError",
     "FbrefIngestionService",

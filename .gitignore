@@ -28,3 +28,6 @@ coverage/
 
 # Local downloaded market-value datasets
 services/worker/app/ingestion/market_values/archive*/
+
+# Local ingestion workspace/data
+services/worker/app/ingestion/

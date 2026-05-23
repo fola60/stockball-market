@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.clients import HttpTradingEngineClient
 from app.config import FbrefIngestionSettings, DatabaseSettings, Settings
-from app.ingestion.fbref import FbrefClient, PostgresFbrefRawPageRepository
+from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
 from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
@@ -17,12 +17,17 @@ from app.jobs import (
     IngestPlayerStatsJobHandler,
     IngestPlayersJobHandler,
     JobType,
+    SyntheticTraderTickJobHandler,
     TopupJobHandler,
     WorkerJobRunner,
     WorkerProcess,
 )
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import SchedulerProcess, SchedulerService
+from app.synthetic_traders import (
+    PostgresSyntheticTraderRepository,
+    SyntheticTraderService,
+)
 from app.topups import PostgresTopupRepository, TopupService
 
 
@@ -33,7 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "seed-players":
         settings = FbrefIngestionSettings.from_env()
         _configure_logging(args.log_level)
-        result = _build_player_seed_service(settings).seed_players(args.league, args.season)
+        try:
+            result = _build_player_seed_service(settings).seed_players(args.league, args.season)
+        except FbrefAccessDeniedError as error:
+            _print_provider_access_error(error)
+            return 1
         logging.getLogger(__name__).info(
             "seeded players from FBref",
             extra={
@@ -53,12 +62,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ingest-fixtures":
         settings = FbrefIngestionSettings.from_env()
         _configure_logging(args.log_level)
-        result = _build_fixture_ingestion_service(settings).ingest_fixtures(
-            league=args.league,
-            season=args.season,
-            from_date=_optional_date_arg(args.from_date),
-            to_date=_optional_date_arg(args.to_date),
-        )
+        try:
+            result = _build_fixture_ingestion_service(settings).ingest_fixtures(
+                league=args.league,
+                season=args.season,
+                from_date=_optional_date_arg(args.from_date),
+                to_date=_optional_date_arg(args.to_date),
+            )
+        except FbrefAccessDeniedError as error:
+            _print_provider_access_error(error)
+            return 1
         print(
             f"upserted {result.upserted_fixtures} fixtures "
             f"for league {args.league} season {args.season}"
@@ -68,13 +81,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ingest-player-stats":
         settings = FbrefIngestionSettings.from_env()
         _configure_logging(args.log_level)
-        result = _build_player_stats_ingestion_service(
-            settings
-        ).ingest_player_stats(
-            league=args.league,
-            season=args.season,
-            stat_types=tuple(args.stat_type) if args.stat_type else None,
-        )
+        try:
+            result = _build_player_stats_ingestion_service(
+                settings
+            ).ingest_player_stats(
+                league=args.league,
+                season=args.season,
+                stat_types=tuple(args.stat_type) if args.stat_type else None,
+            )
+        except FbrefAccessDeniedError as error:
+            _print_provider_access_error(error)
+            return 1
         print(
             f"upserted {result.upserted_observations} player-stat observations "
             f"for league {args.league} season {args.season}; "
@@ -243,6 +260,13 @@ def _configure_logging(log_level: str) -> None:
     )
 
 
+def _print_provider_access_error(error: FbrefAccessDeniedError) -> None:
+    logging.getLogger(__name__).error("FBref ingestion access denied", extra={"error": str(error)})
+    print(
+        "FBref denied this ingestion request. "
+    )
+
+
 def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
     queue = RedisJobQueue(settings.redis_url, settings.queue_name)
     claim_store = RedisScheduleClaimStore(
@@ -270,8 +294,12 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
         policy_store=topup_repository,
         audit_store=topup_repository,
     )
+    synthetic_trader_service = _build_synthetic_trader_service(settings)
     handlers = {
         JobType.APPLY_TOPUPS: TopupJobHandler(topup_service=topup_service),
+        JobType.SYNTHETIC_TRADER_TICK: SyntheticTraderTickJobHandler(
+            synthetic_trader_service=synthetic_trader_service
+        ),
     }
     fbref_settings = FbrefIngestionSettings(
         database_url=settings.database_url,
@@ -330,13 +358,27 @@ def _build_market_value_import_service(settings: DatabaseSettings) -> MarketValu
     )
 
 
+def _build_synthetic_trader_service(settings: Settings) -> SyntheticTraderService:
+    return SyntheticTraderService(
+        repository=PostgresSyntheticTraderRepository(settings.database_url),
+        trading_engine_client=HttpTradingEngineClient(
+            settings.trading_engine_url,
+            timeout_seconds=settings.trading_engine_timeout_seconds,
+        ),
+    )
+
+
 def _build_fbref_client(settings: FbrefIngestionSettings) -> FbrefClient:
+    print(
+        "[DEBUG] Building FbrefClient "
+        f"base_url={settings.base_url} "
+        f"request_interval_seconds={settings.request_interval_seconds} "
+        "cache_ttl_seconds=0"
+    )
     return FbrefClient(
         base_url=settings.base_url,
         request_interval_seconds=settings.request_interval_seconds,
-        user_agent=settings.user_agent,
-        cache_ttl_seconds=settings.cache_ttl_seconds,
-        page_cache=PostgresFbrefRawPageRepository(settings.database_url),
+        cache_ttl_seconds=0,
     )
 
 

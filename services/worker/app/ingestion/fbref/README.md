@@ -28,3 +28,5 @@ Sports Reference publishes restrictive automated access and data-use guidance:
 - https://www.sports-reference.com/data_use.html
 
 Keep request cadence conservative, cache pages, avoid live test traffic, and replace this provider with a licensed source if product usage requires it.
+
+If FBref returns `401` or `403`, the worker stops with a provider-access error. Do not change the client to spoof browsers, solve challenges, or otherwise bypass access controls.

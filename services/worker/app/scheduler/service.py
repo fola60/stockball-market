@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Protocol
 
 from app.jobs.models import WorkerJob
-from app.scheduler.models import RecurringTopupPlan, ScheduledJobDecision, default_topup_plans
+from app.scheduler.models import SchedulePlan, ScheduledJobDecision, default_scheduler_plans
 
 
 class JobQueue(Protocol):
@@ -40,7 +40,7 @@ class InMemoryScheduleClaimStore:
 class SchedulerService:
     queue: JobQueue
     claim_store: ScheduleClaimStore
-    plans: tuple[RecurringTopupPlan, ...] = default_topup_plans()
+    plans: tuple[SchedulePlan, ...] = default_scheduler_plans()
 
     def schedule_due_jobs(self, effective_at: datetime) -> tuple[ScheduledJobDecision, ...]:
         decisions: list[ScheduledJobDecision] = []
@@ -48,8 +48,8 @@ class SchedulerService:
             if not plan.enabled:
                 continue
 
-            window = plan.window_for(effective_at)
-            if not self.claim_store.claim(plan.name, window.key):
+            window_key = plan.window_key_for(effective_at)
+            if not self.claim_store.claim(plan.name, window_key):
                 continue
 
             job = plan.build_job(effective_at)
@@ -57,8 +57,8 @@ class SchedulerService:
             decisions.append(
                 ScheduledJobDecision(
                     schedule_name=plan.name,
-                    cadence=plan.cadence,
-                    window_key=window.key,
+                    job_type=job.job_type,
+                    window_key=window_key,
                     job=job,
                 )
             )

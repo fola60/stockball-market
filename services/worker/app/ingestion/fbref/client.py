@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import time
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-import httpx
-
+from curl_cffi import requests
+from seleniumbase import SB
 from app.ingestion.fixtures.models import ExternalFixture
 from app.ingestion.players.models import ExternalPlayer
 from app.ingestion.stats.models import ExternalPlayerStat
@@ -19,13 +20,11 @@ from .models import (
     DEFAULT_FBREF_RATE_LIMIT_RETRY_SECONDS,
     DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS,
     DEFAULT_FBREF_STAT_TYPES,
-    DEFAULT_FBREF_USER_AGENT,
     FBREF_PROVIDER,
     FbrefPageCache,
     FbrefRawPage,
 )
 from .parser import parse_fixtures, parse_player_stats, parse_players
-
 
 _STAT_PATHS: Mapping[str, str] = {
     "standard": "stats",
@@ -35,23 +34,24 @@ _STAT_PATHS: Mapping[str, str] = {
     "keeper": "keepers",
 }
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+_DEBUG_DUMP_DIR = Path("/tmp/fbref-debug")
 
 
 class FbrefError(Exception):
     pass
 
+class FbrefAccessDeniedError(FbrefError):
+    pass
 
 class FbrefClient:
     def __init__(
         self,
         base_url: str = DEFAULT_FBREF_BASE_URL,
-        timeout_seconds: float = 15.0,
+        timeout_seconds: float = 30.0, # Increased for browser emulation overhead
         request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS,
         rate_limit_retry_seconds: float = DEFAULT_FBREF_RATE_LIMIT_RETRY_SECONDS,
-        user_agent: str = DEFAULT_FBREF_USER_AGENT,
         cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS,
         page_cache: FbrefPageCache | None = None,
-        transport: httpx.BaseTransport | None = None,
         sleeper: Any = time.sleep,
         clock: Any = time.monotonic,
         wall_clock: Any = lambda: datetime.now(UTC),
@@ -65,16 +65,165 @@ class FbrefClient:
         self._clock = clock
         self._wall_clock = wall_clock
         self._last_request_at: float | None = None
-        self._client = httpx.Client(
+        self._timeout_seconds = timeout_seconds
+        self._session = requests.Session(
             base_url=self._base_url,
-            headers={
-                "User-Agent": user_agent,
-                "Accept": "text/html,application/xhtml+xml",
-            },
+            impersonate="chrome124",
             timeout=timeout_seconds,
-            transport=transport,
-            follow_redirects=True,
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            },
         )
+        self._cookies_seeded = False
+
+    def _request(self, source_url: str) -> requests.Response:
+        print(f"[DEBUG] _request start: {source_url}")
+        self._seed_cookies()
+
+        for attempt in range(3):
+            print(f"[DEBUG] Attempt {attempt + 1} for {source_url}")
+            self._throttle()
+
+            response = self._session.get(source_url)
+            print(f"[DEBUG] Response status: {response.status_code}")
+            if self._is_access_denied_response(response):
+                debug_path = _save_debug_html(
+                    f"debug_fbref_denied_attempt_{attempt + 1}.html",
+                    response.text,
+                )
+                print(f"[DEBUG] Saved denied response page to {debug_path}")
+            if self._is_successful_response(response):
+                print("[DEBUG] Successful response")
+                return response
+
+            if self._is_access_denied_response(response):
+                print("[DEBUG] Access denied detected")
+                return self._request_with_browser(source_url)
+
+            if response.status_code not in _TRANSIENT_STATUS_CODES:
+                response.raise_for_status()
+                return response
+
+            print("[DEBUG] Transient error, retrying...")
+            self._sleeper(self._get_retry_after(response, attempt))
+            self._last_request_at = None
+
+        raise FbrefError(f"FBref request failed after retries for {source_url}")
+
+    def _seed_cookies(self) -> None:
+        print("[DEBUG] Seeding cookies...")
+        if self._cookies_seeded:
+            return
+
+        self._throttle()
+        try:
+            response = self._session.get("/")
+        except Exception as exc:
+            print(f"[DEBUG] Cookie seed failed, continuing without seeded cookies: {exc}")
+            self._cookies_seeded = True
+            return
+
+        if response.status_code in {401, 403} or _looks_access_denied(response.text):
+            print("[DEBUG] Cookie seed denied, continuing without browser fallback")
+        else:
+            print("[DEBUG] Cookie seed successful")
+        self._cookies_seeded = True
+
+
+
+    def _request_with_browser(self, source_url: str) -> requests.Response:
+        print(f"[DEBUG] Browser fallback for {source_url}")
+        try:
+            with SB(uc=True, headless=True, page_load_strategy="eager") as browser:
+                browser.open(source_url)
+                browser.sleep(2)
+                print("[DEBUG] Browser loaded page")
+                body = browser.get_page_source()
+                for cookie in browser.get_cookies():
+                    name = cookie.get("name")
+                    value = cookie.get("value")
+                    if name and value is not None:
+                        self._session.cookies.set(name, value, domain=".fbref.com")
+        except Exception as exc:
+            raise FbrefError(
+                f"FBref browser fallback failed for {source_url}"
+            ) from exc
+
+        if _looks_access_denied(body):
+            debug_path = _save_debug_html("debug_fbref_denied.html", body)
+            print(f"[DEBUG] Saved denied browser page to {debug_path}")
+            raise FbrefAccessDeniedError(
+                "FBref denied access. Possible bot detection or IP ban. "
+                f"url={source_url}"
+            )
+
+        if not _looks_like_fbref_page(body):
+            debug_path = _save_debug_html("debug_fbref_unexpected.html", body)
+            print(f"[DEBUG] Saved unexpected browser page to {debug_path}")
+            raise FbrefAccessDeniedError(
+                "FBref browser fallback did not return a valid FBref page. "
+                "The page may still be behind bot protection, consent, or JavaScript. "
+                f"url={source_url}; body_length={len(body)}"
+            )
+
+        print("[DEBUG] Browser page looks like a valid FBref page")
+        debug_path = _save_debug_html("debug_fbref_success.html", body)
+        print(f"[DEBUG] Saved successful browser page to {debug_path}")
+        response = requests.Response()
+        response.status_code = 200
+        response.url = source_url
+        response.headers = {"content-type": "text/html; charset=utf-8"}
+        response.content = body.encode("utf-8")
+        return response
+
+        
+
+    def _is_successful_response(self, response: requests.Response) -> bool:
+        print(f"[DEBUG] Checking success for status {response.status_code}")
+        return (
+            response.status_code not in _TRANSIENT_STATUS_CODES
+            and response.status_code not in {401, 403}
+            and not _looks_access_denied(response.text)
+        )
+
+    def _is_access_denied_response(self, response: requests.Response) -> bool:
+        return response.status_code in {401, 403} or _looks_access_denied(response.text)
+
+    def _get_retry_after(self, response: requests.Response, attempt: int) -> float:
+        header = response.headers.get("Retry-After")
+        if header and header.isdigit():
+            return float(header)
+        return self._rate_limit_retry_seconds * (attempt + 1)
+
+
+    def _throttle(self) -> None:
+        print("[DEBUG] Throttling request...")
+        if self._request_interval_seconds <= 0:
+            self._last_request_at = self._clock()
+            return
+
+        now = self._clock()
+        if self._last_request_at is not None:
+            elapsed = now - self._last_request_at
+            # FBref requires ~6.0s for the 10-per-minute rule
+            sleep_for = self._request_interval_seconds - elapsed
+            if sleep_for > 0:
+                self._sleeper(sleep_for)
+                now = self._clock()
+        self._last_request_at = now
 
     @property
     def provider(self) -> str:
@@ -87,6 +236,7 @@ class FbrefClient:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[ExternalFixture]:
+        print(f"[DEBUG] list_fixtures: league={league}, season={season}")
         source_url = self._fixture_url(league, season)
         page = self._get_page(source_url)
         fixtures = parse_fixtures(
@@ -96,17 +246,22 @@ class FbrefClient:
             competition_id=league,
             competition=DEFAULT_FBREF_COMPETITION,
         )
-        return [
+        print(f"[DEBUG] Parsed fixtures before date filtering: {len(fixtures)}")
+        print(f"[DEBUG] Date filters: from_date={from_date}, to_date={to_date}")
+        filtered_fixtures = [
             fixture
             for fixture in fixtures
             if _within_date_range(fixture.kickoff_at.date(), from_date, to_date)
         ]
+        print(f"[DEBUG] Fixtures after date filtering: {len(filtered_fixtures)}")
+        return filtered_fixtures
 
     def list_league_players(
         self,
         league: int = DEFAULT_FBREF_COMPETITION_ID,
         season: int = 2025,
     ) -> list[ExternalPlayer]:
+        print(f"[DEBUG] list_league_players: league={league}, season={season}")
         source_url = self._stat_url(league, season, "standard")
         page = self._get_page(source_url)
         return parse_players(
@@ -122,8 +277,10 @@ class FbrefClient:
         season: int = 2025,
         stat_types: Sequence[str] | None = None,
     ) -> list[ExternalPlayerStat]:
+        print(f"[DEBUG] list_player_stats: league={league}, season={season}")
         observations: list[ExternalPlayerStat] = []
         for stat_type in stat_types or DEFAULT_FBREF_STAT_TYPES:
+            print(f"[DEBUG] Fetching stat_type={stat_type}")
             source_url = self._stat_url(league, season, stat_type)
             page = self._get_page(source_url)
             observations.extend(
@@ -139,10 +296,13 @@ class FbrefClient:
         return observations
 
     def _get_page(self, source_url: str) -> FbrefRawPage:
+        print(f"[DEBUG] _get_page called for {source_url}")
         cached = self._get_fresh_cached_page(source_url)
         if cached is not None:
+            print("[DEBUG] Cache hit")
             return cached
 
+        print(f"[DEBUG] Cache miss, fetching: {source_url}")
         response = self._request(source_url)
         body = response.text
         page = FbrefRawPage(
@@ -169,41 +329,7 @@ class FbrefClient:
             return None
         return page
 
-    def _request(self, source_url: str) -> httpx.Response:
-        last_error: httpx.HTTPStatusError | None = None
-        for attempt in range(3):
-            self._throttle()
-            response = self._client.get(source_url)
-            if response.status_code not in _TRANSIENT_STATUS_CODES:
-                response.raise_for_status()
-                return response
-            retry_after = _retry_after_seconds(
-                response.headers.get("Retry-After"),
-                self._rate_limit_retry_seconds * (attempt + 1),
-            )
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as error:
-                last_error = error
-            self._sleeper(retry_after)
-            self._last_request_at = None
-        if last_error is not None:
-            raise last_error
-        raise FbrefError(f"FBref request failed for {source_url}")
-
-    def _throttle(self) -> None:
-        if self._request_interval_seconds <= 0:
-            self._last_request_at = self._clock()
-            return
-
-        now = self._clock()
-        if self._last_request_at is not None:
-            elapsed = now - self._last_request_at
-            sleep_for = self._request_interval_seconds - elapsed
-            if sleep_for > 0:
-                self._sleeper(sleep_for)
-                now = self._clock()
-        self._last_request_at = now
+    
 
     def _fixture_url(self, league: int, season: int) -> str:
         season_label = _season_label(season)
@@ -238,11 +364,47 @@ def _within_date_range(
         return False
     return True
 
+def _looks_like_fbref_page(body: str) -> bool:
+    lowered = body.lower()
+    fbref_markers = (
+        "fbref.com",
+        "sports-reference",
+        "data-stat=",
+        "scores & fixtures",
+        "scores and fixtures",
+        "premier league scores and fixtures",
+        "standard stats",
+        "shooting stats",
+        "passing stats",
+        "defense stats",
+        "goalkeeping stats",
+    )
+    matched_markers = [marker for marker in fbref_markers if marker in lowered]
+    if matched_markers:
+        print(f"[DEBUG] FBref page markers matched: {matched_markers}")
+        return True
+    return False
 
-def _retry_after_seconds(raw_value: str | None, default: float) -> float:
-    if raw_value is None:
-        return default
-    try:
-        return max(float(raw_value), 0.0)
-    except ValueError:
-        return default
+
+def _looks_access_denied(body: str) -> bool:
+    lowered = body.lower()
+    denied_markers = (
+        "checking if the site connection is secure",
+        "verify you are human",
+        "cf-browser-verification",
+        "just a moment...",
+        "attention required!",
+        "error 1020",
+    )
+    matched_markers = [marker for marker in denied_markers if marker in lowered]
+    if matched_markers:
+        print(f"[DEBUG] Access denied markers matched: {matched_markers}")
+        return True
+    return False
+
+
+def _save_debug_html(filename: str, body: str) -> Path:
+    _DEBUG_DUMP_DIR.mkdir(parents=True, exist_ok=True)
+    debug_path = _DEBUG_DUMP_DIR / filename
+    debug_path.write_text(body, encoding="utf-8")
+    return debug_path.resolve()

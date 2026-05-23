@@ -52,12 +52,19 @@ Run one-off ingestion or seeding commands through the worker image, not from a
 Dockerfile build step:
 
 ```bash
-docker compose run --rm worker stockball-worker seed-players --league 39 --season 2025
+docker compose run --rm worker stockball-worker seed-players --league 9 --season 2025
+docker compose run --rm worker stockball-worker ingest-fixtures --league 9 --season 2025
+docker compose run --rm worker stockball-worker ingest-player-stats --league 9 --season 2025
 docker compose run --rm worker stockball-worker import-market-values \
   --players-csv /data/market-values/players.csv \
   --valuations-csv /data/market-values/player_valuations.csv
 docker compose run --rm worker stockball-worker seed-player-shares
 ```
+
+FBref is the current player, fixture, and player-stat ingestion provider. It
+uses FBref competition id `9` for the Premier League and does not require an
+API key. Set `STOCKBALL_FBREF_USER_AGENT` in `.env` to a clear user agent with
+a contact before running live FBref ingestion.
 
 The host directory mounted at `/data/market-values` is controlled by
 `MARKET_VALUES_DIR` in `.env`. The default points at the local downloaded archive under

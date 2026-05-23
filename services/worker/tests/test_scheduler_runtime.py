@@ -19,7 +19,7 @@ class SchedulerProcessTests(unittest.TestCase):
 
         count = process.run_once()
 
-        self.assertEqual(count, 2)
+        self.assertEqual(count, 3)
 
 
 if __name__ == "__main__":

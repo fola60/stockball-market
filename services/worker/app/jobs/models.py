@@ -38,6 +38,18 @@ class TopupJobPayload:
 
 
 @dataclass(frozen=True)
+class SyntheticTraderTickJobPayload:
+    effective_at: datetime
+
+    def to_payload(self) -> dict[str, str]:
+        return {"effective_at": _normalize_timestamp(self.effective_at).isoformat()}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SyntheticTraderTickJobPayload":
+        return cls(effective_at=datetime.fromisoformat(str(payload["effective_at"])))
+
+
+@dataclass(frozen=True)
 class IngestPlayersJobPayload:
     league: int = 9
     season: int = 2025
@@ -138,6 +150,10 @@ class WorkerJob:
     @classmethod
     def topup(cls, payload: TopupJobPayload) -> "WorkerJob":
         return cls(job_type=JobType.APPLY_TOPUPS, payload=payload.to_payload())
+
+    @classmethod
+    def synthetic_trader_tick(cls, payload: SyntheticTraderTickJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.SYNTHETIC_TRADER_TICK, payload=payload.to_payload())
 
     @classmethod
     def ingest_players(cls, payload: IngestPlayersJobPayload) -> "WorkerJob":

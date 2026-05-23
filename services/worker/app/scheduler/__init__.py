@@ -1,4 +1,10 @@
-from .models import RecurringTopupPlan, ScheduledJobDecision, default_topup_plans
+from .models import (
+    RecurringTopupPlan,
+    SchedulePlan,
+    ScheduledJobDecision,
+    SyntheticTraderTickPlan,
+    default_scheduler_plans,
+)
 from .runtime import SchedulerProcess
 from .service import (
     InMemoryJobQueue,
@@ -13,9 +19,11 @@ __all__ = [
     "InMemoryScheduleClaimStore",
     "JobQueue",
     "RecurringTopupPlan",
+    "SchedulePlan",
     "ScheduleClaimStore",
     "ScheduledJobDecision",
     "SchedulerProcess",
     "SchedulerService",
-    "default_topup_plans",
+    "SyntheticTraderTickPlan",
+    "default_scheduler_plans",
 ]

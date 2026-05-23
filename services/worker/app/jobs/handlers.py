@@ -13,9 +13,11 @@ from app.jobs.models import (
     IngestPlayersJobPayload,
     JobExecutionResult,
     JobType,
+    SyntheticTraderTickJobPayload,
     TopupJobPayload,
     WorkerJob,
 )
+from app.synthetic_traders import SyntheticTraderService
 from app.topups import TopupService
 
 
@@ -62,6 +64,28 @@ class TopupJobHandler:
                 job_result,
             )
         return job_result
+
+
+@dataclass(frozen=True)
+class SyntheticTraderTickJobHandler:
+    synthetic_trader_service: SyntheticTraderService
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.SYNTHETIC_TRADER_TICK:
+            raise UnknownJobError(
+                f"synthetic-trader handler cannot process {job.job_type.value}"
+            )
+
+        payload = SyntheticTraderTickJobPayload.from_payload(job.payload)
+        result = self.synthetic_trader_service.tick_due_bots(payload.effective_at)
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.submitted_count,
+            skipped_items=result.skipped_count,
+            failed_items=result.failed_count,
+        )
 
 
 @dataclass(frozen=True)

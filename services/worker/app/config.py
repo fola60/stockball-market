@@ -30,7 +30,7 @@ DEFAULT_RETRY_QUEUE_NAME = "stockball:worker:jobs:retry"
 DEFAULT_SCHEDULE_CLAIM_PREFIX = "stockball:worker:schedule-claim"
 DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS = 5.0
 DEFAULT_FBREF_BASE_URL = "https://fbref.com"
-DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS = 6.5
+DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS = 7.5
 DEFAULT_FBREF_USER_AGENT = (
     "StockballMarketWorker/0.1 "
     "(contact: engineering@stockball.local; provider=FBREF)"

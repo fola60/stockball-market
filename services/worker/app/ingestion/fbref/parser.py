@@ -71,7 +71,7 @@ def parse_fixtures(
     fixtures: list[ExternalFixture] = []
     for table in _fixture_tables(parse_tables(html)):
         for row in table.rows:
-            if _is_header_row(row, "home_team") or _is_empty_row(row):
+            if _is_header_row(row, "home_team", "home") or _is_empty_row(row):
                 continue
             home_team_name = _value(row, "home_team", "home")
             away_team_name = _value(row, "away_team", "away")
@@ -393,9 +393,11 @@ def _is_empty_row(row: ParsedRow) -> bool:
     return not any(value for value in row.values.values())
 
 
-def _is_header_row(row: ParsedRow, identity_key: str) -> bool:
+def _is_header_row(row: ParsedRow, identity_key: str, *header_values: str) -> bool:
     row_class = str(row.raw.get("attrs", {}).get("class", ""))
-    return "thead" in row_class or _value(row, identity_key).lower() == identity_key
+    header_labels = {identity_key, *header_values}
+    header_value = _value(row, identity_key).lower().replace(" ", "_")
+    return "thead" in row_class or header_value in header_labels
 
 
 def _parse_kickoff(raw_date: str, raw_time: str, timezone_name: str) -> datetime:

@@ -4,6 +4,7 @@ import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Sequence
+from unittest.mock import patch
 
 import httpx
 
@@ -128,6 +129,39 @@ class FbrefParserTests(unittest.TestCase):
 
 
 class FbrefClientTests(unittest.TestCase):
+    def test_browser_fallback_response_exposes_page_source_text(self) -> None:
+        page_source = "<html><body>FBref fallback page</body></html>"
+
+        class FakeBrowser:
+            def __init__(self, **kwargs: object) -> None:
+                self.kwargs = kwargs
+
+            def __enter__(self) -> "FakeBrowser":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def open(self, url: str) -> None:
+                self.url = url
+
+            def sleep(self, seconds: float) -> None:
+                self.seconds = seconds
+
+            def get_page_source(self) -> str:
+                return page_source
+
+            def get_cookies(self) -> list[dict[str, str]]:
+                return [{"name": "fbref", "value": "session"}]
+
+        client = FbrefClient(request_interval_seconds=0)
+
+        with patch("app.ingestion.fbref.client.SB", FakeBrowser):
+            response = client._request_with_browser("https://fbref.com/en/comps/9/test")
+
+        self.assertEqual(response.content, page_source.encode("utf-8"))
+        self.assertEqual(response.text, page_source)
+
     def test_client_fetches_fbref_fixture_player_and_stat_pages(self) -> None:
         paths_seen: list[str] = []
 

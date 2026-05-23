@@ -59,6 +59,7 @@ services:
       context: .
       dockerfile: services/worker/Dockerfile
     command: ["stockball-worker", "worker"]
+    platform: linux/amd64
     profiles: ["worker"]
     environment:
       STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
@@ -68,9 +69,10 @@ services:
       STOCKBALL_WORKER_BLOCK_SECONDS: ${STOCKBALL_WORKER_BLOCK_SECONDS:-5}
       STOCKBALL_WORKER_RETRY_DELAY_SECONDS: ${STOCKBALL_WORKER_RETRY_DELAY_SECONDS:-30}
       STOCKBALL_WORKER_MAX_ATTEMPTS: ${STOCKBALL_WORKER_MAX_ATTEMPTS:-5}
-      STOCKBALL_API_FOOTBALL_API_KEY: ${STOCKBALL_API_FOOTBALL_API_KEY:-}
-      STOCKBALL_API_FOOTBALL_API_BASE_URL: ${STOCKBALL_API_FOOTBALL_API_BASE_URL:-https://v3.football.api-sports.io}
-      STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS:-1.0}
+      STOCKBALL_FBREF_BASE_URL: ${STOCKBALL_FBREF_BASE_URL:-https://fbref.com}
+      STOCKBALL_FBREF_USER_AGENT: ${STOCKBALL_FBREF_USER_AGENT:-StockballMarketWorker/0.1;contact=engineering@stockball.local;provider=FBREF}
+      STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}
+      STOCKBALL_FBREF_CACHE_TTL_SECONDS: ${STOCKBALL_FBREF_CACHE_TTL_SECONDS:-86400}
     volumes:
       - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
     depends_on:
@@ -86,6 +88,7 @@ services:
       context: .
       dockerfile: services/worker/Dockerfile
     command: ["stockball-worker", "scheduler"]
+    platform: linux/amd64
     profiles: ["worker"]
     environment:
       STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
@@ -93,9 +96,10 @@ services:
       STOCKBALL_WORKER_TRADING_ENGINE_URL: ${STOCKBALL_WORKER_TRADING_ENGINE_URL:-http://trading-engine:3000}
       STOCKBALL_WORKER_LOG_LEVEL: ${STOCKBALL_WORKER_LOG_LEVEL:-INFO}
       STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS: ${STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS:-60}
-      STOCKBALL_API_FOOTBALL_API_KEY: ${STOCKBALL_API_FOOTBALL_API_KEY:-}
-      STOCKBALL_API_FOOTBALL_API_BASE_URL: ${STOCKBALL_API_FOOTBALL_API_BASE_URL:-https://v3.football.api-sports.io}
-      STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_API_FOOTBALL_REQUEST_INTERVAL_SECONDS:-1.0}
+      STOCKBALL_FBREF_BASE_URL: ${STOCKBALL_FBREF_BASE_URL:-https://fbref.com}
+      STOCKBALL_FBREF_USER_AGENT: ${STOCKBALL_FBREF_USER_AGENT:-StockballMarketWorker/0.1;contact=engineering@stockball.local;provider=FBREF}
+      STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}
+      STOCKBALL_FBREF_CACHE_TTL_SECONDS: ${STOCKBALL_FBREF_CACHE_TTL_SECONDS:-86400}
     volumes:
       - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
     depends_on:
