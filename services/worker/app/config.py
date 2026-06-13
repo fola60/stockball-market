@@ -10,6 +10,8 @@ REDIS_URL_ENV = "STOCKBALL_WORKER_REDIS_URL"
 REDIS_URL_FALLBACK_ENV = "REDIS_URL"
 TRADING_ENGINE_URL_ENV = "STOCKBALL_WORKER_TRADING_ENGINE_URL"
 TRADING_ENGINE_URL_FALLBACK_ENV = "STOCKBALL_TRADING_ENGINE_URL"
+API_URL_ENV = "STOCKBALL_WORKER_API_URL"
+API_URL_FALLBACK_ENV = "STOCKBALL_API_URL"
 QUEUE_NAME_ENV = "STOCKBALL_WORKER_QUEUE_NAME"
 RETRY_QUEUE_NAME_ENV = "STOCKBALL_WORKER_RETRY_QUEUE_NAME"
 SCHEDULE_CLAIM_PREFIX_ENV = "STOCKBALL_WORKER_SCHEDULE_CLAIM_PREFIX"
@@ -29,6 +31,7 @@ DEFAULT_QUEUE_NAME = "stockball:worker:jobs"
 DEFAULT_RETRY_QUEUE_NAME = "stockball:worker:jobs:retry"
 DEFAULT_SCHEDULE_CLAIM_PREFIX = "stockball:worker:schedule-claim"
 DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS = 5.0
+DEFAULT_API_URL = "http://api:8000"
 DEFAULT_FBREF_BASE_URL = "https://fbref.com"
 DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS = 7.5
 DEFAULT_FBREF_USER_AGENT = (
@@ -49,6 +52,7 @@ class Settings:
     database_url: str
     redis_url: str
     trading_engine_url: str
+    api_url: str = DEFAULT_API_URL
     fbref_base_url: str = DEFAULT_FBREF_BASE_URL
     fbref_request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS
     fbref_user_agent: str = DEFAULT_FBREF_USER_AGENT
@@ -73,6 +77,9 @@ class Settings:
                 TRADING_ENGINE_URL_ENV,
                 TRADING_ENGINE_URL_FALLBACK_ENV,
             ),
+            api_url=os.getenv(API_URL_ENV)
+            or os.getenv(API_URL_FALLBACK_ENV)
+            or DEFAULT_API_URL,
             fbref_base_url=os.getenv(FBREF_BASE_URL_ENV, DEFAULT_FBREF_BASE_URL),
             fbref_request_interval_seconds=_float_env(
                 FBREF_REQUEST_INTERVAL_ENV,

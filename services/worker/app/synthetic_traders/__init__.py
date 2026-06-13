@@ -16,10 +16,15 @@ from .models import (
     BotStatus,
     BotTickContext,
     CandidateInstrumentContext,
+    CreateSyntheticTraderBotCommand,
     DecisionSide,
     OrderIntent,
     PlayerStatsContext,
     SocialSignalContext,
+    SpawnNameStyle,
+    SpawnSyntheticTraderBatchResult,
+    SpawnSyntheticTraderCommand,
+    SpawnedSyntheticTrader,
     StrategyDecision,
     StrategyEngine,
     SyntheticTraderBotConfigRecord,
@@ -30,6 +35,7 @@ from .models import (
 )
 from .repository import PostgresSyntheticTraderRepository, SyntheticTraderRepository
 from .service import SyntheticTraderService
+from .spawner import SyntheticTraderConfigNotFoundError, SyntheticTraderSpawner
 
 __all__ = [
     "BotActivityContext",
@@ -38,6 +44,7 @@ __all__ = [
     "BotStatus",
     "BotTickContext",
     "CandidateInstrumentContext",
+    "CreateSyntheticTraderBotCommand",
     "DecisionSide",
     "MarketMomentumConfig",
     "NoiseConfig",
@@ -47,6 +54,10 @@ __all__ = [
     "PostgresSyntheticTraderRepository",
     "SocialSentimentConfig",
     "SocialSignalContext",
+    "SpawnNameStyle",
+    "SpawnSyntheticTraderBatchResult",
+    "SpawnSyntheticTraderCommand",
+    "SpawnedSyntheticTrader",
     "StatsValueConfig",
     "StrategyConfig",
     "StrategyDecision",
@@ -54,8 +65,10 @@ __all__ = [
     "SyntheticTraderBotConfigRecord",
     "SyntheticTraderBotRecord",
     "SyntheticTraderConfigError",
+    "SyntheticTraderConfigNotFoundError",
     "SyntheticTraderRepository",
     "SyntheticTraderService",
+    "SyntheticTraderSpawner",
     "SyntheticTraderTickBatchResult",
     "SyntheticTraderTickOutcome",
     "TickOutcomeStatus",

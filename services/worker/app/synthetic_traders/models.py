@@ -24,6 +24,11 @@ class BotStatus(StrEnum):
     RETIRED = "RETIRED"
 
 
+class SpawnNameStyle(StrEnum):
+    PERSONA = "PERSONA"
+    NUMBERED = "NUMBERED"
+
+
 class DecisionSide(StrEnum):
     BUY = "BUY"
     SELL = "SELL"
@@ -224,3 +229,48 @@ class SyntheticTraderTickBatchResult:
     @property
     def failed_count(self) -> int:
         return sum(1 for outcome in self.outcomes if outcome.status is TickOutcomeStatus.FAILED)
+
+
+@dataclass(frozen=True)
+class CreateSyntheticTraderBotCommand:
+    account_id: UUID
+    config_id: UUID
+    bot_key: str
+    display_name: str
+    status: BotStatus = BotStatus.ACTIVE
+    config_overrides: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class SpawnSyntheticTraderCommand:
+    count: int
+    handle_prefix: str | None = None
+    display_name_prefix: str | None = None
+    config_key: str | None = None
+    strategy_engine: StrategyEngine | None = None
+    name_style: SpawnNameStyle = SpawnNameStyle.PERSONA
+    random_seed: int | None = None
+    start_index: int = 1
+    status: BotStatus = BotStatus.ACTIVE
+
+
+@dataclass(frozen=True)
+class SpawnedSyntheticTrader:
+    account_id: UUID
+    portfolio_id: UUID
+    bot_id: UUID
+    config_id: UUID
+    handle: str
+    bot_key: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class SpawnSyntheticTraderBatchResult:
+    config_key: str
+    requested_count: int
+    spawned: tuple[SpawnedSyntheticTrader, ...]
+
+    @property
+    def spawned_count(self) -> int:
+        return len(self.spawned)

@@ -1,3 +1,13 @@
+from .api import (
+    AccountRecord,
+    ApiClient,
+    ApiClientError,
+    ApiEndpoints,
+    ApiUnavailableError,
+    CreateSyntheticTraderAccountCommand,
+    HttpApiClient,
+    PortfolioRecord,
+)
 from .trading_engine import (
     ApplyTopupCommand,
     CashLedgerEntryRecord,
@@ -16,14 +26,22 @@ from .trading_engine import (
 )
 
 __all__ = [
+    "AccountRecord",
     "ApplyTopupCommand",
+    "ApiClient",
+    "ApiClientError",
+    "ApiEndpoints",
+    "ApiUnavailableError",
     "CashLedgerEntryRecord",
+    "CreateSyntheticTraderAccountCommand",
     "ExecuteOrderCommand",
     "FreezeInstrumentCommand",
+    "HttpApiClient",
     "HttpTradingEngineClient",
     "LedgerReason",
     "OrderExecutionRecord",
     "OrderSide",
+    "PortfolioRecord",
     "SeedPlayerSharesRecord",
     "TradingEngineClient",
     "TradingEngineClientError",

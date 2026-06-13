@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, ROUND_DOWN
@@ -48,6 +49,10 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _config_overrides_cache_key(overrides: Mapping[str, object]) -> str:
+    return json.dumps(overrides, sort_keys=True, separators=(",", ":"), default=str)
+
+
 @dataclass
 class SyntheticTraderService:
     repository: SyntheticTraderRepository
@@ -67,7 +72,7 @@ class SyntheticTraderService:
         limit: int = 100,
     ) -> SyntheticTraderTickBatchResult:
         outcomes: list[SyntheticTraderTickOutcome] = []
-        config_cache: dict[UUID, tuple[StrategyEngine, StrategyConfig]] = {}
+        config_cache: dict[tuple[UUID, str], tuple[StrategyEngine, StrategyConfig]] = {}
         bots = self.repository.list_due_bots(as_of, limit=limit)
 
         for bot in bots:
@@ -80,7 +85,8 @@ class SyntheticTraderService:
                 max_orders_per_tick=1,
             )
             try:
-                cached = config_cache.get(bot.config_id)
+                cache_key = (bot.config_id, _config_overrides_cache_key(bot.config_overrides))
+                cached = config_cache.get(cache_key)
                 if cached is None:
                     config_record = self.repository.get_bot_config(bot.config_id)
                     if config_record is None:
@@ -94,7 +100,7 @@ class SyntheticTraderService:
                         raw_config,
                     )
                     cached = (config_record.strategy_engine, parsed_config)
-                    config_cache[bot.config_id] = cached
+                    config_cache[cache_key] = cached
                 strategy_engine, strategy_config = cached
                 execution_config = strategy_config.execution
 

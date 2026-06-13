@@ -52,6 +52,8 @@ class FbrefClient:
         rate_limit_retry_seconds: float = DEFAULT_FBREF_RATE_LIMIT_RETRY_SECONDS,
         cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS,
         page_cache: FbrefPageCache | None = None,
+        use_host_chrome_for_browser: bool = True,
+        host_chrome_binary_path: str | None = None,
         sleeper: Any = time.sleep,
         clock: Any = time.monotonic,
         wall_clock: Any = lambda: datetime.now(UTC),
@@ -61,6 +63,8 @@ class FbrefClient:
         self._rate_limit_retry_seconds = rate_limit_retry_seconds
         self._cache_ttl_seconds = cache_ttl_seconds
         self._page_cache = page_cache
+        self._use_host_chrome_for_browser = use_host_chrome_for_browser
+        self._host_chrome_binary_path = host_chrome_binary_path
         self._sleeper = sleeper
         self._clock = clock
         self._wall_clock = wall_clock
@@ -147,7 +151,16 @@ class FbrefClient:
     def _request_with_browser(self, source_url: str) -> requests.Response:
         print(f"[DEBUG] Browser fallback for {source_url}")
         try:
-            with SB(uc=True, headless=True, page_load_strategy="eager") as browser:
+            browser_kwargs: dict[str, Any] = {
+                "uc": True,
+                "headless": False,
+                "page_load_strategy": "eager",
+            }
+            if self._use_host_chrome_for_browser:
+                browser_kwargs["binary_location"] = self._host_chrome_binary_path or _default_host_chrome_binary_path()
+                print(f"[DEBUG] Using host Chrome binary: {browser_kwargs['binary_location']}")
+
+            with SB(**browser_kwargs) as browser:
                 browser.open(source_url)
                 browser.sleep(2)
                 print("[DEBUG] Browser loaded page")
@@ -363,6 +376,23 @@ def _within_date_range(
     if to_date is not None and fixture_date > to_date:
         return False
     return True
+
+
+def _default_host_chrome_binary_path() -> str:
+    candidates = (
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    )
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+    raise FbrefError(
+        "Host Chrome was requested, but no Chrome binary was found. "
+        "Pass host_chrome_binary_path explicitly."
+    )
 
 def _looks_like_fbref_page(body: str) -> bool:
     lowered = body.lower()

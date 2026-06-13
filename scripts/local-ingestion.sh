@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Run Stockball ingestion commands locally without Docker.
+
+Usage:
+  scripts/local-ingestion.sh setup
+  scripts/local-ingestion.sh migrate
+  scripts/local-ingestion.sh seed-players [--season 2025] [stockball-worker args...]
+  scripts/local-ingestion.sh ingest-fixtures [--season 2025] [stockball-worker args...]
+  scripts/local-ingestion.sh ingest-player-stats [--season 2025] [stockball-worker args...]
+  scripts/local-ingestion.sh import-market-values [stockball-worker args...]
+  scripts/local-ingestion.sh seed-player-shares [stockball-worker args...]
+
+Aliases:
+  players        seed-players
+  fixtures       ingest-fixtures
+  stats          ingest-player-stats
+  market-values  import-market-values
+  shares         seed-player-shares
+
+Defaults:
+  setup installs the worker into .venv-worker.
+  migrate applies infra/postgres/migrations/*.sql to STOCKBALL_WORKER_DATABASE_URL.
+  --season defaults to STOCKBALL_INGESTION_SEASON or 2025 for FBref commands.
+  import-market-values defaults to MARKET_VALUES_DIR/players.csv and
+  MARKET_VALUES_DIR/player_valuations.csv.
+
+Optional local overrides:
+  Copy scripts/local-ingestion.env.example to .env.local-ingestion and edit it.
+
+Examples:
+  scripts/local-ingestion.sh setup
+  scripts/local-ingestion.sh migrate
+  scripts/local-ingestion.sh players
+  scripts/local-ingestion.sh fixtures --from-date 2025-08-01 --to-date 2025-08-31
+  scripts/local-ingestion.sh stats --stat-type standard --stat-type shooting
+  scripts/local-ingestion.sh market-values
+  scripts/local-ingestion.sh shares
+USAGE
+}
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+env_file="${LOCAL_INGESTION_ENV_FILE:-.env.local-ingestion}"
+if [[ -f "$env_file" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$env_file"
+  set +a
+fi
+
+export POSTGRES_DB="${POSTGRES_DB:-stockball}"
+export POSTGRES_USER="${POSTGRES_USER:-stockball}"
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-stockball}"
+export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+export REDIS_PORT="${REDIS_PORT:-6379}"
+export TRADING_ENGINE_PORT="${TRADING_ENGINE_PORT:-3000}"
+export MARKET_VALUES_DIR="${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}"
+export LOCAL_WORKER_VENV="${LOCAL_WORKER_VENV:-.venv-worker}"
+
+export STOCKBALL_WORKER_DATABASE_URL="${STOCKBALL_WORKER_DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}?gssencmode=disable}"
+export STOCKBALL_WORKER_REDIS_URL="${STOCKBALL_WORKER_REDIS_URL:-redis://localhost:${REDIS_PORT}/0}"
+export STOCKBALL_WORKER_TRADING_ENGINE_URL="${STOCKBALL_WORKER_TRADING_ENGINE_URL:-http://localhost:${TRADING_ENGINE_PORT}}"
+export STOCKBALL_WORKER_LOG_LEVEL="${STOCKBALL_WORKER_LOG_LEVEL:-INFO}"
+
+export STOCKBALL_FBREF_BASE_URL="${STOCKBALL_FBREF_BASE_URL:-https://fbref.com}"
+export STOCKBALL_FBREF_USER_AGENT="${STOCKBALL_FBREF_USER_AGENT:-StockballMarketWorker/0.1;contact=engineering@stockball.local;provider=FBREF}"
+export STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS="${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}"
+export STOCKBALL_FBREF_CACHE_TTL_SECONDS="${STOCKBALL_FBREF_CACHE_TTL_SECONDS:-86400}"
+
+if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  players) command="seed-players" ;;
+  fixtures) command="ingest-fixtures" ;;
+  stats) command="ingest-player-stats" ;;
+  market-values) command="import-market-values" ;;
+  shares) command="seed-player-shares" ;;
+esac
+
+has_option() {
+  local option="$1"
+  shift
+  if [[ $# -eq 0 ]]; then
+    return 1
+  fi
+
+  for arg in "$@"; do
+    if [[ "$arg" == "$option" || "$arg" == "$option="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+pick_python() {
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    printf '%s\n' "$PYTHON_BIN"
+    return
+  fi
+
+  if command -v python3.12 >/dev/null 2>&1; then
+    command -v python3.12
+    return
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return
+  fi
+
+  echo "python3.12 or python3 is required" >&2
+  exit 1
+}
+
+ensure_python_version() {
+  "$1" - <<'PY'
+import sys
+if sys.version_info < (3, 12):
+    raise SystemExit("Python 3.12+ is required")
+PY
+}
+
+ensure_worker_venv() {
+  local venv_path="$repo_root/$LOCAL_WORKER_VENV"
+  local python_bin
+
+  if [[ ! -x "$venv_path/bin/python" ]]; then
+    python_bin="$(pick_python)"
+    ensure_python_version "$python_bin"
+    "$python_bin" -m venv "$venv_path"
+  fi
+
+  if [[ ! -x "$venv_path/bin/stockball-worker" || "${LOCAL_INGESTION_REINSTALL:-0}" == "1" ]]; then
+    "$venv_path/bin/python" -m pip install --upgrade pip setuptools wheel
+    "$venv_path/bin/python" -m pip install -e "$repo_root/services/worker"
+
+    if [[ "${LOCAL_INGESTION_INSTALL_CHROMEDRIVER:-0}" == "1" ]]; then
+      "$venv_path/bin/seleniumbase" install chromedriver
+    fi
+  fi
+}
+
+check_database() {
+  local venv_path="$repo_root/$LOCAL_WORKER_VENV"
+
+  "$venv_path/bin/python" - <<'PY'
+import os
+import sys
+
+import psycopg2
+
+try:
+    connection = psycopg2.connect(os.environ["STOCKBALL_WORKER_DATABASE_URL"])
+except Exception as exc:
+    print(
+        "Could not connect to STOCKBALL_WORKER_DATABASE_URL. "
+        "Start local Postgres or override the URL in .env.local-ingestion.",
+        file=sys.stderr,
+    )
+    print(str(exc), file=sys.stderr)
+    raise SystemExit(1)
+else:
+    connection.close()
+PY
+}
+
+run_worker_command() {
+  local needs_database="${1:-}"
+
+  ensure_worker_venv
+  if [[ "$needs_database" == "--check-db" ]]; then
+    shift
+    check_database
+  fi
+
+  "$repo_root/$LOCAL_WORKER_VENV/bin/stockball-worker" "$@"
+}
+
+apply_migrations() {
+  local migration
+  local migration_name
+  local existing_schema
+  local applied
+
+  if ! command -v psql >/dev/null 2>&1; then
+    echo "psql is required to apply local migrations" >&2
+    exit 1
+  fi
+
+  existing_schema="$(
+    psql "$STOCKBALL_WORKER_DATABASE_URL" -At \
+      -c "SELECT to_regclass('public.accounts') IS NOT NULL" 2>/dev/null || true
+  )"
+
+  psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+    "CREATE TABLE IF NOT EXISTS stockball_schema_migrations (
+      filename text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );"
+
+  if [[ "$existing_schema" == "t" ]]; then
+    applied="$(
+      psql "$STOCKBALL_WORKER_DATABASE_URL" -At \
+        -c "SELECT count(*) FROM stockball_schema_migrations"
+    )"
+    if [[ "$applied" == "0" ]]; then
+      echo "database already has Stockball tables but no local migration metadata" >&2
+      echo "not applying migrations because they are not idempotent on an existing schema" >&2
+      exit 1
+    fi
+  fi
+
+  for migration in "$repo_root"/infra/postgres/migrations/*.sql; do
+    migration_name="$(basename "$migration")"
+    applied="$(
+      psql "$STOCKBALL_WORKER_DATABASE_URL" -At \
+        -v "migration_name=$migration_name" \
+        -c "SELECT 1 FROM stockball_schema_migrations WHERE filename = :'migration_name'"
+    )"
+    if [[ "$applied" == "1" ]]; then
+      echo "skipping $migration_name"
+      continue
+    fi
+
+    echo "applying $migration_name"
+    psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+    psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 \
+      -v "migration_name=$migration_name" \
+      -c "INSERT INTO stockball_schema_migrations(filename) VALUES (:'migration_name')"
+  done
+}
+
+case "$command" in
+  setup)
+    ensure_worker_venv
+    ;;
+  migrate)
+    apply_migrations
+    ;;
+  seed-players | ingest-fixtures | ingest-player-stats)
+    if has_option "--season" "$@"; then
+      args=("$@")
+    else
+      args=("$@" --season "${STOCKBALL_INGESTION_SEASON:-2025}")
+    fi
+    run_worker_command --check-db "$command" "${args[@]}"
+    ;;
+  import-market-values)
+    args=("$@")
+    if ! has_option "--players-csv" "$@"; then
+      args+=(--players-csv "$MARKET_VALUES_DIR/players.csv")
+    fi
+    if ! has_option "--valuations-csv" "$@"; then
+      args+=(--valuations-csv "$MARKET_VALUES_DIR/player_valuations.csv")
+    fi
+    run_worker_command --check-db "$command" "${args[@]}"
+    ;;
+  seed-player-shares)
+    run_worker_command "$command" "$@"
+    ;;
+  *)
+    echo "unsupported local ingestion command: $command" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -18,6 +19,7 @@ from .models import (
     BotPositionContext,
     BotStatus,
     CandidateInstrumentContext,
+    CreateSyntheticTraderBotCommand,
     MarketTradeSample,
     PlayerStatsContext,
     PricePoint,
@@ -42,6 +44,16 @@ class SyntheticTraderRepository(Protocol):
     ) -> list[SyntheticTraderBotRecord]: ...
 
     def get_bot_config(self, config_id: UUID) -> SyntheticTraderBotConfigRecord | None: ...
+
+    def get_bot_config_by_key(
+        self,
+        config_key: str,
+    ) -> SyntheticTraderBotConfigRecord | None: ...
+
+    def create_bot(
+        self,
+        command: CreateSyntheticTraderBotCommand,
+    ) -> SyntheticTraderBotRecord: ...
 
     def load_portfolio_context(self, bot: SyntheticTraderBotRecord) -> BotPortfolioContext: ...
 
@@ -153,6 +165,91 @@ class PostgresSyntheticTraderRepository:
             return None
         return _build_config_record(row)
 
+    def get_bot_config_by_key(
+        self,
+        config_key: str,
+    ) -> SyntheticTraderBotConfigRecord | None:
+        with self._connection() as connection:
+            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        config_key,
+                        display_name,
+                        strategy_engine,
+                        version,
+                        config,
+                        enabled,
+                        created_at,
+                        updated_at
+                    FROM synthetic_trader_bot_configs
+                    WHERE config_key = %(config_key)s
+                      AND enabled = true
+                    ORDER BY version DESC, created_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    {"config_key": config_key},
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        return _build_config_record(row)
+
+    def create_bot(
+        self,
+        command: CreateSyntheticTraderBotCommand,
+    ) -> SyntheticTraderBotRecord:
+        with self._connection() as connection:
+            with connection:
+                with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO synthetic_trader_bots (
+                            account_id,
+                            config_id,
+                            bot_key,
+                            display_name,
+                            status,
+                            config_overrides
+                        ) VALUES (
+                            %(account_id)s,
+                            %(config_id)s,
+                            %(bot_key)s,
+                            %(display_name)s,
+                            %(status)s,
+                            %(config_overrides)s::jsonb
+                        )
+                        RETURNING
+                            id,
+                            account_id,
+                            config_id,
+                            bot_key,
+                            display_name,
+                            status,
+                            config_overrides,
+                            last_ticked_at,
+                            next_tick_after,
+                            created_at,
+                            updated_at
+                        """,
+                        {
+                            "account_id": str(command.account_id),
+                            "config_id": str(command.config_id),
+                            "bot_key": command.bot_key,
+                            "display_name": command.display_name,
+                            "status": command.status.value,
+                            "config_overrides": _json_object(command.config_overrides),
+                        },
+                    )
+                    row = cursor.fetchone()
+                    return _build_bot_record(
+                        {
+                            **row,
+                            "portfolio_id": self._get_portfolio_id(cursor, command.account_id),
+                        }
+                    )
+
     def load_portfolio_context(self, bot: SyntheticTraderBotRecord) -> BotPortfolioContext:
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -213,6 +310,20 @@ class PostgresSyntheticTraderRepository:
             total_equity=cash_balance + total_position_value,
             positions=positions,
         )
+
+    def _get_portfolio_id(self, cursor, account_id: UUID) -> UUID:
+        cursor.execute(
+            """
+            SELECT id
+            FROM portfolios
+            WHERE account_id = %(account_id)s
+            """,
+            {"account_id": str(account_id)},
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise LookupError(f"portfolio for account {account_id} was not found")
+        return UUID(str(row["id"]))
 
     def load_activity_context(
         self,
@@ -636,6 +747,12 @@ def _mapping_dict(value: object) -> Mapping[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
     return {}
+
+
+def _json_object(value: Mapping[str, Any] | None) -> str:
+    if value is None:
+        return "{}"
+    return json.dumps(dict(value), sort_keys=True, separators=(",", ":"))
 
 
 def _day_start(value: datetime) -> datetime:

@@ -36,6 +36,38 @@ It owns external data ingestion, synthetic trader decisions, recurring top-up sc
 
 ## One-Off Commands
 
+### Local Runner
+
+Use the repo-level helper to run ingestion against local services without Docker:
+
+```bash
+scripts/local-ingestion.sh setup
+scripts/local-ingestion.sh migrate
+scripts/local-ingestion.sh players
+scripts/local-ingestion.sh fixtures --from-date 2025-08-01 --to-date 2025-08-31
+scripts/local-ingestion.sh stats --stat-type standard --stat-type shooting
+scripts/local-ingestion.sh market-values
+scripts/local-ingestion.sh shares
+```
+
+The helper creates `.venv-worker`, installs the worker package into it, and runs the matching `stockball-worker` command locally. FBref commands default to season `2025`; override with `--season` or `STOCKBALL_INGESTION_SEASON`.
+
+`migrate` applies `infra/postgres/migrations/*.sql` to `STOCKBALL_WORKER_DATABASE_URL` for a fresh local Postgres database. The database must already exist. If the database already has Stockball tables without local migration metadata, it exits instead of reapplying non-idempotent migrations.
+
+For local overrides:
+
+```bash
+cp scripts/local-ingestion.env.example .env.local-ingestion
+```
+
+`import-market-values` defaults to `$MARKET_VALUES_DIR/players.csv` and `$MARKET_VALUES_DIR/player_valuations.csv`.
+
+`seed-player-shares` requires the trading engine to be running locally at `STOCKBALL_WORKER_TRADING_ENGINE_URL`.
+
+Set `LOCAL_INGESTION_INSTALL_CHROMEDRIVER=1` in `.env.local-ingestion` if FBref browser fallback needs a local chromedriver install.
+
+### Direct Worker CLI
+
 Seed current Premier League players from FBref:
 
 ```bash
@@ -70,3 +102,18 @@ stockball-worker import-market-values \
   --players-csv /path/to/players.csv \
   --valuations-csv /path/to/player_valuations.csv
 ```
+
+Spawn a batch of synthetic trader accounts and attach them to a worker bot config:
+
+```bash
+STOCKBALL_WORKER_DATABASE_URL=postgres://... \
+STOCKBALL_WORKER_API_URL=http://api:8000 \
+stockball-worker spawn-synthetic-traders \
+  --strategy-engine STATS_VALUE \
+  --count 300 \
+  --random-seed 20260613
+```
+
+Use `--config-key STATS_VALUE_AGGRESSIVE` instead of `--strategy-engine` when you want an exact seeded profile. Public names use fictional persona-style handles and display names by default; use `--name-style NUMBERED` with `--handle-prefix` and `--display-name-prefix` only for internal/test batches.
+
+This command provisions accounts through the API and writes only the worker-owned `synthetic_trader_bots` attachment rows, including per-bot randomized `config_overrides`. Omit `--random-seed` for non-deterministic variation. It does not grant cash or write trades, positions, ledger entries, or prices.

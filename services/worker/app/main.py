@@ -5,7 +5,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from app.clients import HttpTradingEngineClient
+from app.clients import ApiClientError, ApiUnavailableError, HttpApiClient, HttpTradingEngineClient
 from app.config import FbrefIngestionSettings, DatabaseSettings, Settings
 from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
@@ -25,8 +25,14 @@ from app.jobs import (
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import SchedulerProcess, SchedulerService
 from app.synthetic_traders import (
+    BotStatus,
     PostgresSyntheticTraderRepository,
+    SpawnNameStyle,
+    SpawnSyntheticTraderCommand,
+    StrategyEngine,
+    SyntheticTraderConfigNotFoundError,
     SyntheticTraderService,
+    SyntheticTraderSpawner,
 )
 from app.topups import PostgresTopupRepository, TopupService
 
@@ -130,6 +136,46 @@ def main(argv: list[str] | None = None) -> int:
             f"{result.market_value_priced_count} market-value priced, "
             f"{result.fallback_priced_count} fallback priced"
         )
+        return 0
+
+    if args.command == "spawn-synthetic-traders":
+        settings = Settings.from_env()
+        _configure_logging(args.log_level)
+        try:
+            result = _build_synthetic_trader_spawner(settings).spawn(
+                SpawnSyntheticTraderCommand(
+                    count=args.count,
+                    handle_prefix=args.handle_prefix,
+                    display_name_prefix=args.display_name_prefix,
+                    config_key=args.config_key,
+                    strategy_engine=(
+                        None if args.strategy_engine is None else StrategyEngine(args.strategy_engine)
+                    ),
+                    name_style=SpawnNameStyle(args.name_style),
+                    random_seed=args.random_seed,
+                    start_index=args.start_index,
+                    status=BotStatus(args.status),
+                )
+            )
+        except SyntheticTraderConfigNotFoundError as error:
+            print(str(error))
+            return 1
+        except ValueError as error:
+            print(str(error))
+            return 1
+        except (ApiUnavailableError, ApiClientError) as error:
+            print(f"failed to provision synthetic trader account: {error}")
+            return 1
+
+        print(
+            f"spawned {result.spawned_count}/{result.requested_count} synthetic traders "
+            f"using config {result.config_key}"
+        )
+        for trader in result.spawned:
+            print(
+                f"{trader.handle} account={trader.account_id} "
+                f"portfolio={trader.portfolio_id} bot={trader.bot_id}"
+            )
         return 0
 
     settings = Settings.from_env()
@@ -250,6 +296,62 @@ def _build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off seed command, default: INFO",
     )
+    spawn_synthetic_traders = subcommands.add_parser(
+        "spawn-synthetic-traders",
+        help="create synthetic trader accounts through the API and attach worker bot configs",
+    )
+    spawn_config_selector = spawn_synthetic_traders.add_mutually_exclusive_group(required=True)
+    spawn_config_selector.add_argument(
+        "--config-key",
+        help="exact synthetic_trader_bot_configs.config_key to attach",
+    )
+    spawn_config_selector.add_argument(
+        "--strategy-engine",
+        choices=[engine.value for engine in StrategyEngine],
+        help="strategy engine to spawn using its default seeded config",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--count",
+        type=int,
+        required=True,
+        help="number of bots to create",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--handle-prefix",
+        help="prefix for account handles and bot keys when --name-style NUMBERED is used",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--display-name-prefix",
+        help="prefix for display names when --name-style NUMBERED is used",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--name-style",
+        choices=[name_style.value for name_style in SpawnNameStyle],
+        default=SpawnNameStyle.PERSONA.value,
+        help="public account naming style, default: PERSONA",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--start-index",
+        type=int,
+        default=1,
+        help="first numeric suffix to use, default: 1",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--random-seed",
+        type=int,
+        help="optional seed for reproducible per-bot config randomization",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--status",
+        choices=[status.value for status in BotStatus],
+        default=BotStatus.ACTIVE.value,
+        help="initial bot status, default: ACTIVE",
+    )
+    spawn_synthetic_traders.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off spawn command, default: INFO",
+    )
     return parser
 
 
@@ -365,6 +467,16 @@ def _build_synthetic_trader_service(settings: Settings) -> SyntheticTraderServic
             settings.trading_engine_url,
             timeout_seconds=settings.trading_engine_timeout_seconds,
         ),
+    )
+
+
+def _build_synthetic_trader_spawner(settings: Settings) -> SyntheticTraderSpawner:
+    return SyntheticTraderSpawner(
+        api_client=HttpApiClient(
+            settings.api_url,
+            timeout_seconds=settings.trading_engine_timeout_seconds,
+        ),
+        repository=PostgresSyntheticTraderRepository(settings.database_url),
     )
 
 

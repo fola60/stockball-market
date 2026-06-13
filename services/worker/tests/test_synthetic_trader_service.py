@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
@@ -28,9 +29,11 @@ class StubEngine:
     def __init__(self, decisions: tuple[StrategyDecision, ...]) -> None:
         self.decisions = decisions
         self.calls: list[BotTickContext] = []
+        self.configs: list[object] = []
 
     def evaluate(self, context: BotTickContext, config) -> tuple[StrategyDecision, ...]:
         self.calls.append(context)
+        self.configs.append(config)
         return self.decisions
 
 
@@ -69,7 +72,8 @@ class FakeSyntheticTraderRepository:
         activity: BotActivityContext,
         candidates: tuple[CandidateInstrumentContext, ...],
     ) -> None:
-        self.bot = bot
+        self.bots = list(bot) if isinstance(bot, tuple) else [bot]
+        self.bot = self.bots[0]
         self.config = config
         self.portfolio = portfolio
         self.activity = activity
@@ -79,7 +83,7 @@ class FakeSyntheticTraderRepository:
 
     def list_due_bots(self, as_of: datetime, *, limit: int = 100):
         self.calls.append("list_due_bots")
-        return [self.bot]
+        return self.bots[:limit]
 
     def get_bot_config(self, config_id):
         self.calls.append("get_bot_config")
@@ -299,6 +303,52 @@ class SyntheticTraderServiceTests(unittest.TestCase):
         self.assertEqual(client.commands[0].instrument_id, self.candidate.instrument_id)
         self.assertNotIn("update_trades", repository.calls)
         self.assertNotIn("update_positions", repository.calls)
+
+    def test_config_cache_keeps_per_bot_overrides_separate(self) -> None:
+        first_bot = replace(
+            self.bot,
+            id=uuid4(),
+            account_id=uuid4(),
+            portfolio_id=uuid4(),
+            config_overrides={"randomness": {"buy_bias": 0.1}},
+        )
+        second_bot = replace(
+            self.bot,
+            id=uuid4(),
+            account_id=uuid4(),
+            portfolio_id=uuid4(),
+            config_overrides={"randomness": {"buy_bias": 0.2}},
+        )
+        repository = FakeSyntheticTraderRepository(
+            bot=(first_bot, second_bot),
+            config=self.config,
+            portfolio=BotPortfolioContext(
+                account_id=first_bot.account_id,
+                portfolio_id=first_bot.portfolio_id,
+                cash_balance=Decimal("1000"),
+                total_position_value=Decimal("0"),
+                total_equity=Decimal("1000"),
+                positions=(),
+            ),
+            activity=BotActivityContext(
+                daily_trade_count=0,
+                daily_turnover_cash=Decimal("0"),
+                last_order_at=None,
+            ),
+            candidates=(self.candidate,),
+        )
+        engine = StubEngine(())
+        service = SyntheticTraderService(
+            repository=repository,
+            trading_engine_client=FakeTradingEngineClient(),
+            engine_registry={StrategyEngine.NOISE: engine},
+        )
+
+        service.tick_due_bots(self.as_of)
+
+        self.assertEqual(len(engine.configs), 2)
+        self.assertEqual(engine.configs[0].randomness.buy_bias, 0.1)
+        self.assertEqual(engine.configs[1].randomness.buy_bias, 0.2)
 
 
 def _noise_payload() -> dict[str, object]:
