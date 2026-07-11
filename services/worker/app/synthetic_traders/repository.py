@@ -158,7 +158,7 @@ class PostgresSyntheticTraderRepository:
                     FROM synthetic_trader_bot_configs
                     WHERE id = %(config_id)s
                     """,
-                    {"config_id": config_id},
+                    {"config_id": str(config_id)},
                 )
                 row = cursor.fetchone()
         if row is None:
@@ -262,7 +262,7 @@ class PostgresSyntheticTraderRepository:
                     FROM portfolios
                     WHERE id = %(portfolio_id)s
                     """,
-                    {"portfolio_id": bot.portfolio_id},
+                    {"portfolio_id": str(bot.portfolio_id)},
                 )
                 portfolio_row = cursor.fetchone()
                 if portfolio_row is None:
@@ -295,7 +295,7 @@ class PostgresSyntheticTraderRepository:
                       AND p.quantity > 0
                     ORDER BY p.updated_at DESC, p.instrument_id
                     """,
-                    {"portfolio_id": bot.portfolio_id},
+                    {"portfolio_id": str(bot.portfolio_id)},
                 )
                 position_rows = cursor.fetchall()
 
@@ -343,7 +343,7 @@ class PostgresSyntheticTraderRepository:
                     WHERE account_id = %(account_id)s
                       AND executed_at >= %(day_start)s
                     """,
-                    {"account_id": bot.account_id, "day_start": day_start},
+                    {"account_id": str(bot.account_id), "day_start": day_start},
                 )
                 row = cursor.fetchone()
 
@@ -463,7 +463,7 @@ class PostgresSyntheticTraderRepository:
                         WHERE id = %(bot_id)s
                         """,
                         {
-                            "bot_id": bot_id,
+                            "bot_id": str(bot_id),
                             "last_ticked_at": last_ticked_at,
                             "next_tick_after": next_tick_after,
                         },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 import psycopg2
@@ -73,21 +74,21 @@ class PostgresPlayerStatsRepository:
                             updated_at = now()
                         """,
                         (
-                            fixture_id,
-                            player_id,
-                            observation.provider,
-                            observation.provider_fixture_id,
-                            observation.provider_player_id,
-                            observation.team_provider_id,
-                            observation.team_name,
-                            observation.display_name,
+                            None if fixture_id is None else str(fixture_id),
+                            None if player_id is None else str(player_id),
+                            str(observation.provider),
+                            str(observation.provider_fixture_id),
+                            str(observation.provider_player_id),
+                            None if observation.team_provider_id is None else str(observation.team_provider_id),
+                            None if observation.team_name is None else str(observation.team_name),
+                            str(observation.display_name),
                             observation.rating,
-                            Json(dict(observation.stats)),
-                            Json(dict(observation.raw_payload)),
-                            observation.stat_type,
+                            Json(dict(observation.stats), dumps=_json_dumps),
+                            Json(dict(observation.raw_payload), dumps=_json_dumps),
+                            None if observation.stat_type is None else str(observation.stat_type),
                             observation.season,
-                            observation.competition,
-                            observation.source_url,
+                            None if observation.competition is None else str(observation.competition),
+                            None if observation.source_url is None else str(observation.source_url),
                         ),
                     )
             connection.commit()
@@ -109,6 +110,10 @@ def _get_fixture_id(cursor: object, provider: str, provider_fixture_id: str) -> 
     if row is None:
         return None
     return UUID(str(row[0]))
+
+
+def _json_dumps(value: object) -> str:
+    return json.dumps(value, default=str)
 
 
 def _get_player_id(cursor: object, provider: str, provider_player_id: str) -> UUID | None:
