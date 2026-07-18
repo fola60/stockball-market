@@ -1,0 +1,59 @@
+{
+  "sources": [
+    {
+      "twitter_user_id": "replace-with-official-club-x-user-id",
+      "username": "replace_with_official_club_handle",
+      "display_name": "Example Official Club",
+      "account_kind": "OFFICIAL_CLUB",
+      "trust_weight": 1.0,
+      "manually_reviewed_at": "2026-07-18T00:00:00Z",
+      "reviewed_by": "editor@example.com",
+      "review_notes": "Manually verified against the club's official account listing.",
+      "metadata": {
+        "club": "Example FC",
+        "review_evidence": "internal-review-ticket-123"
+      }
+    },
+    {
+      "twitter_user_id": "replace-with-journalist-x-user-id",
+      "username": "replace_with_journalist_handle",
+      "display_name": "Example Curated Journalist",
+      "account_kind": "CURATED_JOURNALIST",
+      "manually_reviewed_at": "2026-07-18T00:00:00Z",
+      "reviewed_by": "editor@example.com",
+      "review_notes": "Seed allowlist entry manually reviewed for identity, current affiliation, and injury-reporting remit.",
+      "metadata": {
+        "affiliation": "Example publication",
+        "coverage": "Premier League injuries",
+        "review_evidence": "internal-review-ticket-124"
+      }
+    },
+    {
+      "twitter_user_id": "replace-with-fan-x-user-id",
+      "username": "replace_with_fan_handle",
+      "display_name": "Example Fan Source",
+      "account_kind": "FAN",
+      "trust_weight": 0.25,
+      "manually_reviewed_at": "2026-07-18T00:00:00Z",
+      "reviewed_by": "editor@example.com",
+      "review_notes": "Aggregate-only source; never allowed to create or transition an episode.",
+      "metadata": {
+        "club": "Example FC",
+        "review_evidence": "internal-review-ticket-125"
+      }
+    }
+  ],
+  "player_aliases": [
+    {
+      "player_id": "00000000-0000-0000-0000-000000000003",
+      "alias": "Seed Player",
+      "alias_type": "NAME",
+      "club_hint": "Seed FC",
+      "manually_reviewed_at": "2026-07-18T00:00:00Z",
+      "reviewed_by": "editor@example.com",
+      "metadata": {
+        "review_evidence": "internal-review-ticket-126"
+      }
+    }
+  ]
+}

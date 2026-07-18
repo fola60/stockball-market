@@ -21,7 +21,8 @@ Ingestion answers: "What did the outside world say?"
 - `fixtures`: fixture, lineup, and match-status data.
 - `stats`: player performance data from external providers.
 - `betting_markets`: licensed pre-match Bet365 1X2 odds and implied-probability snapshots.
-- Future `social`: social mention and post data from external providers.
+- `social/twitter`: opt-in approved-X-API injury episodes and availability observations.
+- Future broader `social`: social mention and sentiment data from approved providers.
 - Future `news`: football news and transfer-rumor data.
 - `fbref`: isolated FBref client, parser, raw-page cache, and provider service.
 - `providers`: shared provider exports.
@@ -109,3 +110,11 @@ Provider constraints:
 - Does not directly change instrument prices.
 - Does not decide bot trades.
 - Writes facts and observations that other modules can interpret.
+
+## Twitter Injury Intelligence
+
+The Twitter injury pipeline is rules-based, manually source-curated, and disabled by default.
+It stores no post text, rejects unregistered authors, records ambiguous player matches
+without guessing, and exposes compact availability observations without connecting them
+to strategy or execution. See `social/twitter/README.md` for the full retrieval, cursor,
+source trust, classification, episode, recurrence, expiration, policy, and run contract.

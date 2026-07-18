@@ -11,6 +11,7 @@ Schedules recurring background work.
 - Schedule synthetic trader ticks.
 - Schedule top-up checks.
 - Schedule fixture/freeze checks.
+- Schedule Twitter injury polling only when its explicit opt-in and policy gate are enabled.
 
 ## Boundaries
 

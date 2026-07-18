@@ -8,11 +8,13 @@ from app.ingestion.fixtures import FixtureIngestionService
 from app.ingestion.betting_markets import BettingMarketIngestionService
 from app.ingestion.players import PlayerSeedService
 from app.ingestion.stats import PlayerStatsIngestionService
+from app.ingestion.social.twitter import TwitterInjuryIngestionService, TwitterTransientError
 from app.jobs.models import (
     IngestFixturesJobPayload,
     IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
     IngestPlayersJobPayload,
+    IngestTwitterInjuriesJobPayload,
     JobExecutionResult,
     JobType,
     SyntheticTraderTickJobPayload,
@@ -176,6 +178,40 @@ class IngestBet365OddsJobHandler:
             handled_at=self.clock(),
             successful_items=result.upserted_observations,
             skipped_items=0,
+            failed_items=0,
+        )
+
+
+@dataclass(frozen=True)
+class IngestTwitterInjuriesJobHandler:
+    twitter_injury_ingestion_service: TwitterInjuryIngestionService
+    search_query: str
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_TWITTER_INJURIES:
+            raise UnknownJobError(f"Twitter injury handler cannot process {job.job_type.value}")
+        payload = IngestTwitterInjuriesJobPayload.from_payload(job.payload)
+        try:
+            result = self.twitter_injury_ingestion_service.ingest_recent(
+                self.search_query,
+                payload.query_key,
+            )
+        except TwitterTransientError as error:
+            job_result = JobExecutionResult(
+                job_type=job.job_type,
+                handled_at=self.clock(),
+                successful_items=0,
+                skipped_items=0,
+                failed_items=1,
+                retryable_failures=1,
+            )
+            raise RetryableJobError(str(error), job_result) from error
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.persisted_posts,
+            skipped_items=result.skipped_posts + result.ambiguous_posts,
             failed_items=0,
         )
 

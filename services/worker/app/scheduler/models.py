@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
-from app.jobs.models import IngestBet365OddsJobPayload, SyntheticTraderTickJobPayload, TopupJobPayload, WorkerJob
+from app.jobs.models import (
+    IngestBet365OddsJobPayload,
+    IngestTwitterInjuriesJobPayload,
+    SyntheticTraderTickJobPayload,
+    TopupJobPayload,
+    WorkerJob,
+)
 from app.jobs.models import JobType
 from app.topups.models import TopupCadence, TopupWindow
 
@@ -73,6 +79,24 @@ class Bet365OddsIngestionPlan:
 
 
 @dataclass(frozen=True)
+class TwitterInjuryIngestionPlan:
+    name: str = "twitter-injury-intelligence"
+    interval_minutes: int = 5
+    query_key: str | None = None
+    enabled: bool = False
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        normalized = _normalize_tick_time(effective_at)
+        minute = normalized.minute - (normalized.minute % self.interval_minutes)
+        return normalized.replace(minute=minute).isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob.ingest_twitter_injuries(
+            IngestTwitterInjuriesJobPayload(query_key=self.query_key)
+        )
+
+
+@dataclass(frozen=True)
 class ScheduledJobDecision:
     schedule_name: str
     job_type: JobType
@@ -80,12 +104,22 @@ class ScheduledJobDecision:
     job: WorkerJob
 
 
-def default_scheduler_plans(bet365_enabled: bool = False) -> tuple[SchedulePlan, ...]:
+def default_scheduler_plans(
+    bet365_enabled: bool = False,
+    twitter_injury_enabled: bool = False,
+    twitter_injury_interval_minutes: int = 5,
+    twitter_query_key: str | None = None,
+) -> tuple[SchedulePlan, ...]:
     return (
         RecurringTopupPlan(name="weekly-topups", cadence=TopupCadence.WEEKLY),
         RecurringTopupPlan(name="monthly-topups", cadence=TopupCadence.MONTHLY),
         SyntheticTraderTickPlan(),
         Bet365OddsIngestionPlan(enabled=bet365_enabled),
+        TwitterInjuryIngestionPlan(
+            enabled=twitter_injury_enabled,
+            interval_minutes=twitter_injury_interval_minutes,
+            query_key=twitter_query_key,
+        ),
     )
 
 

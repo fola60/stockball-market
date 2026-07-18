@@ -11,6 +11,8 @@ Stores database migration files.
 - Seed reusable synthetic trader strategy profiles where worker defaults need to exist in every environment.
 - Preserve repeatable database setup from a clean environment.
 - Store betting-market odds observations through deterministic migrations.
+- Store X source registries, cursor checkpoints, injury episodes/evidence, and compact
+  player availability observations through deterministic migrations.
 
 ## Boundaries
 

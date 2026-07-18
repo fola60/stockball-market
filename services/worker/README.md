@@ -48,6 +48,8 @@ scripts/local-ingestion.sh fixtures --from-date 2025-08-01 --to-date 2025-08-31
 scripts/local-ingestion.sh stats --stat-type standard --stat-type shooting
 scripts/local-ingestion.sh market-values
 scripts/local-ingestion.sh shares
+scripts/local-ingestion.sh twitter-sources --registry /path/to/reviewed-registry.json
+scripts/local-ingestion.sh twitter-injuries
 ```
 
 The helper creates `.venv-worker`, installs the worker package into it, and runs the matching `stockball-worker` command locally. FBref commands default to season `2025`; override with `--season` or `STOCKBALL_INGESTION_SEASON`.
@@ -65,6 +67,13 @@ cp scripts/local-ingestion.env.example .env.local-ingestion
 `seed-player-shares` requires the trading engine to be running locally at `STOCKBALL_WORKER_TRADING_ENGINE_URL`.
 
 Set `LOCAL_INGESTION_INSTALL_CHROMEDRIVER=1` in `.env.local-ingestion` if FBref browser fallback needs a local chromedriver install.
+
+Twitter injury ingestion uses only the approved X API recent-search endpoint. It is disabled
+until `STOCKBALL_TWITTER_POLICY_ACKNOWLEDGED=true`; recurring polling additionally requires
+`STOCKBALL_TWITTER_INJURY_SCHEDULE_ENABLED=true`. Source accounts and player aliases must be
+manually reviewed and synced before polling. See
+`app/ingestion/social/twitter/README.md` for policy constraints, registry rules, cursor and
+rate-limit behavior, classification, episode transitions, and availability output.
 
 ### Direct Worker CLI
 

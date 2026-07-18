@@ -4,6 +4,7 @@ from .models import (
     SchedulePlan,
     ScheduledJobDecision,
     SyntheticTraderTickPlan,
+    TwitterInjuryIngestionPlan,
     default_scheduler_plans,
 )
 from .runtime import SchedulerProcess
@@ -27,5 +28,6 @@ __all__ = [
     "SchedulerProcess",
     "SchedulerService",
     "SyntheticTraderTickPlan",
+    "TwitterInjuryIngestionPlan",
     "default_scheduler_plans",
 ]

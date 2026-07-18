@@ -13,11 +13,19 @@ from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepos
 from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
 from app.ingestion.stats import PlayerStatsIngestionService, PostgresPlayerStatsRepository
+from app.ingestion.social.twitter import (
+    PostgresTwitterInjuryRepository,
+    TwitterIngestionError,
+    TwitterInjuryIngestionService,
+    TwitterRecentSearchClient,
+    load_registry,
+)
 from app.jobs import (
     IngestFixturesJobHandler,
     IngestBet365OddsJobHandler,
     IngestPlayerStatsJobHandler,
     IngestPlayersJobHandler,
+    IngestTwitterInjuriesJobHandler,
     JobType,
     SyntheticTraderTickJobHandler,
     TopupJobHandler,
@@ -152,6 +160,43 @@ def main(argv: list[str] | None = None) -> int:
         print(f"upserted {result.upserted_observations} Bet365 1X2 odds observations")
         return 0
 
+    if args.command == "sync-twitter-injury-registry":
+        settings = DatabaseSettings.from_env()
+        _configure_logging(args.log_level)
+        repository = PostgresTwitterInjuryRepository(settings.database_url)
+        result = repository.sync_registry(load_registry(Path(args.registry)))
+        print(
+            f"synced {result.source_accounts} X source accounts and "
+            f"{result.player_aliases} player aliases"
+        )
+        return 0
+
+    if args.command == "ingest-twitter-injuries":
+        settings = Settings.from_env()
+        _configure_logging(args.log_level)
+        query = args.query or settings.twitter_search_query
+        if not query:
+            print(
+                "Twitter injury ingestion unavailable: set STOCKBALL_TWITTER_SEARCH_QUERY "
+                "or pass --query"
+            )
+            return 1
+        try:
+            result = _build_twitter_injury_ingestion_service(settings).ingest_recent(
+                query,
+                args.query_key or settings.twitter_query_key,
+            )
+        except (TwitterIngestionError, ValueError) as error:
+            print(f"Twitter injury ingestion unavailable: {error}")
+            return 1
+        print(
+            f"processed {result.fetched_posts} X posts across {result.pages_fetched} pages: "
+            f"{result.persisted_posts} new observations, "
+            f"{result.episode_updates} episode updates, "
+            f"{result.ambiguous_posts} ambiguous player matches"
+        )
+        return 0
+
     if args.command == "spawn-synthetic-traders":
         settings = Settings.from_env()
         _configure_logging(args.log_level)
@@ -279,6 +324,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ingest_bet365.add_argument("--league", help="optional licensed-feed league filter")
     ingest_bet365.add_argument("--log-level", default="INFO")
+    sync_twitter_registry = subcommands.add_parser(
+        "sync-twitter-injury-registry",
+        help="sync manually reviewed X source accounts and player aliases from JSON",
+    )
+    sync_twitter_registry.add_argument("--registry", required=True, help="path to registry JSON")
+    sync_twitter_registry.add_argument("--log-level", default="INFO")
+    ingest_twitter_injuries = subcommands.add_parser(
+        "ingest-twitter-injuries",
+        help="poll approved X API recent search and update player injury episodes",
+    )
+    ingest_twitter_injuries.add_argument(
+        "--query",
+        help="X recent-search query; defaults to STOCKBALL_TWITTER_SEARCH_QUERY",
+    )
+    ingest_twitter_injuries.add_argument(
+        "--query-key",
+        help="stable cursor key; defaults to STOCKBALL_TWITTER_QUERY_KEY or a query hash",
+    )
+    ingest_twitter_injuries.add_argument("--log-level", default="INFO")
     import_market_values = subcommands.add_parser(
         "import-market-values",
         help="import Transfermarkt-derived market values from CSV files",
@@ -399,7 +463,19 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
     scheduler = SchedulerService(
         queue=queue,
         claim_store=claim_store,
-        plans=default_scheduler_plans(settings.bet365_schedule_enabled and bool(settings.bet365_odds_url)),
+        plans=default_scheduler_plans(
+            bet365_enabled=(
+                settings.bet365_schedule_enabled and bool(settings.bet365_odds_url)
+            ),
+            twitter_injury_enabled=(
+                settings.twitter_injury_schedule_enabled
+                and settings.twitter_policy_acknowledged
+                and bool(settings.twitter_bearer_token)
+                and bool(settings.twitter_search_query)
+            ),
+            twitter_injury_interval_minutes=settings.twitter_injury_schedule_interval_minutes,
+            twitter_query_key=settings.twitter_query_key,
+        ),
     )
     return SchedulerProcess(scheduler=scheduler)
 
@@ -446,6 +522,11 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
     handlers[JobType.INGEST_BET365_ODDS] = IngestBet365OddsJobHandler(
         betting_market_ingestion_service=_build_bet365_ingestion_service(settings)
     )
+    if settings.twitter_search_query:
+        handlers[JobType.INGEST_TWITTER_INJURIES] = IngestTwitterInjuriesJobHandler(
+            twitter_injury_ingestion_service=_build_twitter_injury_ingestion_service(settings),
+            search_query=settings.twitter_search_query,
+        )
     runner = WorkerJobRunner(handlers)
     return WorkerProcess(
         queue=queue,
@@ -495,6 +576,20 @@ def _build_bet365_ingestion_service(settings: Settings) -> BettingMarketIngestio
             request_interval_seconds=settings.bet365_request_interval_seconds,
         ),
         repository=PostgresBettingMarketRepository(settings.database_url),
+    )
+
+
+def _build_twitter_injury_ingestion_service(settings: Settings) -> TwitterInjuryIngestionService:
+    return TwitterInjuryIngestionService(
+        client=TwitterRecentSearchClient(
+            settings.twitter_bearer_token,
+            policy_acknowledged=settings.twitter_policy_acknowledged,
+            request_interval_seconds=settings.twitter_request_interval_seconds,
+            max_rate_limit_sleep_seconds=settings.twitter_max_rate_limit_sleep_seconds,
+            max_results=settings.twitter_max_results,
+        ),
+        repository=PostgresTwitterInjuryRepository(settings.database_url),
+        max_pages_per_poll=settings.twitter_max_pages_per_poll,
     )
 
 

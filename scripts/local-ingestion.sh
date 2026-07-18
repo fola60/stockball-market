@@ -14,6 +14,8 @@ Usage:
   scripts/local-ingestion.sh import-market-values [stockball-worker args...]
   scripts/local-ingestion.sh seed-player-shares [stockball-worker args...]
   scripts/local-ingestion.sh ingest-bet365-odds [stockball-worker args...]
+  scripts/local-ingestion.sh sync-twitter-injury-registry --registry /path/to/registry.json
+  scripts/local-ingestion.sh ingest-twitter-injuries [stockball-worker args...]
 
 Aliases:
   players        seed-players
@@ -22,6 +24,8 @@ Aliases:
   market-values  import-market-values
   shares         seed-player-shares
   bet365         ingest-bet365-odds
+  twitter-sources      sync-twitter-injury-registry
+  twitter-injuries     ingest-twitter-injuries
 
 Defaults:
   setup installs the worker into .venv-worker.
@@ -42,6 +46,8 @@ Examples:
   scripts/local-ingestion.sh market-values
   scripts/local-ingestion.sh shares
   scripts/local-ingestion.sh bet365 --league PL
+  scripts/local-ingestion.sh twitter-sources --registry ./config/twitter-injury-registry.json
+  scripts/local-ingestion.sh twitter-injuries
 USAGE
 }
 
@@ -75,6 +81,7 @@ export STOCKBALL_FBREF_USER_AGENT="${STOCKBALL_FBREF_USER_AGENT:-StockballMarket
 export STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS="${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}"
 export STOCKBALL_FBREF_CACHE_TTL_SECONDS="${STOCKBALL_FBREF_CACHE_TTL_SECONDS:-86400}"
 export STOCKBALL_BET365_REQUEST_INTERVAL_SECONDS="${STOCKBALL_BET365_REQUEST_INTERVAL_SECONDS:-60}"
+export STOCKBALL_TWITTER_REQUEST_INTERVAL_SECONDS="${STOCKBALL_TWITTER_REQUEST_INTERVAL_SECONDS:-1}"
 
 if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -91,6 +98,8 @@ case "$command" in
   market-values) command="import-market-values" ;;
   shares) command="seed-player-shares" ;;
   bet365) command="ingest-bet365-odds" ;;
+  twitter-sources) command="sync-twitter-injury-registry" ;;
+  twitter-injuries) command="ingest-twitter-injuries" ;;
 esac
 
 has_option() {
@@ -261,7 +270,7 @@ case "$command" in
     fi
     run_worker_command --check-db "$command" "${args[@]}"
     ;;
-  ingest-bet365-odds)
+  ingest-bet365-odds | sync-twitter-injury-registry | ingest-twitter-injuries)
     run_worker_command --check-db "$command" "$@"
     ;;
   import-market-values)
