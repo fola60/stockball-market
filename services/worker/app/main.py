@@ -8,12 +8,14 @@ from pathlib import Path
 from app.clients import ApiClientError, ApiUnavailableError, HttpApiClient, HttpTradingEngineClient
 from app.config import FbrefIngestionSettings, DatabaseSettings, Settings
 from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
+from app.ingestion.betting_markets import Bet365Client, Bet365IngestionError, BettingMarketIngestionService, PostgresBettingMarketRepository
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
 from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
 from app.ingestion.stats import PlayerStatsIngestionService, PostgresPlayerStatsRepository
 from app.jobs import (
     IngestFixturesJobHandler,
+    IngestBet365OddsJobHandler,
     IngestPlayerStatsJobHandler,
     IngestPlayersJobHandler,
     JobType,
@@ -24,6 +26,7 @@ from app.jobs import (
 )
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import SchedulerProcess, SchedulerService
+from app.scheduler.models import default_scheduler_plans
 from app.synthetic_traders import (
     BotStatus,
     PostgresSyntheticTraderRepository,
@@ -136,6 +139,17 @@ def main(argv: list[str] | None = None) -> int:
             f"{result.market_value_priced_count} market-value priced, "
             f"{result.fallback_priced_count} fallback priced"
         )
+        return 0
+
+    if args.command == "ingest-bet365-odds":
+        settings = Settings.from_env()
+        _configure_logging(args.log_level)
+        try:
+            result = _build_bet365_ingestion_service(settings).ingest_pre_match_1x2(args.league)
+        except Bet365IngestionError as error:
+            print(f"Bet365 odds ingestion unavailable: {error}")
+            return 1
+        print(f"upserted {result.upserted_observations} Bet365 1X2 odds observations")
         return 0
 
     if args.command == "spawn-synthetic-traders":
@@ -259,6 +273,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off ingestion command, default: INFO",
     )
+    ingest_bet365 = subcommands.add_parser(
+        "ingest-bet365-odds",
+        help="ingest licensed Bet365 pre-match 1X2 odds through the configured feed",
+    )
+    ingest_bet365.add_argument("--league", help="optional licensed-feed league filter")
+    ingest_bet365.add_argument("--log-level", default="INFO")
     import_market_values = subcommands.add_parser(
         "import-market-values",
         help="import Transfermarkt-derived market values from CSV files",
@@ -376,7 +396,11 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
         settings.schedule_claim_prefix,
         settings.schedule_claim_ttl_seconds,
     )
-    scheduler = SchedulerService(queue=queue, claim_store=claim_store)
+    scheduler = SchedulerService(
+        queue=queue,
+        claim_store=claim_store,
+        plans=default_scheduler_plans(settings.bet365_schedule_enabled and bool(settings.bet365_odds_url)),
+    )
     return SchedulerProcess(scheduler=scheduler)
 
 
@@ -419,6 +443,9 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
     handlers[JobType.INGEST_PLAYER_STATS] = IngestPlayerStatsJobHandler(
         stats_ingestion_service=_build_player_stats_ingestion_service(fbref_settings)
     )
+    handlers[JobType.INGEST_BET365_ODDS] = IngestBet365OddsJobHandler(
+        betting_market_ingestion_service=_build_bet365_ingestion_service(settings)
+    )
     runner = WorkerJobRunner(handlers)
     return WorkerProcess(
         queue=queue,
@@ -457,6 +484,17 @@ def _build_player_stats_ingestion_service(
 def _build_market_value_import_service(settings: DatabaseSettings) -> MarketValueImportService:
     return MarketValueImportService(
         repository=PostgresMarketValueRepository(settings.database_url),
+    )
+
+
+def _build_bet365_ingestion_service(settings: Settings) -> BettingMarketIngestionService:
+    return BettingMarketIngestionService(
+        client=Bet365Client(
+            base_url=settings.bet365_odds_url,
+            api_token=settings.bet365_api_token,
+            request_interval_seconds=settings.bet365_request_interval_seconds,
+        ),
+        repository=PostgresBettingMarketRepository(settings.database_url),
     )
 
 

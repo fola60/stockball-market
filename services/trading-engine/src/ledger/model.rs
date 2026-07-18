@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::error::LedgerError;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CashLedgerEntry {
     pub id: Uuid,
     pub account_id: Uuid,

@@ -20,6 +20,10 @@ FBREF_BASE_URL_ENV = "STOCKBALL_FBREF_BASE_URL"
 FBREF_REQUEST_INTERVAL_ENV = "STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS"
 FBREF_USER_AGENT_ENV = "STOCKBALL_FBREF_USER_AGENT"
 FBREF_CACHE_TTL_SECONDS_ENV = "STOCKBALL_FBREF_CACHE_TTL_SECONDS"
+BET365_ODDS_URL_ENV = "STOCKBALL_BET365_ODDS_URL"
+BET365_API_TOKEN_ENV = "STOCKBALL_BET365_API_TOKEN"
+BET365_REQUEST_INTERVAL_ENV = "STOCKBALL_BET365_REQUEST_INTERVAL_SECONDS"
+BET365_SCHEDULE_ENABLED_ENV = "STOCKBALL_BET365_SCHEDULE_ENABLED"
 SCHEDULER_POLL_SECONDS_ENV = "STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS"
 WORKER_BLOCK_SECONDS_ENV = "STOCKBALL_WORKER_BLOCK_SECONDS"
 RETRY_DELAY_SECONDS_ENV = "STOCKBALL_WORKER_RETRY_DELAY_SECONDS"
@@ -39,6 +43,7 @@ DEFAULT_FBREF_USER_AGENT = (
     "(contact: engineering@stockball.local; provider=FBREF)"
 )
 DEFAULT_FBREF_CACHE_TTL_SECONDS = 24 * 60 * 60
+DEFAULT_BET365_REQUEST_INTERVAL_SECONDS = 60.0
 DEFAULT_SCHEDULER_POLL_SECONDS = 60
 DEFAULT_WORKER_BLOCK_SECONDS = 5
 DEFAULT_RETRY_DELAY_SECONDS = 30
@@ -57,6 +62,10 @@ class Settings:
     fbref_request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS
     fbref_user_agent: str = DEFAULT_FBREF_USER_AGENT
     fbref_cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS
+    bet365_odds_url: str | None = None
+    bet365_api_token: str | None = None
+    bet365_request_interval_seconds: float = DEFAULT_BET365_REQUEST_INTERVAL_SECONDS
+    bet365_schedule_enabled: bool = False
     queue_name: str = DEFAULT_QUEUE_NAME
     retry_queue_name: str = DEFAULT_RETRY_QUEUE_NAME
     schedule_claim_prefix: str = DEFAULT_SCHEDULE_CLAIM_PREFIX
@@ -90,6 +99,12 @@ class Settings:
                 FBREF_CACHE_TTL_SECONDS_ENV,
                 DEFAULT_FBREF_CACHE_TTL_SECONDS,
             ),
+            bet365_odds_url=os.getenv(BET365_ODDS_URL_ENV),
+            bet365_api_token=os.getenv(BET365_API_TOKEN_ENV),
+            bet365_request_interval_seconds=_float_env(
+                BET365_REQUEST_INTERVAL_ENV, DEFAULT_BET365_REQUEST_INTERVAL_SECONDS
+            ),
+            bet365_schedule_enabled=_bool_env(BET365_SCHEDULE_ENABLED_ENV, False),
             queue_name=os.getenv(QUEUE_NAME_ENV, DEFAULT_QUEUE_NAME),
             retry_queue_name=os.getenv(RETRY_QUEUE_NAME_ENV, DEFAULT_RETRY_QUEUE_NAME),
             schedule_claim_prefix=os.getenv(
@@ -174,3 +189,10 @@ def _float_env(name: str, default: float) -> float:
     if raw_value is None:
         return default
     return float(raw_value)
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}

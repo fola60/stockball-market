@@ -1,5 +1,6 @@
 from .models import (
     RecurringTopupPlan,
+    Bet365OddsIngestionPlan,
     SchedulePlan,
     ScheduledJobDecision,
     SyntheticTraderTickPlan,
@@ -16,6 +17,7 @@ from .service import (
 
 __all__ = [
     "InMemoryJobQueue",
+    "Bet365OddsIngestionPlan",
     "InMemoryScheduleClaimStore",
     "JobQueue",
     "RecurringTopupPlan",

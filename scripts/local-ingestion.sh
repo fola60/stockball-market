@@ -13,6 +13,7 @@ Usage:
   scripts/local-ingestion.sh ingest-player-stats [--season 2025] [stockball-worker args...]
   scripts/local-ingestion.sh import-market-values [stockball-worker args...]
   scripts/local-ingestion.sh seed-player-shares [stockball-worker args...]
+  scripts/local-ingestion.sh ingest-bet365-odds [stockball-worker args...]
 
 Aliases:
   players        seed-players
@@ -20,6 +21,7 @@ Aliases:
   stats          ingest-player-stats
   market-values  import-market-values
   shares         seed-player-shares
+  bet365         ingest-bet365-odds
 
 Defaults:
   setup installs the worker into .venv-worker.
@@ -39,6 +41,7 @@ Examples:
   scripts/local-ingestion.sh stats --stat-type standard --stat-type shooting
   scripts/local-ingestion.sh market-values
   scripts/local-ingestion.sh shares
+  scripts/local-ingestion.sh bet365 --league PL
 USAGE
 }
 
@@ -71,6 +74,7 @@ export STOCKBALL_FBREF_BASE_URL="${STOCKBALL_FBREF_BASE_URL:-https://fbref.com}"
 export STOCKBALL_FBREF_USER_AGENT="${STOCKBALL_FBREF_USER_AGENT:-StockballMarketWorker/0.1;contact=engineering@stockball.local;provider=FBREF}"
 export STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS="${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}"
 export STOCKBALL_FBREF_CACHE_TTL_SECONDS="${STOCKBALL_FBREF_CACHE_TTL_SECONDS:-86400}"
+export STOCKBALL_BET365_REQUEST_INTERVAL_SECONDS="${STOCKBALL_BET365_REQUEST_INTERVAL_SECONDS:-60}"
 
 if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -86,6 +90,7 @@ case "$command" in
   stats) command="ingest-player-stats" ;;
   market-values) command="import-market-values" ;;
   shares) command="seed-player-shares" ;;
+  bet365) command="ingest-bet365-odds" ;;
 esac
 
 has_option() {
@@ -255,6 +260,9 @@ case "$command" in
       args=("$@" --season "${STOCKBALL_INGESTION_SEASON:-2025}")
     fi
     run_worker_command --check-db "$command" "${args[@]}"
+    ;;
+  ingest-bet365-odds)
+    run_worker_command --check-db "$command" "$@"
     ;;
   import-market-values)
     args=("$@")

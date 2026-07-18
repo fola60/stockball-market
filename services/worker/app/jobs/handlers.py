@@ -5,10 +5,12 @@ from datetime import UTC, datetime
 from typing import Callable, Mapping, Protocol
 
 from app.ingestion.fixtures import FixtureIngestionService
+from app.ingestion.betting_markets import BettingMarketIngestionService
 from app.ingestion.players import PlayerSeedService
 from app.ingestion.stats import PlayerStatsIngestionService
 from app.jobs.models import (
     IngestFixturesJobPayload,
+    IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
     IngestPlayersJobPayload,
     JobExecutionResult,
@@ -150,6 +152,25 @@ class IngestPlayerStatsJobHandler:
             season=payload.season,
             stat_types=payload.stat_types or None,
         )
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.upserted_observations,
+            skipped_items=0,
+            failed_items=0,
+        )
+
+
+@dataclass(frozen=True)
+class IngestBet365OddsJobHandler:
+    betting_market_ingestion_service: BettingMarketIngestionService
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_BET365_ODDS:
+            raise UnknownJobError(f"Bet365 handler cannot process {job.job_type.value}")
+        payload = IngestBet365OddsJobPayload.from_payload(job.payload)
+        result = self.betting_market_ingestion_service.ingest_pre_match_1x2(payload.league)
         return JobExecutionResult(
             job_type=job.job_type,
             handled_at=self.clock(),

@@ -10,7 +10,9 @@ use stockball_trading_engine::{
     freezes::FreezeError,
     http::{build_router, AppState, OrderExecutor},
     instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
+    ledger::{CashLedgerEntry, LedgerReason},
     orders::{ExecuteOrderCommand, OrderError, OrderSide},
+    topups::{ApplyTopupCommand, TopupError},
 };
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -157,6 +159,36 @@ async fn seed_player_shares_returns_success_response() {
     assert_eq!(body["created_instrument_ids"][0], instrument_id.to_string());
 }
 
+#[tokio::test]
+async fn apply_topup_returns_ledger_entry_response() {
+    let entry = sample_topup_response();
+    let response = build_router(AppState::new(StubExecutor::topup_success(entry.clone())))
+        .oneshot(
+            Request::post("/internal/v1/ledger/topups/apply")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "request_id": "topup_123",
+                        "account_id": entry.account_id,
+                        "portfolio_id": entry.portfolio_id,
+                        "amount": "100.0000",
+                        "reason": "WEEKLY_TOPUP"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = read_body(response).await;
+    assert_eq!(body["id"], entry.id.to_string());
+    assert_eq!(body["reason"], "WEEKLY_TOPUP");
+    assert_eq!(body["amount_delta"], "100.0000");
+    assert_eq!(body["balance_after"], "10100.0000");
+}
+
 #[derive(Debug, Clone)]
 struct StubExecutor {
     outcome: StubOutcome,
@@ -191,6 +223,12 @@ impl StubExecutor {
             outcome: StubOutcome::SeedSuccess(result),
         }
     }
+
+    fn topup_success(result: CashLedgerEntry) -> Self {
+        Self {
+            outcome: StubOutcome::TopupSuccess(result),
+        }
+    }
 }
 
 #[async_trait]
@@ -213,6 +251,7 @@ impl OrderExecutor for StubExecutor {
                 OrderError::NonPositiveQuantity(*quantity),
             )),
             StubOutcome::SeedSuccess(_) => panic!("seed stub cannot execute orders"),
+            StubOutcome::TopupSuccess(_) => panic!("top-up stub cannot execute orders"),
         }
     }
 
@@ -220,6 +259,16 @@ impl OrderExecutor for StubExecutor {
         match &self.outcome {
             StubOutcome::SeedSuccess(result) => Ok(result.clone()),
             _ => panic!("order stub cannot seed player shares"),
+        }
+    }
+
+    async fn apply_topup(
+        &self,
+        _command: ApplyTopupCommand,
+    ) -> Result<CashLedgerEntry, TopupError> {
+        match &self.outcome {
+            StubOutcome::TopupSuccess(result) => Ok(result.clone()),
+            _ => panic!("stub cannot apply top-ups"),
         }
     }
 }
@@ -231,6 +280,7 @@ enum StubOutcome {
     Frozen(Uuid),
     NonPositiveQuantity(Decimal),
     SeedSuccess(SeedPlayerSharesResult),
+    TopupSuccess(CashLedgerEntry),
 }
 
 fn sample_request() -> Value {
@@ -261,6 +311,20 @@ fn sample_response() -> ExecuteOrderResult {
         old_price: Decimal::new(100_0000, 4),
         new_price: Decimal::new(100_1000, 4),
         executed_at: chrono::Utc::now(),
+    }
+}
+
+fn sample_topup_response() -> CashLedgerEntry {
+    CashLedgerEntry {
+        id: Uuid::new_v4(),
+        account_id: Uuid::new_v4(),
+        portfolio_id: Uuid::new_v4(),
+        trade_id: None,
+        reason: LedgerReason::WeeklyTopup,
+        amount_delta: Decimal::new(100_0000, 4),
+        balance_after: Decimal::new(10_100_0000, 4),
+        source_request_id: Some("topup_123".to_owned()),
+        created_at: chrono::Utc::now(),
     }
 }
 

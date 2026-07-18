@@ -20,7 +20,7 @@ Ingestion answers: "What did the outside world say?"
 - `market_values`: external player market-value data.
 - `fixtures`: fixture, lineup, and match-status data.
 - `stats`: player performance data from external providers.
-- Future `betting_markets`: pre-match bookmaker/exchange odds and implied-probability snapshots.
+- `betting_markets`: licensed pre-match Bet365 1X2 odds and implied-probability snapshots.
 - Future `social`: social mention and post data from external providers.
 - Future `news`: football news and transfer-rumor data.
 - `fbref`: isolated FBref client, parser, raw-page cache, and provider service.
@@ -79,13 +79,14 @@ Player and valuation ingestion should be idempotent.
 - A market-value sync should append a new observed value when the provider value or observation timestamp changes. It should not overwrite history.
 - Instrument creation should be a separate seeding step that reads canonical players plus the latest accepted market value.
 
-## Future Betting Market Reads
+## Betting Market Reads
 
-Future versions may ingest pre-match betting market data as another external signal source.
+The current Bet365 adapter ingests licensed pre-match 1X2 snapshots through a configured
+feed or internal proxy. Additional markets require a separate schema and provider review.
 
 Scope:
 
-- Match-level 1X2, draw-no-bet, Asian handicap, total goals, both-teams-to-score, and correct-score markets.
+- Match-level 1X2 is implemented. Draw-no-bet, Asian handicap, total goals, both-teams-to-score, and correct-score markets remain future work.
 - Team and player prop markets only if the provider licensing and coverage are clear.
 - Bookmaker or exchange name, market type, selection, odds, currency where applicable, observed timestamp, and fixture/provider IDs.
 - Derived implied probabilities after removing or recording bookmaker margin.

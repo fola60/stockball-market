@@ -10,6 +10,7 @@ Stores database migration files.
 - Seed minimal test data where appropriate.
 - Seed reusable synthetic trader strategy profiles where worker defaults need to exist in every environment.
 - Preserve repeatable database setup from a clean environment.
+- Store betting-market odds observations through deterministic migrations.
 
 ## Boundaries
 

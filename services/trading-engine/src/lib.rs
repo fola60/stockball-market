@@ -10,3 +10,4 @@ pub mod portfolios;
 pub mod positions;
 pub mod price_impact;
 pub mod snapshots;
+pub mod topups;

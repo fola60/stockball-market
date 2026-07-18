@@ -16,6 +16,7 @@ class JobType(StrEnum):
     INGEST_FIXTURES = "INGEST_FIXTURES"
     INGEST_PLAYER_STATS = "INGEST_PLAYER_STATS"
     IMPORT_MARKET_VALUES = "IMPORT_MARKET_VALUES"
+    INGEST_BET365_ODDS = "INGEST_BET365_ODDS"
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,19 @@ class IngestPlayerStatsJobPayload:
 
 
 @dataclass(frozen=True)
+class IngestBet365OddsJobPayload:
+    league: str | None = None
+
+    def to_payload(self) -> dict[str, str]:
+        return {} if self.league is None else {"league": self.league}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IngestBet365OddsJobPayload":
+        value = payload.get("league")
+        return cls(league=None if value is None else str(value))
+
+
+@dataclass(frozen=True)
 class WorkerJob:
     job_type: JobType
     payload: Mapping[str, Any]
@@ -172,6 +186,10 @@ class WorkerJob:
             job_type=JobType.INGEST_PLAYER_STATS,
             payload=payload.to_payload(),
         )
+
+    @classmethod
+    def ingest_bet365_odds(cls, payload: IngestBet365OddsJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.INGEST_BET365_ODDS, payload=payload.to_payload())
 
     def with_attempt(self, attempt: int) -> "WorkerJob":
         return WorkerJob(job_type=self.job_type, payload=self.payload, attempt=attempt)

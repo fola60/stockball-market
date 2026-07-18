@@ -4,7 +4,9 @@ use sqlx::PgPool;
 use crate::{
     execution::{self, ExecuteOrderResult, ExecutionError},
     instruments::{self, InstrumentError, SeedPlayerSharesResult},
+    ledger::CashLedgerEntry,
     orders::ExecuteOrderCommand,
+    topups::{self, ApplyTopupCommand, TopupError},
 };
 
 #[async_trait]
@@ -15,6 +17,8 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
     ) -> Result<ExecuteOrderResult, ExecutionError>;
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError>;
+
+    async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError>;
 }
 
 #[derive(Debug, Clone)]
@@ -39,5 +43,9 @@ impl OrderExecutor for SqlOrderExecutor {
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError> {
         instruments::seed_player_shares(&self.pool).await
+    }
+
+    async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError> {
+        topups::apply_topup(&self.pool, command).await
     }
 }

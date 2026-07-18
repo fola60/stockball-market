@@ -9,6 +9,7 @@ Redis stores jobs. This module executes them.
 ## Responsibilities
 
 - Run ingestion jobs.
+- Run opt-in licensed Bet365 odds-ingestion jobs.
 - Run synthetic trader ticks.
 - Run top-up jobs.
 - Run fixture freeze checks.

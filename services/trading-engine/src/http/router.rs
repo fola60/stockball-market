@@ -6,8 +6,8 @@ use axum::{
 };
 
 use crate::http::{
-    error::ApiError, executor::OrderExecutor, ExecuteOrderRequest, ExecuteOrderResponse,
-    SeedPlayerSharesResponse,
+    error::ApiError, executor::OrderExecutor, ApplyTopupRequest, ApplyTopupResponse,
+    ExecuteOrderRequest, ExecuteOrderResponse, SeedPlayerSharesResponse,
 };
 
 #[derive(Debug, Clone)]
@@ -31,6 +31,7 @@ where
             "/internal/v1/instruments/player-shares/seed",
             post(seed_player_shares::<E>),
         )
+        .route("/internal/v1/ledger/topups/apply", post(apply_topup::<E>))
         .with_state(state)
 }
 
@@ -52,6 +53,17 @@ where
     E: OrderExecutor,
 {
     let result = state.executor.seed_player_shares().await?;
+    Ok(Json(result))
+}
+
+async fn apply_topup<E>(
+    State(state): State<AppState<E>>,
+    JsonBody(request): JsonBody<ApplyTopupRequest>,
+) -> Result<Json<ApplyTopupResponse>, ApiError>
+where
+    E: OrderExecutor,
+{
+    let result = state.executor.apply_topup(request).await?;
     Ok(Json(result))
 }
 

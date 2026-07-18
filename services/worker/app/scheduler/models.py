@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
-from app.jobs.models import SyntheticTraderTickJobPayload, TopupJobPayload, WorkerJob
+from app.jobs.models import IngestBet365OddsJobPayload, SyntheticTraderTickJobPayload, TopupJobPayload, WorkerJob
 from app.jobs.models import JobType
 from app.topups.models import TopupCadence, TopupWindow
 
@@ -58,6 +58,21 @@ class SyntheticTraderTickPlan:
 
 
 @dataclass(frozen=True)
+class Bet365OddsIngestionPlan:
+    name: str = "bet365-odds"
+    interval_minutes: int = 15
+    enabled: bool = False
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        normalized = _normalize_tick_time(effective_at)
+        minute = normalized.minute - (normalized.minute % self.interval_minutes)
+        return normalized.replace(minute=minute).isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob.ingest_bet365_odds(IngestBet365OddsJobPayload())
+
+
+@dataclass(frozen=True)
 class ScheduledJobDecision:
     schedule_name: str
     job_type: JobType
@@ -65,11 +80,12 @@ class ScheduledJobDecision:
     job: WorkerJob
 
 
-def default_scheduler_plans() -> tuple[SchedulePlan, ...]:
+def default_scheduler_plans(bet365_enabled: bool = False) -> tuple[SchedulePlan, ...]:
     return (
         RecurringTopupPlan(name="weekly-topups", cadence=TopupCadence.WEEKLY),
         RecurringTopupPlan(name="monthly-topups", cadence=TopupCadence.MONTHLY),
         SyntheticTraderTickPlan(),
+        Bet365OddsIngestionPlan(enabled=bet365_enabled),
     )
 
 

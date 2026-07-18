@@ -10,7 +10,7 @@ use crate::{
     execution::ExecutionError, freezes::FreezeError, http::dto::ErrorResponse,
     idempotency::IdempotencyError, instruments::InstrumentError, ledger::LedgerError,
     orders::OrderError, portfolios::PortfolioError, positions::PositionError,
-    price_impact::PriceImpactError, snapshots::SnapshotError,
+    price_impact::PriceImpactError, snapshots::SnapshotError, topups::TopupError,
 };
 
 #[derive(Debug)]
@@ -84,6 +84,38 @@ impl From<ExecutionError> for ApiError {
 impl From<InstrumentError> for ApiError {
     fn from(error: InstrumentError) -> Self {
         instrument_error(error)
+    }
+}
+
+impl From<TopupError> for ApiError {
+    fn from(error: TopupError) -> Self {
+        match error {
+            TopupError::EmptyRequestId => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "empty_request_id",
+                "request_id must not be empty.",
+                None,
+            ),
+            TopupError::NonPositiveAmount(amount) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "non_positive_amount",
+                "top-up amount must be greater than zero.",
+                Some(json!({ "amount": amount })),
+            ),
+            TopupError::UnsupportedReason => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "unsupported_topup_reason",
+                "top-ups only support WEEKLY_TOPUP or MONTHLY_TOPUP reasons.",
+                None,
+            ),
+            TopupError::Idempotency(error) => idempotency_error(error),
+            TopupError::Ledger(error) => ledger_error(error),
+            TopupError::Database(error) => internal_error(
+                "database_error",
+                "Unexpected database error while applying top-up.",
+                Some(json!({ "error": error.to_string() })),
+            ),
+        }
     }
 }
 

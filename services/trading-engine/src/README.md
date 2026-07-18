@@ -10,6 +10,7 @@ Contains the Rust modules that implement market execution and state mutation.
 - `execution`: buy/sell execution orchestration.
 - `price_impact`: V1 price movement formula.
 - `ledger`: cash movements and audit entries.
+- `topups`: validated, idempotent weekly and monthly ledger credits.
 - `portfolios`: portfolio summary and cash balance coordination.
 - `positions`: account exposure to tradable instruments.
 - `instruments`: tradable instrument state.
