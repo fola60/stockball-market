@@ -20,10 +20,19 @@ FBREF_BASE_URL_ENV = "STOCKBALL_FBREF_BASE_URL"
 FBREF_REQUEST_INTERVAL_ENV = "STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS"
 FBREF_USER_AGENT_ENV = "STOCKBALL_FBREF_USER_AGENT"
 FBREF_CACHE_TTL_SECONDS_ENV = "STOCKBALL_FBREF_CACHE_TTL_SECONDS"
-BET365_ODDS_URL_ENV = "STOCKBALL_BET365_ODDS_URL"
-BET365_API_TOKEN_ENV = "STOCKBALL_BET365_API_TOKEN"
-BET365_REQUEST_INTERVAL_ENV = "STOCKBALL_BET365_REQUEST_INTERVAL_SECONDS"
 BET365_SCHEDULE_ENABLED_ENV = "STOCKBALL_BET365_SCHEDULE_ENABLED"
+BET365_POLICY_ACKNOWLEDGED_ENV = "STOCKBALL_BET365_POLICY_ACKNOWLEDGED"
+BET365_WEBSITE_URL_ENV = "STOCKBALL_BET365_WEBSITE_URL"
+BET365_WEBSITE_NAVIGATION_INTERVAL_ENV = (
+    "STOCKBALL_BET365_WEBSITE_NAVIGATION_INTERVAL_SECONDS"
+)
+BET365_COMPETITION_NAME_ENV = "STOCKBALL_BET365_COMPETITION_NAME"
+BET365_MAX_MATCHES_ENV = "STOCKBALL_BET365_MAX_MATCHES"
+BET365_PRE_MATCH_CUTOFF_MINUTES_ENV = "STOCKBALL_BET365_PRE_MATCH_CUTOFF_MINUTES"
+BET365_BROWSER_ENABLED_ENV = "STOCKBALL_BET365_BROWSER_ENABLED"
+BET365_BROWSER_USER_DATA_DIR_ENV = "STOCKBALL_BET365_BROWSER_USER_DATA_DIR"
+BET365_BROWSER_PROFILE_DIRECTORY_ENV = "STOCKBALL_BET365_BROWSER_PROFILE_DIRECTORY"
+BET365_BROWSER_IDLE_SECONDS_ENV = "STOCKBALL_BET365_BROWSER_IDLE_SECONDS"
 TWITTER_BEARER_TOKEN_ENV = "STOCKBALL_TWITTER_BEARER_TOKEN"
 TWITTER_SEARCH_QUERY_ENV = "STOCKBALL_TWITTER_SEARCH_QUERY"
 TWITTER_QUERY_KEY_ENV = "STOCKBALL_TWITTER_QUERY_KEY"
@@ -34,6 +43,9 @@ TWITTER_MAX_RESULTS_ENV = "STOCKBALL_TWITTER_MAX_RESULTS"
 TWITTER_MAX_PAGES_ENV = "STOCKBALL_TWITTER_MAX_PAGES_PER_POLL"
 TWITTER_SCHEDULE_ENABLED_ENV = "STOCKBALL_TWITTER_INJURY_SCHEDULE_ENABLED"
 TWITTER_SCHEDULE_INTERVAL_MINUTES_ENV = "STOCKBALL_TWITTER_INJURY_SCHEDULE_INTERVAL_MINUTES"
+TWITTER_BROWSER_ENABLED_ENV = "STOCKBALL_TWITTER_BROWSER_ENABLED"
+TWITTER_BROWSER_USER_DATA_DIR_ENV = "STOCKBALL_TWITTER_BROWSER_USER_DATA_DIR"
+TWITTER_BROWSER_PROFILE_DIRECTORY_ENV = "STOCKBALL_TWITTER_BROWSER_PROFILE_DIRECTORY"
 SCHEDULER_POLL_SECONDS_ENV = "STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS"
 WORKER_BLOCK_SECONDS_ENV = "STOCKBALL_WORKER_BLOCK_SECONDS"
 RETRY_DELAY_SECONDS_ENV = "STOCKBALL_WORKER_RETRY_DELAY_SECONDS"
@@ -53,7 +65,12 @@ DEFAULT_FBREF_USER_AGENT = (
     "(contact: engineering@stockball.local; provider=FBREF)"
 )
 DEFAULT_FBREF_CACHE_TTL_SECONDS = 24 * 60 * 60
-DEFAULT_BET365_REQUEST_INTERVAL_SECONDS = 60.0
+DEFAULT_BET365_WEBSITE_URL = "https://www.bet365.com/#/HO/"
+DEFAULT_BET365_WEBSITE_NAVIGATION_INTERVAL_SECONDS = 5.0
+DEFAULT_BET365_COMPETITION_NAME = "Premier League"
+DEFAULT_BET365_MAX_MATCHES = 20
+DEFAULT_BET365_PRE_MATCH_CUTOFF_MINUTES = 5
+DEFAULT_BET365_BROWSER_IDLE_SECONDS = 3.0
 DEFAULT_TWITTER_REQUEST_INTERVAL_SECONDS = 1.0
 DEFAULT_TWITTER_MAX_RATE_LIMIT_SLEEP_SECONDS = 60.0
 DEFAULT_TWITTER_MAX_RESULTS = 100
@@ -77,10 +94,19 @@ class Settings:
     fbref_request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS
     fbref_user_agent: str = DEFAULT_FBREF_USER_AGENT
     fbref_cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS
-    bet365_odds_url: str | None = None
-    bet365_api_token: str | None = None
-    bet365_request_interval_seconds: float = DEFAULT_BET365_REQUEST_INTERVAL_SECONDS
     bet365_schedule_enabled: bool = False
+    bet365_policy_acknowledged: bool = False
+    bet365_website_url: str = DEFAULT_BET365_WEBSITE_URL
+    bet365_website_navigation_interval_seconds: float = (
+        DEFAULT_BET365_WEBSITE_NAVIGATION_INTERVAL_SECONDS
+    )
+    bet365_competition_name: str = DEFAULT_BET365_COMPETITION_NAME
+    bet365_max_matches: int = DEFAULT_BET365_MAX_MATCHES
+    bet365_pre_match_cutoff_minutes: int = DEFAULT_BET365_PRE_MATCH_CUTOFF_MINUTES
+    bet365_browser_enabled: bool = False
+    bet365_browser_user_data_dir: str | None = None
+    bet365_browser_profile_directory: str | None = None
+    bet365_browser_idle_seconds: float = DEFAULT_BET365_BROWSER_IDLE_SECONDS
     twitter_bearer_token: str | None = None
     twitter_search_query: str | None = None
     twitter_query_key: str | None = None
@@ -91,6 +117,9 @@ class Settings:
     twitter_max_pages_per_poll: int = DEFAULT_TWITTER_MAX_PAGES_PER_POLL
     twitter_injury_schedule_enabled: bool = False
     twitter_injury_schedule_interval_minutes: int = DEFAULT_TWITTER_SCHEDULE_INTERVAL_MINUTES
+    twitter_browser_enabled: bool = False
+    twitter_browser_user_data_dir: str | None = None
+    twitter_browser_profile_directory: str | None = None
     queue_name: str = DEFAULT_QUEUE_NAME
     retry_queue_name: str = DEFAULT_RETRY_QUEUE_NAME
     schedule_claim_prefix: str = DEFAULT_SCHEDULE_CLAIM_PREFIX
@@ -124,12 +153,29 @@ class Settings:
                 FBREF_CACHE_TTL_SECONDS_ENV,
                 DEFAULT_FBREF_CACHE_TTL_SECONDS,
             ),
-            bet365_odds_url=os.getenv(BET365_ODDS_URL_ENV),
-            bet365_api_token=os.getenv(BET365_API_TOKEN_ENV),
-            bet365_request_interval_seconds=_float_env(
-                BET365_REQUEST_INTERVAL_ENV, DEFAULT_BET365_REQUEST_INTERVAL_SECONDS
-            ),
             bet365_schedule_enabled=_bool_env(BET365_SCHEDULE_ENABLED_ENV, False),
+            bet365_policy_acknowledged=_bool_env(BET365_POLICY_ACKNOWLEDGED_ENV, False),
+            bet365_website_url=os.getenv(BET365_WEBSITE_URL_ENV, DEFAULT_BET365_WEBSITE_URL),
+            bet365_website_navigation_interval_seconds=_float_env(
+                BET365_WEBSITE_NAVIGATION_INTERVAL_ENV,
+                DEFAULT_BET365_WEBSITE_NAVIGATION_INTERVAL_SECONDS,
+            ),
+            bet365_competition_name=os.getenv(
+                BET365_COMPETITION_NAME_ENV,
+                DEFAULT_BET365_COMPETITION_NAME,
+            ),
+            bet365_max_matches=_int_env(BET365_MAX_MATCHES_ENV, DEFAULT_BET365_MAX_MATCHES),
+            bet365_pre_match_cutoff_minutes=_int_env(
+                BET365_PRE_MATCH_CUTOFF_MINUTES_ENV,
+                DEFAULT_BET365_PRE_MATCH_CUTOFF_MINUTES,
+            ),
+            bet365_browser_enabled=_bool_env(BET365_BROWSER_ENABLED_ENV, False),
+            bet365_browser_user_data_dir=os.getenv(BET365_BROWSER_USER_DATA_DIR_ENV),
+            bet365_browser_profile_directory=os.getenv(BET365_BROWSER_PROFILE_DIRECTORY_ENV),
+            bet365_browser_idle_seconds=_float_env(
+                BET365_BROWSER_IDLE_SECONDS_ENV,
+                DEFAULT_BET365_BROWSER_IDLE_SECONDS,
+            ),
             twitter_bearer_token=os.getenv(TWITTER_BEARER_TOKEN_ENV),
             twitter_search_query=os.getenv(TWITTER_SEARCH_QUERY_ENV),
             twitter_query_key=os.getenv(TWITTER_QUERY_KEY_ENV),
@@ -148,6 +194,9 @@ class Settings:
                 DEFAULT_TWITTER_MAX_PAGES_PER_POLL,
             ),
             twitter_injury_schedule_enabled=_bool_env(TWITTER_SCHEDULE_ENABLED_ENV, False),
+            twitter_browser_enabled=_bool_env(TWITTER_BROWSER_ENABLED_ENV, False),
+            twitter_browser_user_data_dir=os.getenv(TWITTER_BROWSER_USER_DATA_DIR_ENV),
+            twitter_browser_profile_directory=os.getenv(TWITTER_BROWSER_PROFILE_DIRECTORY_ENV),
             twitter_injury_schedule_interval_minutes=_int_env(
                 TWITTER_SCHEDULE_INTERVAL_MINUTES_ENV,
                 DEFAULT_TWITTER_SCHEDULE_INTERVAL_MINUTES,

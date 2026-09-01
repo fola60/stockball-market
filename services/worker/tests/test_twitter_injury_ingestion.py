@@ -31,6 +31,7 @@ from app.ingestion.social.twitter import (
     TwitterTransientError,
     load_registry,
 )
+from app.ingestion.social.twitter.parser import parse_search_page_html
 from app.jobs import (
     IngestTwitterInjuriesJobHandler,
     IngestTwitterInjuriesJobPayload,
@@ -43,6 +44,80 @@ from app.scheduler.models import TwitterInjuryIngestionPlan
 
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
 PLAYER_ID = UUID("00000000-0000-0000-0000-000000000101")
+
+_SINGLE_TWEET_HTML = """\
+<!DOCTYPE html>
+<html><head></head><body>
+<article data-testid="tweet">
+  <div data-testid="Tweet-User-Avatar">
+    <div data-testid="UserAvatar-Container-reporter1">
+      <a href="https://x.com/reporter1"></a>
+    </div>
+  </div>
+  <div data-testid="User-Name">
+    <a href="https://x.com/reporter1" role="link">
+      <span>Reporter One</span>
+    </a>
+  </div>
+  <div data-testid="tweetText">Bukayo Saka returned to training today.</div>
+  <time datetime="2026-07-18T11:00:00Z">Jul 18</time>
+  <div role="group" aria-label="5 replies, 12 reposts, 80 likes, 3 bookmarks, 1200 views">
+  </div>
+  <a href="https://x.com/reporter1/status/200"></a>
+</article>
+</body></html>
+"""
+
+_TWO_TWEET_HTML = """\
+<!DOCTYPE html>
+<html><head></head><body>
+<article data-testid="tweet">
+  <div data-testid="Tweet-User-Avatar">
+    <div data-testid="UserAvatar-Container-reporter1">
+      <a href="https://x.com/reporter1"></a>
+    </div>
+  </div>
+  <div data-testid="User-Name">
+    <a href="https://x.com/reporter1" role="link">
+      <span>Reporter One</span>
+    </a>
+  </div>
+  <div data-testid="tweetText">Saka hamstring update: out for 2-3 weeks.</div>
+  <time datetime="2026-07-18T11:00:00Z">Jul 18</time>
+  <div role="group" aria-label="10 replies, 20 reposts, 150 likes, 5 bookmarks, 3000 views">
+  </div>
+  <a href="https://x.com/reporter1/status/300"></a>
+</article>
+<article data-testid="tweet">
+  <div data-testid="Tweet-User-Avatar">
+    <div data-testid="UserAvatar-Container-reporter2">
+      <a href="https://x.com/reporter2"></a>
+    </div>
+  </div>
+  <div data-testid="User-Name">
+    <a href="https://x.com/reporter2" role="link">
+      <span>Reporter Two</span>
+    </a>
+  </div>
+  <div data-testid="tweetText">Martin Odegaard back in full training.</div>
+  <time datetime="2026-07-18T10:00:00Z">Jul 18</time>
+  <div role="group" aria-label="3 replies, 8 reposts, 45 likes, 1 bookmark, 800 views">
+  </div>
+  <a href="https://x.com/reporter2/status/250"></a>
+</article>
+</body></html>
+"""
+
+_EMPTY_HTML = """\
+<!DOCTYPE html>
+<html><head></head><body>
+<div>Nothing here</div>
+</body></html>
+"""
+
+
+def _html_response(html: str) -> bytes:
+    return html.encode("utf-8")
 
 
 class RuleBasedInjuryClassifierTests(unittest.TestCase):
@@ -237,74 +312,134 @@ class InjuryEpisodeStateMachineTests(unittest.TestCase):
         self.assertEqual(decision.stage, InjuryStage.CONFIRMED_RECOVERED)
 
 
+class HTMLParserTests(unittest.TestCase):
+    def test_parses_single_tweet(self) -> None:
+        page = parse_search_page_html(_SINGLE_TWEET_HTML)
+
+        self.assertEqual(len(page.posts), 1)
+        post = page.posts[0]
+        self.assertEqual(post.post_id, "200")
+        self.assertEqual(post.author_id, "reporter1")
+        self.assertEqual(post.text, "Bukayo Saka returned to training today.")
+        self.assertEqual(post.created_at, datetime(2026, 7, 18, 11, 0, tzinfo=UTC))
+        self.assertIsNone(post.conversation_id)
+        self.assertEqual(post.referenced_post_ids, ())
+        self.assertEqual(post.edit_history_post_ids, ())
+        self.assertEqual(page.newest_id, "200")
+        self.assertIsNone(page.next_token)
+
+    def test_parses_multiple_tweets_sorted_by_id(self) -> None:
+        page = parse_search_page_html(_TWO_TWEET_HTML)
+
+        self.assertEqual(len(page.posts), 2)
+        self.assertEqual(page.posts[0].post_id, "300")
+        self.assertEqual(page.posts[1].post_id, "250")
+        self.assertEqual(page.newest_id, "300")
+
+    def test_since_id_filters_older_posts(self) -> None:
+        page = parse_search_page_html(_TWO_TWEET_HTML, since_id="270")
+
+        self.assertEqual(len(page.posts), 1)
+        self.assertEqual(page.posts[0].post_id, "300")
+
+    def test_empty_html_returns_no_posts(self) -> None:
+        page = parse_search_page_html(_EMPTY_HTML)
+
+        self.assertEqual(len(page.posts), 0)
+        self.assertIsNone(page.newest_id)
+        self.assertIsNone(page.next_token)
+
+    def test_extracts_engagement_metrics_from_group_label(self) -> None:
+        page = parse_search_page_html(_SINGLE_TWEET_HTML)
+        self.assertEqual(len(page.posts), 1)
+
+
 class TwitterRecentSearchClientTests(unittest.TestCase):
-    def test_uses_only_recent_search_and_minimal_post_fields(self) -> None:
+    def test_search_page_fetches_html_and_parses(self) -> None:
         requests: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             requests.append(request)
             return httpx.Response(
                 200,
-                headers={
-                    "x-rate-limit-limit": "450",
-                    "x-rate-limit-remaining": "449",
-                    "x-rate-limit-reset": "1784379600",
-                },
-                json={
-                    "data": [{
-                        "id": "200",
-                        "author_id": "10",
-                        "text": "Bukayo Saka returned to training",
-                        "created_at": "2026-07-18T11:00:00Z",
-                        "lang": "en",
-                        "conversation_id": "199",
-                    }],
-                    "meta": {"newest_id": "200"},
-                },
+                content=_html_response(_SINGLE_TWEET_HTML),
+                headers={"content-type": "text/html; charset=utf-8"},
             )
 
         client = TwitterRecentSearchClient(
-            "token",
             policy_acknowledged=True,
             request_interval_seconds=0,
             transport=httpx.MockTransport(handler),
         )
         page = client.search_page("injury -is:retweet", since_id="100")
 
-        self.assertEqual(requests[0].url.path, "/2/tweets/search/recent")
-        self.assertEqual(requests[0].url.params["since_id"], "100")
-        self.assertNotIn("expansions", requests[0].url.params)
-        self.assertNotIn("user.fields", requests[0].url.params)
-        self.assertEqual(page.posts[0].author_id, "10")
-        self.assertNotIn("text", page.posts[0].terms_compatible_metadata)
+        self.assertEqual(requests[0].url.host, "x.com")
+        self.assertEqual(requests[0].url.path, "/search")
+        self.assertIn("q=injury", str(requests[0].url))
+        self.assertEqual(page.posts[0].author_id, "reporter1")
+        self.assertEqual(page.posts[0].post_id, "200")
 
-    def test_429_uses_reset_header_then_retries_once(self) -> None:
-        calls = 0
-        sleeps: list[float] = []
+    def test_raises_when_policy_not_acknowledged(self) -> None:
+        client = TwitterRecentSearchClient(
+            policy_acknowledged=False,
+            request_interval_seconds=0,
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, html="")),
+        )
 
+        with self.assertRaises(Exception):
+            client.search_page("injury")
+
+    def test_403_raises_access_denied(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                return httpx.Response(
-                    429,
-                    headers={"x-rate-limit-reset": str(int(NOW.timestamp()) + 2)},
-                )
-            return httpx.Response(200, json={"data": [], "meta": {}})
+            return httpx.Response(403, text="Forbidden")
 
         client = TwitterRecentSearchClient(
-            "token",
             policy_acknowledged=True,
             request_interval_seconds=0,
-            max_rate_limit_sleep_seconds=5,
             transport=httpx.MockTransport(handler),
+        )
+
+        with self.assertRaises(Exception):
+            client.search_page("injury")
+
+    def test_500_raises_transient_error(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="Server Error")
+
+        client = TwitterRecentSearchClient(
+            policy_acknowledged=True,
+            request_interval_seconds=0,
+            transport=httpx.MockTransport(handler),
+        )
+
+        with self.assertRaises(TwitterTransientError):
+            client.search_page("injury")
+
+    def test_throttle_waits_between_requests(self) -> None:
+        sleeps: list[float] = []
+        clock_values = iter([100.0, 101.0, 102.5])
+
+        def mock_clock() -> float:
+            return next(clock_values)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=_html_response(_SINGLE_TWEET_HTML),
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+
+        client = TwitterRecentSearchClient(
+            policy_acknowledged=True,
+            request_interval_seconds=1.5,
             sleeper=sleeps.append,
-            utc_clock=lambda: NOW,
+            monotonic_clock=mock_clock,
+            transport=httpx.MockTransport(handler),
         )
         client.search_page("injury")
+        client.search_page("injury")
 
-        self.assertEqual(calls, 2)
-        self.assertEqual(sleeps, [3.0])
+        self.assertEqual(sleeps, [0.5])
 
 
 class CursorServiceTests(unittest.TestCase):

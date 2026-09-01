@@ -8,7 +8,12 @@ from pathlib import Path
 from app.clients import ApiClientError, ApiUnavailableError, HttpApiClient, HttpTradingEngineClient
 from app.config import FbrefIngestionSettings, DatabaseSettings, Settings
 from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
-from app.ingestion.betting_markets import Bet365Client, Bet365IngestionError, BettingMarketIngestionService, PostgresBettingMarketRepository
+from app.ingestion.betting_markets import (
+    Bet365Client,
+    Bet365IngestionError,
+    BettingMarketIngestionService,
+    PostgresBettingMarketRepository,
+)
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
 from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
@@ -153,7 +158,10 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_env()
         _configure_logging(args.log_level)
         try:
-            result = _build_bet365_ingestion_service(settings).ingest_pre_match_1x2(args.league)
+            result = _build_bet365_ingestion_service(
+                settings,
+                max_matches_override=args.max_matches,
+            ).ingest_pre_match_1x2(args.league)
         except Bet365IngestionError as error:
             print(f"Bet365 odds ingestion unavailable: {error}")
             return 1
@@ -320,9 +328,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ingest_bet365 = subcommands.add_parser(
         "ingest-bet365-odds",
-        help="ingest licensed Bet365 pre-match 1X2 odds through the configured feed",
+        help="discover and ingest Bet365 pre-match 1X2 odds from the rendered website",
     )
-    ingest_bet365.add_argument("--league", help="optional licensed-feed league filter")
+    ingest_bet365.add_argument(
+        "--league",
+        help="website competition name; PL maps to Premier League",
+    )
+    ingest_bet365.add_argument(
+        "--max-matches",
+        type=_positive_int,
+        help="maximum fixture pages to inspect during this run",
+    )
     ingest_bet365.add_argument("--log-level", default="INFO")
     sync_twitter_registry = subcommands.add_parser(
         "sync-twitter-injury-registry",
@@ -446,6 +462,13 @@ def _configure_logging(log_level: str) -> None:
     )
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return parsed
+
+
 def _print_provider_access_error(error: FbrefAccessDeniedError) -> None:
     logging.getLogger(__name__).error("FBref ingestion access denied", extra={"error": str(error)})
     print(
@@ -465,7 +488,9 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
         claim_store=claim_store,
         plans=default_scheduler_plans(
             bet365_enabled=(
-                settings.bet365_schedule_enabled and bool(settings.bet365_odds_url)
+                settings.bet365_schedule_enabled
+                and settings.bet365_policy_acknowledged
+                and settings.bet365_browser_enabled
             ),
             twitter_injury_enabled=(
                 settings.twitter_injury_schedule_enabled
@@ -568,13 +593,29 @@ def _build_market_value_import_service(settings: DatabaseSettings) -> MarketValu
     )
 
 
-def _build_bet365_ingestion_service(settings: Settings) -> BettingMarketIngestionService:
-    return BettingMarketIngestionService(
-        client=Bet365Client(
-            base_url=settings.bet365_odds_url,
-            api_token=settings.bet365_api_token,
-            request_interval_seconds=settings.bet365_request_interval_seconds,
+def _build_bet365_ingestion_service(
+    settings: Settings,
+    *,
+    max_matches_override: int | None = None,
+) -> BettingMarketIngestionService:
+    client = Bet365Client(
+        policy_acknowledged=settings.bet365_policy_acknowledged,
+        browser_enabled=settings.bet365_browser_enabled,
+        homepage_url=settings.bet365_website_url,
+        competition_name=settings.bet365_competition_name,
+        max_matches=(
+            max_matches_override
+            if max_matches_override is not None
+            else settings.bet365_max_matches
         ),
+        pre_match_cutoff_minutes=settings.bet365_pre_match_cutoff_minutes,
+        request_interval_seconds=settings.bet365_website_navigation_interval_seconds,
+        browser_idle_seconds=settings.bet365_browser_idle_seconds,
+        browser_user_data_dir=settings.bet365_browser_user_data_dir,
+        browser_profile_directory=settings.bet365_browser_profile_directory,
+    )
+    return BettingMarketIngestionService(
+        client=client,
         repository=PostgresBettingMarketRepository(settings.database_url),
     )
 
@@ -582,11 +623,12 @@ def _build_bet365_ingestion_service(settings: Settings) -> BettingMarketIngestio
 def _build_twitter_injury_ingestion_service(settings: Settings) -> TwitterInjuryIngestionService:
     return TwitterInjuryIngestionService(
         client=TwitterRecentSearchClient(
-            settings.twitter_bearer_token,
             policy_acknowledged=settings.twitter_policy_acknowledged,
             request_interval_seconds=settings.twitter_request_interval_seconds,
-            max_rate_limit_sleep_seconds=settings.twitter_max_rate_limit_sleep_seconds,
             max_results=settings.twitter_max_results,
+            browser_enabled=settings.twitter_browser_enabled,
+            browser_user_data_dir=settings.twitter_browser_user_data_dir,
+            browser_profile_directory=settings.twitter_browser_profile_directory,
         ),
         repository=PostgresTwitterInjuryRepository(settings.database_url),
         max_pages_per_poll=settings.twitter_max_pages_per_poll,

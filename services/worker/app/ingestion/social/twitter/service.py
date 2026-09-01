@@ -64,6 +64,7 @@ class TwitterInjuryIngestionService:
 
         sources = self._repository.list_source_accounts()
         sources_by_user_id = {source.twitter_user_id: source for source in sources}
+        sources_by_username = {source.username.lower(): source for source in sources}
         resolver = PlayerResolver(self._repository.list_player_candidates())
 
         counts = {
@@ -89,6 +90,8 @@ class TwitterInjuryIngestionService:
             pending_newest_id = pending_newest_id or page.newest_id
             for post in page.posts:
                 source = sources_by_user_id.get(post.author_id)
+                if source is None:
+                    source = sources_by_username.get(post.author_id.lower())
                 if source is None:
                     counts["skipped_posts"] += 1
                     continue

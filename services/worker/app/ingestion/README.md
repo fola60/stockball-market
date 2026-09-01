@@ -20,11 +20,12 @@ Ingestion answers: "What did the outside world say?"
 - `market_values`: external player market-value data.
 - `fixtures`: fixture, lineup, and match-status data.
 - `stats`: player performance data from external providers.
-- `betting_markets`: licensed pre-match Bet365 1X2 odds and implied-probability snapshots.
+- `betting_markets`: opt-in rendered-page Bet365 1X2 odds snapshots.
 - `social/twitter`: opt-in approved-X-API injury episodes and availability observations.
 - Future broader `social`: social mention and sentiment data from approved providers.
 - Future `news`: football news and transfer-rumor data.
 - `fbref`: isolated FBref client, parser, raw-page cache, and provider service.
+- `fetch`: provider-neutral, host-allowlisted content-fetching boundary for approved URLs.
 - `providers`: shared provider exports.
 
 ## V1 Player Universe And Valuation Approach
@@ -82,8 +83,9 @@ Player and valuation ingestion should be idempotent.
 
 ## Betting Market Reads
 
-The current Bet365 adapter ingests licensed pre-match 1X2 snapshots through a configured
-feed or internal proxy. Additional markets require a separate schema and provider review.
+The Bet365 adapter ingests pre-match 1X2 snapshots exclusively through explicitly
+approved rendered-page discovery. Additional markets require a separate schema and
+provider review.
 
 Scope:
 

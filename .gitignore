@@ -30,9 +30,16 @@ coverage/
 
 # Local downloaded market-value datasets
 services/worker/app/ingestion/market_values/archive*/
+services/worker/downloaded_files/
 
 # Local ingestion workspace/data
 services/worker/app/ingestion/*
+!services/worker/app/ingestion/betting_markets/
+!services/worker/app/ingestion/betting_markets/*.py
+!services/worker/app/ingestion/betting_markets/*.md
+!services/worker/app/ingestion/fetch/
+!services/worker/app/ingestion/fetch/*.py
+!services/worker/app/ingestion/fetch/*.md
 !services/worker/app/ingestion/social/
 !services/worker/app/ingestion/social/twitter/
 !services/worker/app/ingestion/social/twitter/*.py
