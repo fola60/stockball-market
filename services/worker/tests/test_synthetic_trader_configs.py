@@ -4,6 +4,7 @@ import unittest
 from uuid import uuid4
 
 from app.synthetic_traders import (
+    BettingMarketValueConfig,
     MarketMomentumConfig,
     NoiseConfig,
     PortfolioRebalancerConfig,
@@ -124,6 +125,30 @@ class SyntheticTraderConfigTests(unittest.TestCase):
         self.assertIsInstance(config, PortfolioRebalancerConfig)
         self.assertAlmostEqual(config.portfolio_targets.target_cash_pct, 0.15)
         self.assertEqual(config.risk.max_daily_trades, 12)
+
+    def test_parse_betting_market_value_config(self) -> None:
+        config = parse_strategy_config(
+            StrategyEngine.BETTING_MARKET_VALUE,
+            _betting_market_payload(),
+        )
+
+        self.assertIsInstance(config, BettingMarketValueConfig)
+        self.assertEqual(config.lookbacks.max_quote_age_minutes, 20)
+        self.assertEqual(config.betting_inputs.min_distinct_market_types, 2)
+
+    def test_betting_market_config_rejects_unknown_market_type(self) -> None:
+        payload = _betting_market_payload()
+        payload["betting_inputs"]["market_type_weights"]["PLAYER_HEIGHT"] = 0.1
+
+        with self.assertRaises(SyntheticTraderConfigError):
+            parse_strategy_config(StrategyEngine.BETTING_MARKET_VALUE, payload)
+
+    def test_betting_market_config_rejects_unreachable_market_coverage(self) -> None:
+        payload = _betting_market_payload()
+        payload["betting_inputs"]["min_distinct_market_types"] = 4
+
+        with self.assertRaises(SyntheticTraderConfigError):
+            parse_strategy_config(StrategyEngine.BETTING_MARKET_VALUE, payload)
 
     def test_invalid_execution_probability_raises(self) -> None:
         payload = _market_momentum_payload()
@@ -444,6 +469,75 @@ def _portfolio_payload() -> dict[str, object]:
             "trade_probability": 0.4,
             "size_noise_pct": 0.1,
             "max_orders_per_tick": 3,
+        },
+    }
+
+
+def _betting_market_payload() -> dict[str, object]:
+    return {
+        "universe": {
+            "max_candidates": 100,
+            "included_positions": ["FWD", "MID", "DEF", "GK"],
+            "excluded_positions": [],
+            "included_clubs": [],
+            "excluded_clubs": [],
+            "min_current_price": "0.0000",
+            "max_current_price": None,
+            "require_active_instrument": True,
+        },
+        "lookbacks": {
+            "movement_minutes": 60,
+            "max_quote_age_minutes": 20,
+        },
+        "signal_weights": {
+            "implied_probability_rank": 0.55,
+            "probability_movement": 0.3,
+            "cross_market_confirmation": 0.15,
+        },
+        "betting_inputs": {
+            "min_distinct_market_types": 2,
+            "min_observations_per_selection": 2,
+            "min_implied_probability": 0.05,
+            "movement_scale": 0.25,
+            "market_type_weights": {
+                "GOALSCORER": 0.35,
+                "SCORE_OR_ASSIST": 0.35,
+                "SHOTS_ON_TARGET": 0.3,
+            },
+        },
+        "decision": {
+            "buy_threshold": 0.5,
+            "sell_threshold": -0.5,
+            "min_confidence": 0.6,
+            "hold_band": 0.1,
+            "allow_sells": True,
+            "sell_only_if_position_exists": True,
+        },
+        "risk": {
+            "max_trade_cash_pct": 0.025,
+            "min_trade_cash_amount": "25.0000",
+            "max_trade_cash_amount": "1000.0000",
+            "max_player_position_pct": 0.1,
+            "max_team_exposure_pct": 0.25,
+            "min_cash_reserve_pct": 0.12,
+            "max_daily_trades": 8,
+            "max_daily_turnover_pct": 0.2,
+            "volatility_tolerance": 0.5,
+            "reduce_size_when_confidence_below": 0.7,
+        },
+        "sizing": {
+            "base_cash_pct": 0.015,
+            "confidence_multiplier": 0.8,
+            "movement_multiplier": 0.5,
+            "position_concentration_penalty": 0.8,
+        },
+        "execution": {
+            "tick_cadence_minutes": 10,
+            "cooldown_minutes": 45,
+            "decision_jitter_minutes": 5,
+            "trade_probability": 0.3,
+            "size_noise_pct": 0.1,
+            "max_orders_per_tick": 1,
         },
     }
 

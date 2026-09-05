@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -10,6 +10,7 @@ from app.clients.trading_engine import ExecuteOrderCommand, OrderExecutionRecord
 from app.synthetic_traders import (
     BotActivityContext,
     BotPortfolioContext,
+    BotPositionContext,
     BotStatus,
     BotTickContext,
     CandidateInstrumentContext,
@@ -79,10 +80,26 @@ class FakeSyntheticTraderRepository:
         self.activity = activity
         self.candidates = candidates
         self.calls: list[str] = []
+        self.list_due_calls: list[dict[str, object]] = []
         self.tick_updates: list[tuple[datetime, datetime]] = []
 
-    def list_due_bots(self, as_of: datetime, *, limit: int = 100):
+    def list_due_bots(
+        self,
+        as_of: datetime,
+        *,
+        limit: int = 100,
+        force_timing: bool = False,
+        bot_ids=(),
+    ):
         self.calls.append("list_due_bots")
+        self.list_due_calls.append(
+            {
+                "as_of": as_of,
+                "limit": limit,
+                "force_timing": force_timing,
+                "bot_ids": bot_ids,
+            }
+        )
         return self.bots[:limit]
 
     def get_bot_config(self, config_id):
@@ -97,7 +114,13 @@ class FakeSyntheticTraderRepository:
         self.calls.append("load_activity_context")
         return self.activity
 
-    def load_candidate_instruments(self, portfolio, as_of: datetime):
+    def load_candidate_instruments(
+        self,
+        portfolio,
+        as_of: datetime,
+        *,
+        betting_lookback_minutes: int | None = None,
+    ):
         self.calls.append("load_candidate_instruments")
         return self.candidates
 
@@ -257,6 +280,128 @@ class SyntheticTraderServiceTests(unittest.TestCase):
         self.assertEqual(result.submitted_count, 0)
         self.assertEqual(result.skipped_count, 1)
         self.assertEqual(client.commands, [])
+        self.assertEqual(result.diagnostics[0].rejection_reasons["below_min_trade"], 1)
+        self.assertEqual(result.diagnostics[0].rejection_reasons["position_unavailable"], 1)
+
+    def test_cash_recovery_sells_weakest_holding_before_strategy_orders(self) -> None:
+        candidate = replace(
+            self.candidate,
+            current_holding_quantity=Decimal("49.5"),
+            current_holding_value=Decimal("990"),
+        )
+        config = replace(
+            self.config,
+            config={
+                **self.config.config,
+                "risk": {
+                    **self.config.config["risk"],
+                    "min_cash_reserve_pct": 0.10,
+                },
+            },
+        )
+        repository = FakeSyntheticTraderRepository(
+            bot=self.bot,
+            config=config,
+            portfolio=BotPortfolioContext(
+                account_id=self.bot.account_id,
+                portfolio_id=self.bot.portfolio_id,
+                cash_balance=Decimal("10"),
+                total_position_value=Decimal("990"),
+                total_equity=Decimal("1000"),
+                positions=(
+                    BotPositionContext(
+                        instrument_id=candidate.instrument_id,
+                        player_id=candidate.player_id,
+                        club=candidate.club,
+                        quantity=Decimal("49.5"),
+                        current_price=Decimal("20"),
+                        market_value=Decimal("990"),
+                        unrealized_return_pct=-0.2,
+                    ),
+                ),
+            ),
+            activity=BotActivityContext(
+                daily_trade_count=0,
+                daily_turnover_cash=Decimal("0"),
+                last_order_at=None,
+            ),
+            candidates=(candidate,),
+        )
+        client = FakeTradingEngineClient()
+        service = SyntheticTraderService(
+            repository=repository,
+            trading_engine_client=client,
+            engine_registry={StrategyEngine.NOISE: StubEngine(())},
+        )
+
+        result = service.tick_due_bots(self.as_of)
+
+        self.assertEqual(result.submitted_count, 1)
+        self.assertEqual(client.commands[0].side, OrderSide.SELL)
+        self.assertEqual(client.commands[0].quantity, "10.000000")
+        self.assertEqual(result.diagnostics[0].recovery_decisions, 1)
+        self.assertEqual(result.diagnostics[0].recovery_orders, 1)
+
+    def test_forced_tick_targets_bots_and_bypasses_timing_and_daily_limit(self) -> None:
+        config = replace(
+            self.config,
+            config={
+                **self.config.config,
+                "execution": {
+                    **self.config.config["execution"],
+                    "cooldown_minutes": 60,
+                },
+            },
+        )
+        repository = FakeSyntheticTraderRepository(
+            bot=self.bot,
+            config=config,
+            portfolio=BotPortfolioContext(
+                account_id=self.bot.account_id,
+                portfolio_id=self.bot.portfolio_id,
+                cash_balance=Decimal("1000"),
+                total_position_value=Decimal("0"),
+                total_equity=Decimal("1000"),
+                positions=(),
+            ),
+            activity=BotActivityContext(
+                daily_trade_count=int(config.config["risk"]["max_daily_trades"]),
+                daily_turnover_cash=Decimal("0"),
+                last_order_at=self.as_of - timedelta(minutes=5),
+            ),
+            candidates=(self.candidate,),
+        )
+        client = FakeTradingEngineClient()
+        engine = StubEngine(
+            (
+                StrategyDecision(
+                    instrument_id=self.candidate.instrument_id,
+                    side=DecisionSide.BUY,
+                    alpha_score=0.9,
+                    expected_return=0.2,
+                    confidence=0.9,
+                    suggested_cash_pct=0.1,
+                    reason={"source": "test"},
+                ),
+            )
+        )
+        service = SyntheticTraderService(
+            repository=repository,
+            trading_engine_client=client,
+            engine_registry={StrategyEngine.NOISE: engine},
+        )
+
+        result = service.tick_due_bots(
+            self.as_of,
+            force_timing=True,
+            bot_ids=(self.bot.id,),
+        )
+
+        self.assertEqual(result.submitted_count, 1)
+        self.assertEqual(len(client.commands), 1)
+        self.assertTrue(repository.list_due_calls[0]["force_timing"])
+        self.assertEqual(repository.list_due_calls[0]["bot_ids"], (self.bot.id,))
+        self.assertNotIn("max_daily_trades", result.diagnostics[0].rejection_reasons)
 
     def test_service_only_mutates_tick_state_locally_and_uses_trading_engine_for_orders(self) -> None:
         repository = FakeSyntheticTraderRepository(

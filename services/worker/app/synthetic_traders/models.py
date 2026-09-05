@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -16,6 +16,7 @@ class StrategyEngine(StrEnum):
     STATS_VALUE = "STATS_VALUE"
     SOCIAL_SENTIMENT = "SOCIAL_SENTIMENT"
     PORTFOLIO_REBALANCER = "PORTFOLIO_REBALANCER"
+    BETTING_MARKET_VALUE = "BETTING_MARKET_VALUE"
 
 
 class BotStatus(StrEnum):
@@ -115,6 +116,31 @@ class SocialSignalContext:
 
 
 @dataclass(frozen=True)
+class BettingMarketQuote:
+    provider_event_id: str
+    canonical_selection_key: str
+    market_type: str
+    outcome_type: str
+    line: Decimal | None
+    decimal_odds: Decimal
+    implied_probability: Decimal
+    observed_at: datetime
+    kickoff_at: datetime | None = None
+    observation_count: int = 1
+
+
+@dataclass(frozen=True)
+class BettingMarketContext:
+    quotes: tuple[BettingMarketQuote, ...] = ()
+
+    @property
+    def latest_observed_at(self) -> datetime | None:
+        if not self.quotes:
+            return None
+        return max(quote.observed_at for quote in self.quotes)
+
+
+@dataclass(frozen=True)
 class BotPositionContext:
     instrument_id: UUID
     player_id: UUID | None
@@ -161,6 +187,7 @@ class CandidateInstrumentContext:
     recent_trades: tuple[MarketTradeSample, ...]
     stats: PlayerStatsContext
     social: SocialSignalContext
+    betting: BettingMarketContext = field(default_factory=BettingMarketContext)
 
 
 @dataclass(frozen=True)
@@ -210,13 +237,30 @@ class SyntheticTraderTickOutcome:
     instrument_id: UUID | None = None
     side: OrderSide | None = None
     message: str | None = None
+    error_code: str | None = None
+    error_details: Mapping[str, Any] | None = None
     execution: OrderExecutionRecord | None = None
+
+
+@dataclass(frozen=True)
+class SyntheticTraderTickDiagnostics:
+    bot_id: UUID
+    strategy_engine: StrategyEngine
+    candidates_loaded: int
+    candidates_evaluated: int
+    candidate_exclusions: Mapping[str, int]
+    decisions: Mapping[str, int]
+    negative_alpha: Mapping[str, int]
+    rejection_reasons: Mapping[str, int]
+    recovery_decisions: int = 0
+    recovery_orders: int = 0
 
 
 @dataclass(frozen=True)
 class SyntheticTraderTickBatchResult:
     processed_bots: int
     outcomes: tuple[SyntheticTraderTickOutcome, ...]
+    diagnostics: tuple[SyntheticTraderTickDiagnostics, ...] = ()
 
     @property
     def submitted_count(self) -> int:

@@ -18,6 +18,8 @@ from .models import (
     BotPortfolioContext,
     BotPositionContext,
     BotStatus,
+    BettingMarketContext,
+    BettingMarketQuote,
     CandidateInstrumentContext,
     CreateSyntheticTraderBotCommand,
     MarketTradeSample,
@@ -41,6 +43,8 @@ class SyntheticTraderRepository(Protocol):
         as_of: datetime,
         *,
         limit: int = 100,
+        force_timing: bool = False,
+        bot_ids: tuple[UUID, ...] = (),
     ) -> list[SyntheticTraderBotRecord]: ...
 
     def get_bot_config(self, config_id: UUID) -> SyntheticTraderBotConfigRecord | None: ...
@@ -67,6 +71,8 @@ class SyntheticTraderRepository(Protocol):
         self,
         portfolio: BotPortfolioContext,
         as_of: datetime,
+        *,
+        betting_lookback_minutes: int | None = None,
     ) -> tuple[CandidateInstrumentContext, ...]: ...
 
     def update_tick_state(
@@ -90,11 +96,28 @@ class PostgresSyntheticTraderRepository:
         finally:
             connection.close()
 
+    def set_bot_status(self, bot_ids: tuple[UUID, ...], status: BotStatus) -> int:
+        if not bot_ids:
+            return 0
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE synthetic_trader_bots
+                    SET status = %(status)s, updated_at = now()
+                    WHERE id = ANY(%(bot_ids)s::uuid[])
+                    """,
+                    {"status": status.value, "bot_ids": [str(bot_id) for bot_id in bot_ids]},
+                )
+                return cursor.rowcount
+
     def list_due_bots(
         self,
         as_of: datetime,
         *,
         limit: int = 100,
+        force_timing: bool = False,
+        bot_ids: tuple[UUID, ...] = (),
     ) -> list[SyntheticTraderBotRecord]:
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -124,7 +147,10 @@ class PostgresSyntheticTraderRepository:
                       AND a.account_type = 'SYNTHETIC_TRADER'
                       AND a.status = 'ACTIVE'
                       AND c.enabled = true
+                      AND (%(all_bots)s OR b.id = ANY(%(bot_ids)s::uuid[]))
                       AND (
+                        %(force_timing)s
+                        OR
                         b.next_tick_after IS NULL
                         OR b.next_tick_after <= %(as_of)s
                       )
@@ -134,7 +160,13 @@ class PostgresSyntheticTraderRepository:
                         b.id
                     LIMIT %(limit)s
                     """,
-                    {"as_of": as_of, "limit": limit},
+                    {
+                        "as_of": as_of,
+                        "limit": limit,
+                        "force_timing": force_timing,
+                        "all_bots": not bot_ids,
+                        "bot_ids": [str(bot_id) for bot_id in bot_ids],
+                    },
                 )
                 rows = cursor.fetchall()
 
@@ -357,6 +389,8 @@ class PostgresSyntheticTraderRepository:
         self,
         portfolio: BotPortfolioContext,
         as_of: datetime,
+        *,
+        betting_lookback_minutes: int | None = None,
     ) -> tuple[CandidateInstrumentContext, ...]:
         market_since = as_of - timedelta(days=RECENT_MARKET_LOOKBACK_DAYS)
         stats_since = as_of - timedelta(days=RECENT_STATS_LOOKBACK_DAYS)
@@ -385,17 +419,33 @@ class PostgresSyntheticTraderRepository:
                 instrument_rows = cursor.fetchall()
 
                 instrument_ids = [str(row["id"]) for row in instrument_rows]
-                player_ids = [str(row["player_id"]) for row in instrument_rows if row["player_id"] is not None]
+                player_ids = [
+                    str(row["player_id"])
+                    for row in instrument_rows
+                    if row["player_id"] is not None
+                ]
                 prices_by_instrument = self._load_prices(cursor, instrument_ids, market_since)
                 trades_by_instrument = self._load_trades(cursor, instrument_ids, market_since)
                 market_values_by_player = self._load_market_values(cursor, player_ids)
                 stats_by_player = self._load_stats(cursor, player_ids, stats_since)
+                betting_by_player = (
+                    {}
+                    if betting_lookback_minutes is None
+                    else self._load_betting_markets(
+                        cursor,
+                        player_ids,
+                        as_of - timedelta(minutes=betting_lookback_minutes),
+                        as_of,
+                    )
+                )
                 social_by_player = self._load_social(player_ids)
 
         candidates: list[CandidateInstrumentContext] = []
         for row in instrument_rows:
-            instrument_id = row["id"]
-            player_id = row["player_id"]
+            instrument_id = UUID(str(row["id"]))
+            player_id = (
+                None if row["player_id"] is None else UUID(str(row["player_id"]))
+            )
             current_price = _decimal(row["current_price"])
             price_points = list(prices_by_instrument.get(str(instrument_id), ()))
             if not price_points or price_points[-1].price != current_price:
@@ -437,6 +487,11 @@ class PostgresSyntheticTraderRepository:
                         SocialSignalContext()
                         if player_id is None
                         else social_by_player.get(str(player_id), SocialSignalContext())
+                    ),
+                    betting=(
+                        BettingMarketContext()
+                        if player_id is None
+                        else betting_by_player.get(str(player_id), BettingMarketContext())
                     ),
                 )
             )
@@ -618,6 +673,94 @@ class PostgresSyntheticTraderRepository:
         # Social signal storage is not implemented yet in this repo. Return empty
         # signal contexts so social strategies degrade to no-signal holds.
         return {player_id: SocialSignalContext() for player_id in player_ids}
+
+    def _load_betting_markets(
+        self,
+        cursor,
+        player_ids: list[str],
+        betting_since: datetime,
+        as_of: datetime,
+    ) -> dict[str, BettingMarketContext]:
+        if not player_ids:
+            return {}
+        cursor.execute(
+            """
+            SELECT
+                player_id,
+                provider_event_id,
+                canonical_selection_key,
+                market_type,
+                outcome_type,
+                line,
+                decimal_odds,
+                implied_probability,
+                observed_at,
+                kickoff_at,
+                observation_count
+            FROM (
+                SELECT
+                    participant.player_id::text AS player_id,
+                    selection.provider_event_id,
+                    selection.canonical_selection_key,
+                    selection.market_type,
+                    selection.outcome_type,
+                    selection.line,
+                    observation.decimal_odds,
+                    observation.implied_probability,
+                    observation.observed_at,
+                    (selection.raw_payload ->> 'kickoff_at')::timestamptz AS kickoff_at,
+                    COUNT(*) OVER (
+                        PARTITION BY participant.player_id, selection.id
+                    ) AS observation_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY participant.player_id, selection.id
+                        ORDER BY observation.observed_at DESC, observation.id DESC
+                    ) AS latest_row_number,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY participant.player_id, selection.id
+                        ORDER BY observation.observed_at ASC, observation.id ASC
+                    ) AS baseline_row_number
+                FROM betting_market_selection_players AS participant
+                JOIN betting_market_selections AS selection
+                    ON selection.id = participant.selection_id
+                JOIN betting_market_observations AS observation
+                    ON observation.selection_id = selection.id
+                WHERE participant.player_id::text = ANY(%(player_ids)s)
+                  AND participant.participant_role = 'PRIMARY'
+                  AND selection.market_scope = 'PLAYER'
+                  AND observation.observed_at >= %(betting_since)s
+                  AND observation.observed_at <= %(as_of)s
+            ) AS ranked
+            WHERE latest_row_number = 1
+               OR baseline_row_number = 1
+            ORDER BY player_id, canonical_selection_key, observed_at ASC
+            """,
+            {
+                "player_ids": player_ids,
+                "betting_since": betting_since,
+                "as_of": as_of,
+            },
+        )
+        grouped: dict[str, list[BettingMarketQuote]] = {}
+        for row in cursor.fetchall():
+            grouped.setdefault(str(row["player_id"]), []).append(
+                BettingMarketQuote(
+                    provider_event_id=str(row["provider_event_id"]),
+                    canonical_selection_key=str(row["canonical_selection_key"]),
+                    market_type=str(row["market_type"]),
+                    outcome_type=str(row["outcome_type"]),
+                    line=None if row["line"] is None else _decimal(row["line"]),
+                    decimal_odds=_decimal(row["decimal_odds"]),
+                    implied_probability=_decimal(row["implied_probability"]),
+                    observed_at=row["observed_at"],
+                    kickoff_at=row["kickoff_at"],
+                    observation_count=int(row["observation_count"]),
+                )
+            )
+        return {
+            player_id: BettingMarketContext(quotes=tuple(quotes))
+            for player_id, quotes in grouped.items()
+        }
 
 
 def _build_bot_record(row: Mapping[str, Any]) -> SyntheticTraderBotRecord:

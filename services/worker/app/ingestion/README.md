@@ -20,7 +20,7 @@ Ingestion answers: "What did the outside world say?"
 - `market_values`: external player market-value data.
 - `fixtures`: fixture, lineup, and match-status data.
 - `stats`: player performance data from external providers.
-- `betting_markets`: opt-in rendered-page Bet365 1X2 odds snapshots.
+- `betting_markets`: opt-in rendered-page Bet365 pre-match discovery and live odds snapshots.
 - `social/twitter`: opt-in approved-X-API injury episodes and availability observations.
 - Future broader `social`: social mention and sentiment data from approved providers.
 - Future `news`: football news and transfer-rumor data.
@@ -83,20 +83,20 @@ Player and valuation ingestion should be idempotent.
 
 ## Betting Market Reads
 
-The Bet365 adapter ingests pre-match 1X2 snapshots exclusively through explicitly
-approved rendered-page discovery. Additional markets require a separate schema and
+The Bet365 adapter ingests pre-match and live match/player-market snapshots through rendered
+page discovery and known-event refreshes. Additional market enum values require a schema and
 provider review.
 
 Scope:
 
-- Match-level 1X2 is implemented. Draw-no-bet, Asian handicap, total goals, both-teams-to-score, and correct-score markets remain future work.
+- Match-level 1X2 and supported expanded player grids are implemented. Other match markets and collapsed player grids remain future work.
 - Team and player prop markets only if the provider licensing and coverage are clear.
 - Bookmaker or exchange name, market type, selection, odds, currency where applicable, observed timestamp, and fixture/provider IDs.
 - Derived implied probabilities after removing or recording bookmaker margin.
 
 Usage:
 
-- Betting market observations can inform synthetic trader decisions, risk context, and admin analysis.
+- Player-linked betting market observations inform `BETTING_MARKET_VALUE` bot decisions.
 - Betting market observations must not directly mutate Stockball instrument prices in V1.
 - Any future direct use in pricing would require a separate product decision and trading-engine rule change.
 
@@ -104,7 +104,7 @@ Provider constraints:
 
 - Prefer licensed odds APIs or exchange APIs with explicit permission for storage and product use.
 - Preserve raw payloads and provider IDs because odds can move quickly and may be disputed later.
-- Snapshot frequency should be conservative; pre-match reads are enough for the initial future version.
+- Pre-match discovery is periodic; live refresh is independently opt-in and defaults to one minute.
 
 ## Boundaries
 

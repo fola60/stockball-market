@@ -4,6 +4,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from html import unescape
@@ -18,10 +19,17 @@ from app.ingestion.fetch import ContentFetchService, FetchResponseError, FetchUn
 from .errors import Bet365IngestionError, Bet365SourceDisabledError
 from .models import (
     BET365_PROVIDER,
+    MATCH_RESULT_1X2,
     Bet365CompetitionDiscovery,
     Bet365DiscoveredFixture,
     Bet365FixtureListing,
     BettingMarketObservation,
+    BettingMarketParticipant,
+    BettingMarketSelection,
+    MarketOutcomeType,
+    MarketPeriod,
+    MarketScope,
+    PlayerMarketType,
 )
 
 
@@ -40,15 +48,27 @@ _FIXTURE_DATE_PATTERN = re.compile(
 )
 _FIXTURE_TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 _MARKET_TITLE = "Full Time Result"
+_THRESHOLD_PATTERN = re.compile(r"^(?P<line>\d+(?:\.\d+)?)\+$")
+_PLAYER_GRID_MARKETS = {
+    "Shots": PlayerMarketType.SHOTS,
+    "Shots On Target": PlayerMarketType.SHOTS_ON_TARGET,
+    "Cards": PlayerMarketType.CARD,
+    "Fouls Committed": PlayerMarketType.FOULS_COMMITTED,
+    "To Be Fouled": PlayerMarketType.FOULS_DRAWN,
+}
+_SCORE_OR_ASSIST_COLUMNS = {
+    "Score": PlayerMarketType.GOALSCORER,
+    "Assist": PlayerMarketType.ASSIST,
+    "Score or Assist": PlayerMarketType.SCORE_OR_ASSIST,
+}
 
 
 class Bet365Client:
-    """Discovers Bet365 pre-match pages through an explicitly enabled browser session."""
+    """Discovers and refreshes Bet365 event pages through an enabled browser session."""
 
     def __init__(
         self,
         *,
-        policy_acknowledged: bool,
         browser_enabled: bool,
         homepage_url: str = DEFAULT_BET365_HOMEPAGE_URL,
         competition_name: str = DEFAULT_BET365_COMPETITION_NAME,
@@ -74,7 +94,6 @@ class Bet365Client:
         if pre_match_cutoff_minutes < 0:
             raise ValueError("Bet365 pre-match cutoff cannot be negative")
 
-        self._policy_acknowledged = policy_acknowledged
         self._browser_enabled = browser_enabled
         self._homepage_url = homepage_url
         self._competition_name = _required_text(competition_name, "competition_name")
@@ -90,6 +109,7 @@ class Bet365Client:
         self._last_navigation_at: float | None = None
         self._fetcher = ContentFetchService(
             browser_enabled=browser_enabled,
+            use_undetected_chrome=True,
             use_host_chrome=use_host_chrome,
             host_chrome_binary_path=host_chrome_binary_path,
             browser_idle_seconds=browser_idle_seconds,
@@ -110,7 +130,69 @@ class Bet365Client:
         return discovery
 
     def list_pre_match_1x2(self, league: str | None = None) -> list[BettingMarketObservation]:
-        _, observations = self._crawl(league, parse_markets=True)
+        _, observations = self._crawl(
+            league,
+            parse_markets=True,
+            include_player_markets=False,
+        )
+        return observations
+
+    def list_pre_match_markets(
+        self,
+        league: str | None = None,
+    ) -> list[BettingMarketObservation]:
+        _, observations = self._crawl(
+            league,
+            parse_markets=True,
+            include_player_markets=True,
+        )
+        return observations
+
+    def list_live_markets(
+        self,
+        fixtures: tuple[Bet365DiscoveredFixture, ...],
+    ) -> list[BettingMarketObservation]:
+        if not fixtures:
+            return []
+        self._assert_enabled()
+        observations: list[BettingMarketObservation] = []
+        failures = 0
+
+        try:
+            with self._fetcher.browser_session(allowed_hosts=self._allowed_hosts) as browser:
+                targets = fixtures[: self._max_matches]
+                for fixture in targets:
+                    try:
+                        page_html = self._open_event_url(browser, fixture)
+                        observations.extend(
+                            self._parse_fixture_markets(
+                                page_html,
+                                fixture,
+                                include_player_markets=True,
+                                require_match_result=False,
+                            )
+                        )
+                    except (
+                        Bet365IngestionError,
+                        FetchResponseError,
+                        FetchUnavailableError,
+                        LookupError,
+                        TimeoutError,
+                    ) as exc:
+                        failures += 1
+                        LOGGER.warning(
+                            "Bet365 live refresh failed for %s vs %s: %s",
+                            fixture.home_team,
+                            fixture.away_team,
+                            exc,
+                        )
+        except Bet365IngestionError:
+            raise
+        except (FetchResponseError, FetchUnavailableError, LookupError, TimeoutError) as exc:
+            raise Bet365IngestionError("Bet365 website browser session failed") from exc
+
+        if failures == len(targets):
+            raise Bet365IngestionError("Bet365 could not refresh any active event pages")
         return observations
 
     def _crawl(
@@ -118,6 +200,7 @@ class Bet365Client:
         league: str | None,
         *,
         parse_markets: bool,
+        include_player_markets: bool = False,
     ) -> tuple[Bet365CompetitionDiscovery, list[BettingMarketObservation]]:
         self._assert_enabled()
         competition_name = _competition_name(league, self._competition_name)
@@ -134,12 +217,11 @@ class Bet365Client:
                         discovered.append(fixture)
                         if parse_markets:
                             observations.extend(
-                                parse_website_match_1x2(
+                                self._parse_fixture_markets(
                                     page_html,
-                                    source_url=fixture.source_url,
-                                    observed_at=self._utc_clock(),
-                                    expected_home_team=fixture.home_team,
-                                    expected_away_team=fixture.away_team,
+                                    fixture,
+                                    include_player_markets=include_player_markets,
+                                    require_match_result=True,
                                 )
                             )
                     except (
@@ -184,18 +266,49 @@ class Bet365Client:
             observations,
         )
 
+    def _parse_fixture_markets(
+        self,
+        page_html: str,
+        fixture: Bet365DiscoveredFixture,
+        *,
+        include_player_markets: bool,
+        require_match_result: bool,
+    ) -> list[BettingMarketObservation]:
+        observed_at = self._utc_clock()
+        observations: list[BettingMarketObservation] = []
+        try:
+            observations.extend(
+                parse_website_match_1x2(
+                    page_html,
+                    source_url=fixture.source_url,
+                    observed_at=observed_at,
+                    expected_home_team=fixture.home_team,
+                    expected_away_team=fixture.away_team,
+                )
+            )
+        except Bet365IngestionError:
+            if require_match_result:
+                raise
+        if include_player_markets:
+            observations.extend(
+                parse_website_player_markets(
+                    page_html,
+                    source_url=fixture.source_url,
+                    observed_at=observed_at,
+                )
+            )
+        return [_with_fixture_context(observation, fixture) for observation in observations]
+
     def _open_competition(
         self,
         browser: Any,
         competition_name: str,
     ) -> tuple[str, list[Bet365FixtureListing]]:
         labels = _competition_navigation_labels(competition_name)
-        self._navigate(browser, self._homepage_url)
-        result = self._try_open_competition_from_current_page(browser, labels)
-        if result is not None:
-            return result
-
-        self._open_football_hub(browser, labels)
+        try:
+            self._open_football_hub(browser, labels)
+        except (Bet365IngestionError, LookupError, TimeoutError):
+            pass
         result = self._try_open_competition_from_current_page(browser, labels)
         if result is not None:
             return result
@@ -308,6 +421,21 @@ class Bet365Client:
             browser.get_page_source(),
         )
 
+    def _open_event_url(
+        self,
+        browser: Any,
+        fixture: Bet365DiscoveredFixture,
+    ) -> str:
+        self._navigate(browser, fixture.source_url)
+        current_url = browser.get_current_url()
+        current_event_id = provider_event_id_from_url(current_url)
+        if current_event_id != fixture.provider_event_id:
+            raise Bet365IngestionError(
+                "Bet365 event URL did not remain on the expected event "
+                f"{fixture.provider_event_id}: {current_url}"
+            )
+        return browser.get_page_source()
+
     def _navigate(self, browser: Any, url: str) -> None:
         self._throttle()
         browser.open(url)
@@ -323,11 +451,6 @@ class Bet365Client:
         self._last_navigation_at = now
 
     def _assert_enabled(self) -> None:
-        if not self._policy_acknowledged:
-            raise Bet365SourceDisabledError(
-                "Bet365 website ingestion requires "
-                "STOCKBALL_BET365_POLICY_ACKNOWLEDGED=true after access-policy review"
-            )
         if not self._browser_enabled:
             raise Bet365SourceDisabledError(
                 "Bet365 website ingestion requires STOCKBALL_BET365_BROWSER_ENABLED=true"
@@ -422,14 +545,37 @@ def parse_website_match_1x2(
         )
 
     timestamp = observed_at or datetime.now(UTC)
-    selection_keys = ("HOME", "DRAW", "AWAY")
+    outcome_types = (
+        MarketOutcomeType.HOME,
+        MarketOutcomeType.DRAW,
+        MarketOutcomeType.AWAY,
+    )
     return [
         BettingMarketObservation(
-            provider=BET365_PROVIDER,
-            provider_event_id=provider_event_id,
-            fixture_provider_id=None,
-            market_key="1X2",
-            selection_key=selection_key,
+            selection=BettingMarketSelection(
+                provider=BET365_PROVIDER,
+                provider_event_id=provider_event_id,
+                fixture_provider_id=None,
+                market_scope=MarketScope.MATCH,
+                market_type=MATCH_RESULT_1X2,
+                period=MarketPeriod.FULL_MATCH,
+                outcome_type=outcome_type,
+                line=None,
+                canonical_selection_key=_canonical_selection_key(
+                    MATCH_RESULT_1X2,
+                    MarketPeriod.FULL_MATCH,
+                    outcome_type,
+                    None,
+                    (),
+                ),
+                provider_market_label=_MARKET_TITLE,
+                provider_selection_label=selection_name,
+                participants=(),
+                raw_payload={
+                    "home_team": home_team,
+                    "away_team": away_team,
+                },
+            ),
             decimal_odds=decimal_odds,
             implied_probability=Decimal("1") / decimal_odds,
             observed_at=timestamp,
@@ -443,12 +589,313 @@ def parse_website_match_1x2(
                 "display_odds": display_odds,
             },
         )
-        for selection_key, (selection_name, display_odds, decimal_odds) in zip(
-            selection_keys,
+        for outcome_type, (selection_name, display_odds, decimal_odds) in zip(
+            outcome_types,
             selections,
             strict=True,
         )
     ]
+
+
+def parse_website_player_markets(
+    html: str,
+    *,
+    source_url: str | None = None,
+    observed_at: datetime | None = None,
+) -> list[BettingMarketObservation]:
+    resolved_url = source_url or parse_saved_page_url(html)
+    provider_event_id = provider_event_id_from_url(resolved_url)
+    if provider_event_id is None:
+        raise Bet365IngestionError("Bet365 match page URL did not contain a D8 event ID")
+
+    soup = BeautifulSoup(html, "html.parser")
+    timestamp = observed_at or datetime.now(UTC)
+    observations: list[BettingMarketObservation] = []
+    for provider_label, market_type in _PLAYER_GRID_MARKETS.items():
+        observations.extend(
+            _parse_threshold_player_market(
+                soup,
+                provider_event_id=provider_event_id,
+                provider_label=provider_label,
+                market_type=market_type,
+                observed_at=timestamp,
+                source_url=resolved_url,
+            )
+        )
+    observations.extend(
+        _parse_score_or_assist_market(
+            soup,
+            provider_event_id=provider_event_id,
+            observed_at=timestamp,
+            source_url=resolved_url,
+        )
+    )
+
+    deduplicated: dict[str, BettingMarketObservation] = {}
+    for observation in observations:
+        deduplicated.setdefault(
+            observation.selection.canonical_selection_key,
+            observation,
+        )
+    return list(deduplicated.values())
+
+
+def _parse_threshold_player_market(
+    soup: BeautifulSoup,
+    *,
+    provider_event_id: str,
+    provider_label: str,
+    market_type: PlayerMarketType,
+    observed_at: datetime,
+    source_url: str | None,
+) -> list[BettingMarketObservation]:
+    for tokens in _semantic_market_token_sets(soup, provider_label):
+        parsed = _parse_player_grid(tokens, _threshold_column)
+        if parsed is None:
+            continue
+        players, columns = parsed
+        return [
+            _player_market_observation(
+                provider_event_id=provider_event_id,
+                provider_market_label=provider_label,
+                provider_player_name=player,
+                market_type=market_type,
+                outcome_type=MarketOutcomeType.AT_LEAST,
+                line=line,
+                displayed_odds=displayed_odds,
+                observed_at=observed_at,
+                source_url=source_url,
+            )
+            for line, odds in columns
+            for player, displayed_odds in zip(players, odds, strict=True)
+        ]
+    return []
+
+
+def _parse_score_or_assist_market(
+    soup: BeautifulSoup,
+    *,
+    provider_event_id: str,
+    observed_at: datetime,
+    source_url: str | None,
+) -> list[BettingMarketObservation]:
+    provider_label = "Score or Assist"
+    for tokens in _semantic_market_token_sets(soup, provider_label):
+        parsed = _parse_player_grid(tokens, _score_or_assist_column)
+        if parsed is None:
+            continue
+        players, columns = parsed
+        return [
+            _player_market_observation(
+                provider_event_id=provider_event_id,
+                provider_market_label=provider_label,
+                provider_player_name=player,
+                market_type=market_type,
+                outcome_type=MarketOutcomeType.ANYTIME,
+                line=Decimal("1"),
+                displayed_odds=displayed_odds,
+                observed_at=observed_at,
+                source_url=source_url,
+            )
+            for market_type, odds in columns
+            for player, displayed_odds in zip(players, odds, strict=True)
+        ]
+    return []
+
+
+def _semantic_market_token_sets(
+    soup: BeautifulSoup,
+    provider_label: str,
+) -> list[list[str]]:
+    title_nodes = [
+        text.parent
+        for text in soup.find_all(
+            string=lambda value: _normalized_text(value) == provider_label
+        )
+        if isinstance(text.parent, Tag)
+    ]
+    token_sets: list[list[str]] = []
+    for title in title_nodes:
+        for ancestor in title.parents:
+            if not isinstance(ancestor, Tag) or ancestor.name in {"body", "html"}:
+                break
+            tokens = [_normalized_text(value) for value in ancestor.stripped_strings]
+            if tokens and tokens[0] == provider_label:
+                token_sets.append(tokens)
+    return token_sets
+
+
+def _parse_player_grid(
+    tokens: list[str],
+    parse_column: Callable[[str], Any | None],
+) -> tuple[list[str], list[tuple[object, list[str]]]] | None:
+    player_header_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if token in {"Player / Last 5", "Starting Players"}
+        ),
+        None,
+    )
+    if player_header_index is None:
+        return None
+    first_column_index = next(
+        (
+            index
+            for index in range(player_header_index + 1, len(tokens))
+            if parse_column(tokens[index]) is not None
+        ),
+        None,
+    )
+    if first_column_index is None:
+        return None
+
+    players = [
+        token
+        for token in tokens[player_header_index + 1 : first_column_index]
+        if _is_player_name_token(token)
+    ]
+    if not players:
+        return None
+
+    columns: list[tuple[object, list[str]]] = []
+    index = first_column_index
+    while index < len(tokens):
+        column = parse_column(tokens[index])
+        if column is None:
+            break
+        index += 1
+        odds: list[str] = []
+        while index < len(tokens) and decimal_odds_from_display(tokens[index]) is not None:
+            odds.append(tokens[index])
+            index += 1
+        if len(odds) != len(players):
+            break
+        columns.append((column, odds))
+    return (players, columns) if columns else None
+
+
+def _threshold_column(value: str) -> Decimal | None:
+    match = _THRESHOLD_PATTERN.fullmatch(value)
+    return Decimal(match.group("line")) if match else None
+
+
+def _score_or_assist_column(value: str) -> PlayerMarketType | None:
+    return _SCORE_OR_ASSIST_COLUMNS.get(value)
+
+
+def _is_player_name_token(value: str) -> bool:
+    return bool(
+        value
+        and value.casefold() not in {"n/a", "show more", "others on request"}
+        and not value.isdecimal()
+        and decimal_odds_from_display(value) is None
+        and _THRESHOLD_PATTERN.fullmatch(value) is None
+    )
+
+
+def _player_market_observation(
+    *,
+    provider_event_id: str,
+    provider_market_label: str,
+    provider_player_name: str,
+    market_type: PlayerMarketType,
+    outcome_type: MarketOutcomeType,
+    line: Decimal,
+    displayed_odds: str,
+    observed_at: datetime,
+    source_url: str | None,
+) -> BettingMarketObservation:
+    decimal_odds = decimal_odds_from_display(displayed_odds)
+    if decimal_odds is None:
+        raise ValueError(f"invalid Bet365 player odds: {displayed_odds}")
+    participants = (BettingMarketParticipant(provider_player_name),)
+    provider_selection_label = (
+        f"{provider_player_name} {outcome_type.value} {line.normalize()}"
+    )
+    return BettingMarketObservation(
+        selection=BettingMarketSelection(
+            provider=BET365_PROVIDER,
+            provider_event_id=provider_event_id,
+            fixture_provider_id=None,
+            market_scope=MarketScope.PLAYER,
+            market_type=market_type.value,
+            period=MarketPeriod.FULL_MATCH,
+            outcome_type=outcome_type,
+            line=line,
+            canonical_selection_key=_canonical_selection_key(
+                market_type.value,
+                MarketPeriod.FULL_MATCH,
+                outcome_type,
+                line,
+                participants,
+            ),
+            provider_market_label=provider_market_label,
+            provider_selection_label=provider_selection_label,
+            participants=participants,
+            raw_payload={"provider_player_name": provider_player_name},
+        ),
+        decimal_odds=decimal_odds,
+        implied_probability=Decimal("1") / decimal_odds,
+        observed_at=observed_at,
+        source_url=source_url,
+        raw_payload={
+            "source": "website",
+            "market": provider_market_label,
+            "player": provider_player_name,
+            "outcome": outcome_type.value,
+            "line": str(line),
+            "display_odds": displayed_odds,
+        },
+    )
+
+
+def _canonical_selection_key(
+    market_type: str,
+    period: MarketPeriod,
+    outcome_type: MarketOutcomeType,
+    line: Decimal | None,
+    participants: tuple[BettingMarketParticipant, ...],
+) -> str:
+    line_key = "-" if line is None else format(line.normalize(), "f")
+    participant_key = "&".join(
+        _key_component(participant.provider_player_name) for participant in participants
+    ) or "-"
+    return "|".join(
+        (
+            market_type,
+            period.value,
+            outcome_type.value,
+            line_key,
+            participant_key,
+        )
+    )
+
+
+def _key_component(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+
+
+def _with_fixture_context(
+    observation: BettingMarketObservation,
+    fixture: Bet365DiscoveredFixture,
+) -> BettingMarketObservation:
+    fixture_context = {
+        "home_team": fixture.home_team,
+        "away_team": fixture.away_team,
+        "date_label": fixture.date_label,
+        "kickoff_time_label": fixture.kickoff_time_label,
+        "kickoff_at": None if fixture.kickoff_at is None else fixture.kickoff_at.isoformat(),
+    }
+    selection = replace(
+        observation.selection,
+        raw_payload={**dict(observation.selection.raw_payload), **fixture_context},
+    )
+    return replace(
+        observation,
+        selection=selection,
+        raw_payload={**dict(observation.raw_payload), **fixture_context},
+    )
 
 
 def provider_event_id_from_url(url: str | None) -> str | None:

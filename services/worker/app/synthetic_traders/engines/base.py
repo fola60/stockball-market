@@ -19,6 +19,34 @@ from app.synthetic_traders.models import (
 )
 
 
+POSITION_ALIASES = {
+    "FW": "FWD",
+    "FWD": "FWD",
+    "FORWARD": "FWD",
+    "MF": "MID",
+    "MID": "MID",
+    "MIDFIELDER": "MID",
+    "DF": "DEF",
+    "DEF": "DEF",
+    "DEFENDER": "DEF",
+    "GK": "GK",
+    "GOALKEEPER": "GK",
+}
+
+
+def canonical_position_codes(position: str | None) -> tuple[str, ...]:
+    if position is None:
+        return ()
+    normalized = position.upper().replace("/", ",").replace("|", ",")
+    return tuple(
+        dict.fromkeys(
+            POSITION_ALIASES.get(value, value)
+            for item in normalized.split(",")
+            if (value := item.strip())
+        )
+    )
+
+
 class StrategyEngineImplementation(Protocol):
     strategy_engine: StrategyEngine
 
@@ -34,29 +62,9 @@ def filter_candidates(
     universe: CandidateUniverseConfig,
 ) -> list[CandidateInstrumentContext]:
     filtered: list[CandidateInstrumentContext] = []
-    included_positions = set(universe.included_positions)
-    excluded_positions = set(universe.excluded_positions)
-    included_clubs = {club.lower() for club in universe.included_clubs}
-    excluded_clubs = {club.lower() for club in universe.excluded_clubs}
 
     for candidate in candidates:
-        if universe.require_active_instrument and candidate.trading_status != "ACTIVE":
-            continue
-        if candidate.position is not None and included_positions and candidate.position not in included_positions:
-            continue
-        if candidate.position is not None and candidate.position in excluded_positions:
-            continue
-        if candidate.club is not None and included_clubs and candidate.club.lower() not in included_clubs:
-            continue
-        if candidate.club is not None and candidate.club.lower() in excluded_clubs:
-            continue
-        if candidate.current_price < universe.min_current_price:
-            continue
-        if universe.max_current_price is not None and candidate.current_price > universe.max_current_price:
-            continue
-        if len(candidate.recent_trades) < universe.min_recent_trades:
-            continue
-        if trade_volume_cash(candidate.recent_trades) < universe.min_recent_volume_cash:
+        if candidate_exclusion_reason(candidate, universe) is not None:
             continue
         filtered.append(candidate)
 
@@ -70,6 +78,61 @@ def filter_candidates(
         reverse=True,
     )
     return filtered[: universe.max_candidates]
+
+
+def candidate_exclusion_counts(
+    candidates: Sequence[CandidateInstrumentContext],
+    universe: CandidateUniverseConfig,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    eligible = 0
+    for candidate in candidates:
+        reason = candidate_exclusion_reason(candidate, universe)
+        if reason is None:
+            eligible += 1
+            continue
+        counts[reason] = counts.get(reason, 0) + 1
+    if eligible > universe.max_candidates:
+        counts["candidate_limit"] = eligible - universe.max_candidates
+    return counts
+
+
+def candidate_exclusion_reason(
+    candidate: CandidateInstrumentContext,
+    universe: CandidateUniverseConfig,
+) -> str | None:
+    included_positions = {
+        code
+        for position in universe.included_positions
+        for code in canonical_position_codes(position)
+    }
+    excluded_positions = {
+        code
+        for position in universe.excluded_positions
+        for code in canonical_position_codes(position)
+    }
+    included_clubs = {club.lower() for club in universe.included_clubs}
+    excluded_clubs = {club.lower() for club in universe.excluded_clubs}
+    if universe.require_active_instrument and candidate.trading_status != "ACTIVE":
+        return "inactive_instrument"
+    position_codes = set(canonical_position_codes(candidate.position))
+    if position_codes and included_positions and position_codes.isdisjoint(included_positions):
+        return "position_not_included"
+    if position_codes.intersection(excluded_positions):
+        return "position_excluded"
+    if candidate.club is not None and included_clubs and candidate.club.lower() not in included_clubs:
+        return "club_not_included"
+    if candidate.club is not None and candidate.club.lower() in excluded_clubs:
+        return "club_excluded"
+    if candidate.current_price < universe.min_current_price:
+        return "price_below_minimum"
+    if universe.max_current_price is not None and candidate.current_price > universe.max_current_price:
+        return "price_above_maximum"
+    if len(candidate.recent_trades) < universe.min_recent_trades:
+        return "insufficient_recent_trades"
+    if trade_volume_cash(candidate.recent_trades) < universe.min_recent_volume_cash:
+        return "insufficient_recent_volume"
+    return None
 
 
 def window_prices(

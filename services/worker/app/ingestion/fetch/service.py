@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Callable
@@ -80,6 +81,7 @@ class ContentFetchService:
         user_agent: str = "StockballMarketFetcher/0.1",
         client_factory: Callable[..., httpx.Client] = httpx.Client,
         browser_enabled: bool = False,
+        use_undetected_chrome: bool = False,
         use_host_chrome: bool = True,
         host_chrome_binary_path: str | None = None,
         browser_idle_seconds: float = 2.0,
@@ -92,6 +94,7 @@ class ContentFetchService:
         self._user_agent = user_agent
         self._client_factory = client_factory
         self._browser_enabled = browser_enabled
+        self._use_undetected_chrome = use_undetected_chrome
         self._use_host_chrome = use_host_chrome
         self._host_chrome_binary_path = host_chrome_binary_path
         self._browser_idle_seconds = browser_idle_seconds
@@ -209,6 +212,9 @@ class ContentFetchService:
         )
 
     def _default_open_browser(self) -> object:
+        if self._use_undetected_chrome:
+            return self._open_undetected_browser()
+
         @contextmanager
         def _open() -> Iterator[object]:
             from selenium import webdriver
@@ -232,12 +238,48 @@ class ContentFetchService:
 
         return _open()
 
+    def _open_undetected_browser(self) -> object:
+        @contextmanager
+        def _open() -> Iterator[object]:
+            from seleniumbase import SB
+
+            self._assert_user_data_dir_available()
+            browser_kwargs: dict[str, object] = {
+                "uc": True,
+                "headless": Path("/.dockerenv").exists(),
+                "page_load_strategy": "eager",
+            }
+            if self._use_host_chrome:
+                browser_kwargs["binary_location"] = (
+                    self._host_chrome_binary_path or self._default_host_chrome_binary_path()
+                )
+            if self._browser_user_data_dir:
+                browser_kwargs["user_data_dir"] = self._browser_user_data_dir
+            if self._browser_profile_directory:
+                browser_kwargs["chromium_arg"] = (
+                    f"--profile-directory={self._browser_profile_directory}"
+                )
+
+            with SB(**browser_kwargs) as browser:
+                yield _SeleniumBaseBrowser(browser)
+
+        return _open()
+
     def _chrome_arguments(self) -> tuple[str, ...]:
         arguments = [
             "--disable-blink-features=AutomationControlled",
             "--no-first-run",
             "--no-default-browser-check",
         ]
+        # Docker containers have no display server and cannot create Chrome's sandbox.
+        if Path("/.dockerenv").exists():
+            arguments.extend(
+                (
+                    "--headless=new",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                )
+            )
         if self._browser_user_data_dir:
             arguments.append(f"--user-data-dir={self._browser_user_data_dir}")
         if self._browser_profile_directory:
@@ -462,6 +504,100 @@ class _SeleniumBrowser:
             for element in self._driver.find_elements(By.XPATH, xpath)
             if element.is_displayed()
         ]
+
+
+class _SeleniumBaseBrowser:
+    """Interactive adapter that keeps SeleniumBase UC navigation active."""
+
+    def __init__(self, browser: object) -> None:
+        self._browser = browser
+
+    def open(self, url: str) -> None:
+        self._browser.open(url)
+
+    def sleep(self, seconds: float) -> None:
+        self._browser.sleep(max(seconds, 0.0))
+
+    def get_page_source(self) -> str:
+        return str(self._browser.get_page_source())
+
+    def get_current_url(self) -> str:
+        return str(self._browser.get_current_url())
+
+    def count_xpath(self, xpath: str) -> int:
+        return int(self._browser.execute_script(self._visible_xpath_script(xpath, "count")))
+
+    def click_xpath(self, xpath: str, index: int = 0) -> None:
+        if index < 0:
+            raise LookupError(f"browser XPath did not contain visible element {index}: {xpath}")
+        marked = self._browser.execute_script(
+            self._visible_xpath_script(xpath, "mark", index=index)
+        )
+        if not marked:
+            raise LookupError(f"browser XPath did not contain visible element {index}: {xpath}")
+        self._browser.click('[data-stockball-click-target="true"]')
+
+    def wait_for_xpath(self, xpath: str, timeout: float = 15.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.count_xpath(xpath):
+                return
+            self.sleep(min(0.1, max(deadline - time.monotonic(), 0.0)))
+        raise TimeoutError(f"browser XPath did not appear: {xpath}")
+
+    def wait_for_url_change(self, previous_url: str, timeout: float = 15.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.get_current_url() != previous_url:
+                return
+            self.sleep(min(0.1, max(deadline - time.monotonic(), 0.0)))
+        raise TimeoutError(f"browser URL did not change from {previous_url}")
+
+    def wait_for_element_present(self, selector: str, timeout: float = 15.0) -> None:
+        self._browser.wait_for_element_present(selector, timeout=timeout)
+
+    @staticmethod
+    def _visible_xpath_script(xpath: str, action: str, *, index: int = 0) -> str:
+        action_script = "return visible.length;"
+        if action == "mark":
+            action_script = f"""
+                const target = visible[{index}];
+                if (!target) return false;
+                document.querySelectorAll('[data-stockball-click-target]').forEach(
+                    element => element.removeAttribute('data-stockball-click-target')
+                );
+                target.setAttribute('data-stockball-click-target', 'true');
+                return true;
+            """
+        return f"""
+            (() => {{
+            const snapshot = document.evaluate(
+                {json.dumps(xpath)},
+                document,
+                null,
+                XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                null
+            );
+            const visible = [];
+            for (let i = 0; i < snapshot.snapshotLength; i += 1) {{
+                const element = snapshot.snapshotItem(i);
+                if (!(element instanceof Element)) continue;
+                const style = window.getComputedStyle(element);
+                const rendered = Boolean(
+                    element.offsetWidth || element.offsetHeight || element.getClientRects().length
+                );
+                if (
+                    rendered &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    style.opacity !== '0'
+                ) {{
+                    visible.push(element);
+                }}
+            }}
+            {action_script}
+            }})()
+        """
 
 
 class _AllowlistedBrowserSession:

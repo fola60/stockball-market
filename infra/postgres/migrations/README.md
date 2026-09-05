@@ -13,6 +13,10 @@ Stores database migration files.
 - Store betting-market odds observations through deterministic migrations.
 - Store X source registries, cursor checkpoints, injury episodes/evidence, and compact
   player availability observations through deterministic migrations.
+- Normalize stable betting-market selections and player participants separately from
+  append-only odds observations.
+- Seed conservative and aggressive `BETTING_MARKET_VALUE` synthetic trader profiles.
+- Store audited, one-off synthetic portfolio issuance and dedicated reserve ownership.
 
 ## Boundaries
 

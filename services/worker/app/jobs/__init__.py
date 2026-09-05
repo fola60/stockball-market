@@ -4,6 +4,7 @@ from .handlers import (
     IngestPlayerStatsJobHandler,
     IngestPlayersJobHandler,
     IngestTwitterInjuriesJobHandler,
+    FunctionJobHandler,
     RetryableJobError,
     SyntheticTraderTickJobHandler,
     TopupJobHandler,
@@ -11,6 +12,7 @@ from .handlers import (
     WorkerJobRunner,
 )
 from .models import (
+    Bet365IngestionMode,
     IngestFixturesJobPayload,
     IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
@@ -25,6 +27,7 @@ from .models import (
 from .runtime import BlockingJobQueue, RetryQueue, WorkerProcess
 
 __all__ = [
+    "Bet365IngestionMode",
     "BlockingJobQueue",
     "IngestFixturesJobHandler",
     "IngestBet365OddsJobHandler",
@@ -36,6 +39,7 @@ __all__ = [
     "IngestPlayersJobPayload",
     "IngestTwitterInjuriesJobHandler",
     "IngestTwitterInjuriesJobPayload",
+    "FunctionJobHandler",
     "JobExecutionResult",
     "JobType",
     "RetryQueue",

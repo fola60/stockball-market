@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any, Mapping
+from uuid import UUID
 
 from app.topups.models import TopupCadence
 
@@ -18,37 +19,70 @@ class JobType(StrEnum):
     IMPORT_MARKET_VALUES = "IMPORT_MARKET_VALUES"
     INGEST_BET365_ODDS = "INGEST_BET365_ODDS"
     INGEST_TWITTER_INJURIES = "INGEST_TWITTER_INJURIES"
+    SEED_PLAYER_SHARES = "SEED_PLAYER_SHARES"
+    SPAWN_SYNTHETIC_TRADERS = "SPAWN_SYNTHETIC_TRADERS"
+    BOOTSTRAP_SYNTHETIC_PORTFOLIOS = "BOOTSTRAP_SYNTHETIC_PORTFOLIOS"
+    SET_SYNTHETIC_TRADER_STATUS = "SET_SYNTHETIC_TRADER_STATUS"
+
+
+class Bet365IngestionMode(StrEnum):
+    PRE_MATCH = "PRE_MATCH"
+    LIVE = "LIVE"
 
 
 @dataclass(frozen=True)
 class TopupJobPayload:
     cadence: TopupCadence
     effective_at: datetime
+    synthetic_trader_amount: str | None = None
 
     def to_payload(self) -> dict[str, str]:
-        return {
+        payload = {
             "cadence": self.cadence.value,
             "effective_at": _normalize_timestamp(self.effective_at).isoformat(),
         }
+        if self.synthetic_trader_amount is not None:
+            payload["synthetic_trader_amount"] = self.synthetic_trader_amount
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "TopupJobPayload":
         return cls(
             cadence=TopupCadence(str(payload["cadence"])),
             effective_at=datetime.fromisoformat(str(payload["effective_at"])),
+            synthetic_trader_amount=(
+                None
+                if payload.get("synthetic_trader_amount") is None
+                else str(payload["synthetic_trader_amount"])
+            ),
         )
 
 
 @dataclass(frozen=True)
 class SyntheticTraderTickJobPayload:
     effective_at: datetime
+    force_timing: bool = False
+    bot_ids: tuple[UUID, ...] = ()
+    tick_count: int = 1
 
-    def to_payload(self) -> dict[str, str]:
-        return {"effective_at": _normalize_timestamp(self.effective_at).isoformat()}
+    def to_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "effective_at": _normalize_timestamp(self.effective_at).isoformat(),
+            "force_timing": self.force_timing,
+            "tick_count": self.tick_count,
+        }
+        if self.bot_ids:
+            payload["bot_ids"] = [str(bot_id) for bot_id in self.bot_ids]
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "SyntheticTraderTickJobPayload":
-        return cls(effective_at=datetime.fromisoformat(str(payload["effective_at"])))
+        return cls(
+            effective_at=datetime.fromisoformat(str(payload["effective_at"])),
+            force_timing=bool(payload.get("force_timing", False)),
+            bot_ids=tuple(UUID(str(bot_id)) for bot_id in payload.get("bot_ids", ())),
+            tick_count=int(payload.get("tick_count", 1)),
+        )
 
 
 @dataclass(frozen=True)
@@ -128,14 +162,30 @@ class IngestPlayerStatsJobPayload:
 @dataclass(frozen=True)
 class IngestBet365OddsJobPayload:
     league: str | None = None
+    mode: Bet365IngestionMode = Bet365IngestionMode.PRE_MATCH
+    effective_at: datetime | None = None
 
     def to_payload(self) -> dict[str, str]:
-        return {} if self.league is None else {"league": self.league}
+        payload = {"mode": self.mode.value}
+        if self.league is not None:
+            payload["league"] = self.league
+        if self.effective_at is not None:
+            payload["effective_at"] = _normalize_timestamp(self.effective_at).isoformat()
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "IngestBet365OddsJobPayload":
         value = payload.get("league")
-        return cls(league=None if value is None else str(value))
+        effective_at = payload.get("effective_at")
+        return cls(
+            league=None if value is None else str(value),
+            mode=Bet365IngestionMode(str(payload.get("mode", Bet365IngestionMode.PRE_MATCH.value))),
+            effective_at=(
+                None
+                if effective_at is None
+                else datetime.fromisoformat(str(effective_at))
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -156,13 +206,17 @@ class WorkerJob:
     job_type: JobType
     payload: Mapping[str, Any]
     attempt: int = 0
+    operation_run_id: UUID | None = None
 
     def to_message(self) -> dict[str, Any]:
-        return {
+        message = {
             "job_type": self.job_type.value,
             "payload": dict(self.payload),
             "attempt": self.attempt,
         }
+        if self.operation_run_id is not None:
+            message["operation_run_id"] = str(self.operation_run_id)
+        return message
 
     @classmethod
     def from_message(cls, message: Mapping[str, Any]) -> "WorkerJob":
@@ -173,6 +227,11 @@ class WorkerJob:
             job_type=JobType(str(message["job_type"])),
             payload=payload,
             attempt=int(message.get("attempt", 0)),
+            operation_run_id=(
+                None
+                if message.get("operation_run_id") is None
+                else UUID(str(message["operation_run_id"]))
+            ),
         )
 
     @classmethod
@@ -210,7 +269,12 @@ class WorkerJob:
         return cls(job_type=JobType.INGEST_TWITTER_INJURIES, payload=payload.to_payload())
 
     def with_attempt(self, attempt: int) -> "WorkerJob":
-        return WorkerJob(job_type=self.job_type, payload=self.payload, attempt=attempt)
+        return WorkerJob(
+            job_type=self.job_type,
+            payload=self.payload,
+            attempt=attempt,
+            operation_run_id=self.operation_run_id,
+        )
 
 
 @dataclass(frozen=True)
@@ -221,6 +285,7 @@ class JobExecutionResult:
     skipped_items: int
     failed_items: int
     retryable_failures: int = 0
+    metrics: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _normalize_timestamp(value: datetime) -> datetime:

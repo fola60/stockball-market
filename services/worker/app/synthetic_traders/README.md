@@ -10,7 +10,7 @@ Synthetic traders are tagged accounts that behave like users but are controlled 
 
 - Manage synthetic trader strategy configuration.
 - Decide which bots should buy, sell, or hold.
-- Apply strategy families such as social/hype-driven, stats-driven, market-watching, and noise traders.
+- Apply strategy families such as social, stats, betting-market, market-momentum, and noise traders.
 - Respect bot position limits, cash limits, cooldowns, and execution settings.
 - Send trade decisions to the trading engine through the worker client.
 
@@ -18,9 +18,10 @@ Synthetic traders are tagged accounts that behave like users but are controlled 
 
 - `models.py`: typed records for bot configs, bot state, portfolio context, candidate instruments, decisions, and tick outcomes.
 - `config.py`: dataclass-based config parsing and validation for each supported engine.
-- `repository.py`: worker-owned PostgreSQL reads for due bots, portfolios, positions, trades, price snapshots, market values, and stats.
+- `repository.py`: worker-owned PostgreSQL reads for due bots, portfolios, positions, trades, price snapshots, market values, stats, and player-linked betting odds.
 - `service.py`: bot tick orchestration, universal risk filtering, idempotent request-id generation, and trading-engine submission.
 - `spawner.py`: bulk bootstrap flow that asks the API to provision accounts and then attaches worker bot config rows.
+- `bootstrap.py`: deterministic one-off player-share issuance across bot portfolios and the internal reserve.
 - `engines/`: reusable strategy engine implementations.
 
 ## Spawning Bots
@@ -73,6 +74,7 @@ Default engine profiles:
 - `STATS_VALUE` -> `STATS_VALUE_CONSERVATIVE`
 - `SOCIAL_SENTIMENT` -> `SOCIAL_HYPE_CHASER`
 - `PORTFOLIO_REBALANCER` -> `PORTFOLIO_REBALANCER`
+- `BETTING_MARKET_VALUE` -> `BETTING_MARKET_CONSERVATIVE`
 
 Required services:
 
@@ -107,18 +109,32 @@ Required services:
 - `synthetic_trader_bot_configs` stores reusable strategy-engine profile configs.
 - `synthetic_trader_bots` maps one tagged synthetic trader account from `accounts` to one config, with optional per-bot JSON overrides.
 - Default reusable configs are seeded by [0007_synthetic_trader_config_seeds.sql](/Users/afolabiadekanle/repos/stockball-market/infra/postgres/migrations/0007_synthetic_trader_config_seeds.sql).
-- The initial engine set is:
+- Betting profiles are seeded by [0011_betting_market_trader_profiles.sql](/Users/afolabiadekanle/repos/stockball-market/infra/postgres/migrations/0011_betting_market_trader_profiles.sql).
+- The implemented engine set is:
   - `NOISE`
   - `MARKET_MOMENTUM`
   - `STATS_VALUE`
   - `SOCIAL_SENTIMENT`
   - `PORTFOLIO_REBALANCER`
+  - `BETTING_MARKET_VALUE`
 - Social/news signal tables are not implemented yet in this repo, so `SOCIAL_SENTIMENT` degrades to empty-signal holds instead of failing.
+- `BETTING_MARKET_VALUE` reads player-linked goalscorer, assist, score-or-assist, shots, and shots-on-target probabilities. Missing, stale, or insufficiently broad odds produce holds.
+
+To spawn betting bots, select the default conservative profile by engine or choose the
+aggressive profile explicitly:
+
+```bash
+stockball-worker spawn-synthetic-traders --strategy-engine BETTING_MARKET_VALUE --count 50
+stockball-worker spawn-synthetic-traders --config-key BETTING_MARKET_AGGRESSIVE --count 50
+```
 
 ## Boundaries
 
 - Does not execute trades directly.
 - Does not provision account identities directly.
-- Does not mutate prices, positions, or cash directly.
+- Does not mutate prices or cash directly.
+- The audited `bootstrap-synthetic-portfolios` issuance command is the sole narrow exception for
+  direct initial position creation; it rejects prior ownership and never creates market activity.
 - Bot trades must go through the same trading-engine order endpoint as user trades.
 - Bot accounts receive top-ups through the same top-up flow as normal users.
+- Social-sentiment profiles and social inputs are excluded from bootstrap allocation for now.

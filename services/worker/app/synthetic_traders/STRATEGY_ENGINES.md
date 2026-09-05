@@ -322,35 +322,118 @@ Config schema:
 }
 ```
 
-### `BETTING_MARKET`
+### `BETTING_MARKET_VALUE`
 
-Uses external betting odds as contextual information about match expectations.
+Uses current player-prop odds as a compressed external estimate of player performance
+probability. It does not independently interpret score, match phase, or match events.
 
 Primary inputs:
 
-- team win/draw/loss implied probabilities
-- goals market implied expectations
-- player prop markets if available
-- odds movement over time
-- bookmaker/exchange source reliability
-- fixture timing
-- current Stockball price
+- latest player goalscorer, assist, score-or-assist, shots, and shots-on-target probabilities
+- implied-probability movement over the configured lookback
+- the player's probability rank against other candidate players in the same market type
+- agreement across distinct player market types
+- quote recency and observation depth
+
+`kickoff_at` is used only to avoid combining quotes from different fixtures. Current
+Stockball price and portfolio state are handled by the universal risk/sizing layer, not by
+the engine's external alpha calculation.
 
 Formula style:
 
 ```text
 alpha =
-  implied_outcome_weight * fixture_expectation_score
-  + odds_movement_weight * odds_momentum_score
-  + player_prop_weight * player_specific_expectation_score
-  - stale_odds_weight * odds_staleness_penalty
+  implied_probability_rank_weight * cross_player_probability_rank
+  + probability_movement_weight * relative_probability_movement
+  + cross_market_confirmation_weight * direction_agreement
 ```
 
-Example profiles:
+The engine holds when quotes are stale, when too few observations exist, or when too few
+distinct market types confirm the signal. Negative alpha can produce a sell only when the
+bot already owns the player and profile sell rules allow it.
 
-- `BETTING_ODDS_FOLLOWER`: follows improving implied probabilities.
-- `BETTING_ODDS_CONTRARIAN`: fades overreactions when Stockball price moves further than odds.
-- `PRE_MATCH_EDGE_TRADER`: trades only inside a pre-match window.
+Seeded profiles:
+
+- `BETTING_MARKET_CONSERVATIVE`: requires three market types and two observations per selection; checks every 10 minutes and applies a 30% execution probability after a decision passes risk checks.
+- `BETTING_MARKET_AGGRESSIVE`: requires two market types and one observation per selection; checks every 3 minutes and applies a 60% execution probability after a decision passes risk checks.
+
+Config schema:
+
+```json
+{
+  "universe": {
+    "max_candidates": 120,
+    "included_positions": ["FWD", "MID", "DEF", "GK"],
+    "excluded_positions": [],
+    "included_clubs": [],
+    "excluded_clubs": [],
+    "min_current_price": "0.0000",
+    "max_current_price": null,
+    "require_active_instrument": true
+  },
+  "lookbacks": {
+    "movement_minutes": 60,
+    "max_quote_age_minutes": 20
+  },
+  "signal_weights": {
+    "implied_probability_rank": 0.55,
+    "probability_movement": 0.30,
+    "cross_market_confirmation": 0.15
+  },
+  "betting_inputs": {
+    "min_distinct_market_types": 3,
+    "min_observations_per_selection": 2,
+    "min_implied_probability": 0.05,
+    "movement_scale": 0.25,
+    "market_type_weights": {
+      "GOALSCORER": 0.30,
+      "ASSIST": 0.20,
+      "SCORE_OR_ASSIST": 0.25,
+      "SHOTS": 0.10,
+      "SHOTS_ON_TARGET": 0.15
+    }
+  },
+  "decision": {
+    "buy_threshold": 0.55,
+    "sell_threshold": -0.55,
+    "min_confidence": 0.65,
+    "hold_band": 0.10,
+    "allow_sells": true,
+    "sell_only_if_position_exists": true
+  },
+  "risk": {
+    "max_trade_cash_pct": 0.025,
+    "min_trade_cash_amount": "25.0000",
+    "max_trade_cash_amount": "1000.0000",
+    "max_player_position_pct": 0.10,
+    "max_team_exposure_pct": 0.25,
+    "min_cash_reserve_pct": 0.12,
+    "max_daily_trades": 8,
+    "max_daily_turnover_pct": 0.20,
+    "volatility_tolerance": 0.50,
+    "reduce_size_when_confidence_below": 0.70
+  },
+  "sizing": {
+    "base_cash_pct": 0.015,
+    "confidence_multiplier": 0.80,
+    "movement_multiplier": 0.50,
+    "position_concentration_penalty": 0.80
+  },
+  "execution": {
+    "tick_cadence_minutes": 10,
+    "cooldown_minutes": 45,
+    "decision_jitter_minutes": 5,
+    "trade_probability": 0.30,
+    "size_noise_pct": 0.10,
+    "max_orders_per_tick": 1
+  },
+  "explainability": {
+    "enabled": false,
+    "record_top_signal_count": 0,
+    "include_raw_component_scores": false
+  }
+}
+```
 
 ### `MARKET_MOMENTUM`
 
@@ -762,17 +845,19 @@ Config schema:
 }
 ```
 
-## Initial Engine Set
-
-The first implementation should start smaller than the full list:
+## Implemented Engine Set
 
 1. `NOISE`
 2. `MARKET_MOMENTUM`
 3. `STATS_VALUE`
 4. `SOCIAL_SENTIMENT`
 5. `PORTFOLIO_REBALANCER`
+6. `BETTING_MARKET_VALUE`
 
-These engines provide baseline market activity, price-following behavior, fundamental behavior, hype behavior, and portfolio maintenance. Add `BETTING_MARKET`, `EVENT_REACTION`, `FORM_MOMENTUM`, `MEAN_REVERSION`, and `UPSIDE_HUNTER` after the relevant signal feeds and decision traces are in place.
+These engines provide baseline market activity, price-following behavior, fundamental
+behavior, hype behavior, betting-probability behavior, and portfolio maintenance. Add
+`EVENT_REACTION`, `FORM_MOMENTUM`, `MEAN_REVERSION`, and `UPSIDE_HUNTER` after the
+relevant signal feeds and decision traces are in place.
 
 ## Diversity Rules
 

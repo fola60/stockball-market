@@ -8,6 +8,17 @@ from uuid import UUID
 from .models import StrategyEngine
 
 
+SUPPORTED_BETTING_MARKET_TYPES = frozenset(
+    {
+        "GOALSCORER",
+        "ASSIST",
+        "SCORE_OR_ASSIST",
+        "SHOTS",
+        "SHOTS_ON_TARGET",
+    }
+)
+
+
 class SyntheticTraderConfigError(ValueError):
     pass
 
@@ -248,6 +259,42 @@ class SocialSentimentConfig:
 
 
 @dataclass(frozen=True)
+class BettingMarketLookbacks:
+    movement_minutes: int
+    max_quote_age_minutes: int
+
+
+@dataclass(frozen=True)
+class BettingMarketInputsConfig:
+    min_distinct_market_types: int
+    min_observations_per_selection: int
+    min_implied_probability: float
+    movement_scale: float
+    market_type_weights: Mapping[str, float]
+
+
+@dataclass(frozen=True)
+class BettingMarketSizingConfig:
+    base_cash_pct: float
+    confidence_multiplier: float
+    movement_multiplier: float
+    position_concentration_penalty: float
+
+
+@dataclass(frozen=True)
+class BettingMarketValueConfig:
+    universe: CandidateUniverseConfig
+    lookbacks: BettingMarketLookbacks
+    signal_weights: Mapping[str, float]
+    betting_inputs: BettingMarketInputsConfig
+    decision: AlphaDecisionConfig
+    risk: RiskConfig
+    sizing: BettingMarketSizingConfig
+    execution: ExecutionConfig
+    explainability: ExplainabilityConfig
+
+
+@dataclass(frozen=True)
 class PortfolioTargetsConfig:
     target_cash_pct: float
     min_cash_pct: float
@@ -316,6 +363,7 @@ StrategyConfig = (
     | MarketMomentumConfig
     | StatsValueConfig
     | SocialSentimentConfig
+    | BettingMarketValueConfig
     | PortfolioRebalancerConfig
 )
 
@@ -377,6 +425,18 @@ def parse_strategy_config(
             decision=_parse_alpha_decision(payload),
             risk=_parse_risk(payload),
             sizing=_parse_social_sizing(payload),
+            execution=_parse_execution(payload),
+            explainability=_parse_explainability(payload),
+        )
+    if engine is StrategyEngine.BETTING_MARKET_VALUE:
+        return BettingMarketValueConfig(
+            universe=_parse_universe(payload),
+            lookbacks=_parse_betting_market_lookbacks(payload),
+            signal_weights=_parse_float_mapping(payload, "signal_weights"),
+            betting_inputs=_parse_betting_market_inputs(payload),
+            decision=_parse_alpha_decision(payload),
+            risk=_parse_risk(payload),
+            sizing=_parse_betting_market_sizing(payload),
             execution=_parse_execution(payload),
             explainability=_parse_explainability(payload),
         )
@@ -765,6 +825,101 @@ def _parse_social_sizing(payload: Mapping[str, Any]) -> SocialSizingConfig:
         overextension_size_penalty=_ratio(
             sizing.get("overextension_size_penalty"),
             "sizing.overextension_size_penalty",
+        ),
+        position_concentration_penalty=_ratio(
+            sizing.get("position_concentration_penalty"),
+            "sizing.position_concentration_penalty",
+        ),
+    )
+
+
+def _parse_betting_market_lookbacks(
+    payload: Mapping[str, Any],
+) -> BettingMarketLookbacks:
+    lookbacks = _section(payload, "lookbacks")
+    movement_minutes = _positive_int(
+        lookbacks.get("movement_minutes"),
+        "lookbacks.movement_minutes",
+    )
+    max_quote_age_minutes = _positive_int(
+        lookbacks.get("max_quote_age_minutes"),
+        "lookbacks.max_quote_age_minutes",
+    )
+    if max_quote_age_minutes > movement_minutes:
+        raise SyntheticTraderConfigError(
+            "lookbacks.max_quote_age_minutes must not exceed movement_minutes"
+        )
+    return BettingMarketLookbacks(
+        movement_minutes=movement_minutes,
+        max_quote_age_minutes=max_quote_age_minutes,
+    )
+
+
+def _parse_betting_market_inputs(
+    payload: Mapping[str, Any],
+) -> BettingMarketInputsConfig:
+    inputs = _section(payload, "betting_inputs")
+    raw_weights = _section(
+        inputs,
+        "market_type_weights",
+        parent="betting_inputs",
+    )
+    market_type_weights: dict[str, float] = {}
+    for market_type, value in raw_weights.items():
+        normalized_type = str(market_type).strip().upper()
+        if normalized_type not in SUPPORTED_BETTING_MARKET_TYPES:
+            raise SyntheticTraderConfigError(
+                "betting_inputs.market_type_weights contains unsupported market type "
+                f"{market_type!r}"
+            )
+        market_type_weights[normalized_type] = _positive_float(
+            value,
+            f"betting_inputs.market_type_weights.{market_type}",
+        )
+    if not market_type_weights:
+        raise SyntheticTraderConfigError(
+            "betting_inputs.market_type_weights must not be empty"
+        )
+    min_distinct_market_types = _positive_int(
+        inputs.get("min_distinct_market_types"),
+        "betting_inputs.min_distinct_market_types",
+    )
+    if min_distinct_market_types > len(market_type_weights):
+        raise SyntheticTraderConfigError(
+            "betting_inputs.min_distinct_market_types cannot exceed the number "
+            "of configured market types"
+        )
+    return BettingMarketInputsConfig(
+        min_distinct_market_types=min_distinct_market_types,
+        min_observations_per_selection=_positive_int(
+            inputs.get("min_observations_per_selection"),
+            "betting_inputs.min_observations_per_selection",
+        ),
+        min_implied_probability=_ratio(
+            inputs.get("min_implied_probability"),
+            "betting_inputs.min_implied_probability",
+        ),
+        movement_scale=_positive_float(
+            inputs.get("movement_scale"),
+            "betting_inputs.movement_scale",
+        ),
+        market_type_weights=market_type_weights,
+    )
+
+
+def _parse_betting_market_sizing(
+    payload: Mapping[str, Any],
+) -> BettingMarketSizingConfig:
+    sizing = _section(payload, "sizing")
+    return BettingMarketSizingConfig(
+        base_cash_pct=_ratio(sizing.get("base_cash_pct"), "sizing.base_cash_pct"),
+        confidence_multiplier=_positive_float(
+            sizing.get("confidence_multiplier"),
+            "sizing.confidence_multiplier",
+        ),
+        movement_multiplier=_positive_float(
+            sizing.get("movement_multiplier"),
+            "sizing.movement_multiplier",
         ),
         position_concentration_penalty=_ratio(
             sizing.get("position_concentration_penalty"),

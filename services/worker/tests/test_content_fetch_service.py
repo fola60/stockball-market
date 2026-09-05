@@ -4,6 +4,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import httpx
 
@@ -26,6 +27,7 @@ class FakeBrowser:
         self._body = body
         self.opened: str | None = None
         self.slept = 0.0
+        self.executed_scripts: list[str] = []
 
     def open(self, url: str) -> None:
         self.opened = url
@@ -41,8 +43,33 @@ class FakeBrowser:
             raise RuntimeError("fake browser has not opened a URL")
         return self.opened
 
+    def execute_script(self, script: str) -> int | bool:
+        self.executed_scripts.append(script)
+        if "data-stockball-click-target" in script:
+            return True
+        return 2
+
+    def click(self, selector: str) -> None:
+        self.executed_scripts.append(f"click:{selector}")
+
 
 class ContentFetchServiceTests(unittest.TestCase):
+    @patch("app.ingestion.fetch.service.Path.exists", return_value=True)
+    def test_chrome_arguments_are_container_safe(self, _: object) -> None:
+        arguments = ContentFetchService()._chrome_arguments()
+
+        self.assertIn("--headless=new", arguments)
+        self.assertIn("--no-sandbox", arguments)
+        self.assertIn("--disable-dev-shm-usage", arguments)
+
+    @patch("app.ingestion.fetch.service.Path.exists", return_value=False)
+    def test_chrome_arguments_leave_local_browser_visible(self, _: object) -> None:
+        arguments = ContentFetchService()._chrome_arguments()
+
+        self.assertNotIn("--headless=new", arguments)
+        self.assertNotIn("--no-sandbox", arguments)
+        self.assertNotIn("--disable-dev-shm-usage", arguments)
+
     def test_fetches_allowlisted_content_as_typed_response(self) -> None:
         service = ContentFetchService(
             transport=httpx.MockTransport(
@@ -276,6 +303,32 @@ class ContentFetchServiceTests(unittest.TestCase):
                 "--profile-directory=Profile 1",
             ),
         )
+
+    @patch("seleniumbase.SB")
+    def test_undetected_browser_uses_seleniumbase_uc_mode(self, seleniumbase: object) -> None:
+        browser = FakeBrowser("rendered page")
+        seleniumbase.return_value = _fake_browser(browser)
+        service = ContentFetchService(
+            browser_enabled=True,
+            use_undetected_chrome=True,
+            host_chrome_binary_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        )
+
+        with service.browser_session(allowed_hosts=("publisher.test",)) as session:
+            session.open("https://publisher.test/story")
+            self.assertEqual(session.count_xpath("//span[normalize-space()='Football']"), 2)
+            session.wait_for_xpath("//span[normalize-space()='Football']", timeout=0.1)
+            session.click_xpath("//span[normalize-space()='Football']", index=1)
+
+        seleniumbase.assert_called_once_with(
+            uc=True,
+            headless=False,
+            page_load_strategy="eager",
+            binary_location="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        )
+        self.assertEqual(browser.opened, "https://publisher.test/story")
+        self.assertTrue(any("document.evaluate" in script for script in browser.executed_scripts))
+        self.assertTrue(any("visible[1]" in script for script in browser.executed_scripts))
 
     def test_browser_profile_requires_user_data_directory(self) -> None:
         with self.assertRaises(ValueError):

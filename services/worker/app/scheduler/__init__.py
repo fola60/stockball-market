@@ -1,4 +1,6 @@
 from .models import (
+    Bet365LiveOddsIngestionPlan,
+    DailyPlayerStatsIngestionPlan,
     RecurringTopupPlan,
     Bet365OddsIngestionPlan,
     SchedulePlan,
@@ -17,6 +19,8 @@ from .service import (
 )
 
 __all__ = [
+    "Bet365LiveOddsIngestionPlan",
+    "DailyPlayerStatsIngestionPlan",
     "InMemoryJobQueue",
     "Bet365OddsIngestionPlan",
     "InMemoryScheduleClaimStore",

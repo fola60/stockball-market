@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
+
+
+router = APIRouter(prefix="/internal/v1/dev", tags=["dev operations"])
+
+
+class EnqueueOperationRequest(BaseModel):
+    operation_type: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class SetProcessStateRequest(BaseModel):
+    enabled: bool
+
+
+def _service(request: Request):
+    service = getattr(request.app.state, "dev_operations_service", None)
+    if service is None:
+        raise HTTPException(status_code=404, detail="dev portal is disabled")
+    return service
+
+
+@router.post("/operations", status_code=202)
+def enqueue_operation(command: EnqueueOperationRequest, request: Request) -> dict[str, Any]:
+    try:
+        return _service(request).enqueue(command.operation_type, command.parameters)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/runs")
+def list_runs(request: Request, limit: int = 100) -> list[dict[str, Any]]:
+    return _service(request).repository.list_runs(max(1, min(limit, 500)))
+
+
+@router.get("/runs/{run_id}")
+def get_run(run_id: UUID, request: Request) -> dict[str, Any]:
+    run = _service(request).repository.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
+
+
+@router.get("/summary")
+def get_summary(request: Request) -> dict[str, Any]:
+    return _service(request).repository.summary()
+
+
+@router.get("/processes")
+def list_processes(request: Request) -> dict[str, Any]:
+    registry = _service(request).process_registry
+    if registry is None:
+        raise HTTPException(status_code=404, detail="process controls are unavailable")
+    return registry.snapshot()
+
+
+@router.patch("/processes/{process_name}")
+def set_process_state(
+    process_name: str, command: SetProcessStateRequest, request: Request
+) -> dict[str, Any]:
+    registry = _service(request).process_registry
+    if registry is None:
+        raise HTTPException(status_code=404, detail="process controls are unavailable")
+    try:
+        return registry.set_enabled(process_name, command.enabled)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/synthetic-traders")
+def list_synthetic_traders(request: Request) -> list[dict[str, Any]]:
+    return _service(request).repository.list_bots()
+
+
+@router.get("/synthetic-traders/{bot_id}")
+def get_synthetic_trader(bot_id: UUID, request: Request) -> dict[str, Any]:
+    bot = _service(request).repository.get_bot_details(bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="synthetic trader not found")
+    return bot
+
+
+@router.get("/synthetic-trader-profiles")
+def list_synthetic_trader_profiles(request: Request) -> list[dict[str, Any]]:
+    return _service(request).repository.list_profiles()
+
+
+@router.get("/trades")
+def list_trades(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    account_type: str | None = Query(default=None),
+    side: str | None = Query(default=None),
+) -> dict[str, Any]:
+    if account_type not in {None, "USER", "ADMIN", "SYNTHETIC_TRADER"}:
+        raise HTTPException(status_code=422, detail="invalid account type")
+    if side not in {None, "BUY", "SELL"}:
+        raise HTTPException(status_code=422, detail="invalid trade side")
+    return _service(request).repository.list_trades(
+        limit=limit,
+        offset=offset,
+        account_type=account_type,
+        side=side,
+    )
+
+
+@router.get("/trades/{trade_id}")
+def get_trade_details(trade_id: UUID, request: Request) -> dict[str, Any]:
+    trade = _service(request).repository.get_trade_details(trade_id)
+    if trade is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return trade

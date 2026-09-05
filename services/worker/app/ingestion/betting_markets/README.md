@@ -2,16 +2,18 @@
 
 ## Purpose
 
-Ingests pre-match Bet365 1X2 (home/draw/away) odds observations through an explicitly
-enabled rendered Chrome session. This is the only supported Bet365 ingestion path.
+Ingests pre-match and live Bet365 match and player-market odds observations through an
+explicitly enabled rendered Chrome session. This is the only supported Bet365 ingestion path.
 
-These reads answer: "What did external betting markets imply before the match?"
+These reads answer: "What do external betting markets currently imply?"
 
 ## Responsibilities
 
 - Fetch pre-match odds from a rendered browser session.
 - Discover the configured competition from the homepage and each rendered fixture URL.
-- Store fixture IDs, market types, selections, odds, source, and observed timestamps.
+- Refresh known event URLs during their configured live window without repeating discovery.
+- Store stable market selections separately from append-only odds observations.
+- Attach player participants to selections without encoding player names in market types.
 - Preserve raw provider payloads for auditability.
 - Normalize odds into decimal format.
 - Derive implied probabilities where useful, while retaining the original quoted odds.
@@ -19,12 +21,20 @@ These reads answer: "What did external betting markets imply before the match?"
 
 ## Current Scope
 
-- Pre-match match-result (`1X2`) selections only: `HOME`, `DRAW`, and `AWAY`.
+- Match result (`MATCH_RESULT_1X2`): `HOME`, `DRAW`, and `AWAY`.
+- Player goalscorer, assist, score-or-assist, shots, shots on target, fouls committed,
+  fouls drawn, and card markets.
 - Decimal odds, implied probability, provider event ID, observed timestamp, and parsed page context.
 - Website observations preserve team names and the Bet365 `D8/E...` event ID in raw data.
+- Pre-match and live refreshes write the same normalized observation shape.
 
-Lineups, player props, and match/player statistics are intentionally out of scope. They
-need a separately licensed provider and should continue through fixture/stat ingestion.
+Only fully rendered player grids with recognizable semantic headings are parsed. Collapsed,
+unavailable, or incomplete markets are skipped rather than guessed. The data model supports
+multiple player participants for pair markets, but website parsing for pair markets remains
+future work.
+
+Lineups and match/player statistics remain outside this module and continue through fixture
+and statistics ingestion.
 
 ## Website Discovery
 
@@ -37,24 +47,35 @@ are client-side hash routes and are not present as `href` values in saved HTML. 
 4. Exclude fixtures at or inside the configured pre-match cutoff.
 5. Re-open the competition and click each remaining team-vs-team row.
 6. Read the resulting `#/.../D8/E{event_id}/...` URL.
-7. Parse only the exact `Full Time Result` market and normalize fractional odds to decimal.
+7. Parse the exact `Full Time Result` market and any expanded, supported player grids.
+8. Normalize fractional odds to decimal and persist a quote against its stable selection.
 
 Discovery and parsing use semantic labels and relationships between dates, kickoff times,
 team names, and odds. Do not depend on Bet365's generated CSS class names; those identifiers
 change independently of the page's betting-market structure.
 
+## Live Refresh
+
+The pre-match crawl stores each event URL and parsed kickoff timestamp in selection metadata.
+The live scheduler runs every minute by default, queries for events whose scheduled kickoff is
+within the configured live window, and opens only those known event URLs. It parses whatever
+supported markets are currently available; suspended or absent markets are skipped.
+
+Live ingestion does not require score or match-phase data. Those facts may explain an odds
+change, but the betting strategy consumes the bookmaker's current implied probability and its
+movement directly. A pre-match discovery run must happen before a fixture can be live-refreshed.
+
 ```bash
 STOCKBALL_BET365_SCHEDULE_ENABLED=false
-STOCKBALL_BET365_POLICY_ACKNOWLEDGED=true
+STOCKBALL_BET365_LIVE_SCHEDULE_ENABLED=false
+STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES=1
+STOCKBALL_BET365_LIVE_EVENT_WINDOW_MINUTES=180
 STOCKBALL_BET365_WEBSITE_URL=https://www.bet365.com/#/HO/
 STOCKBALL_BET365_WEBSITE_NAVIGATION_INTERVAL_SECONDS=5
 STOCKBALL_BET365_COMPETITION_NAME=Premier League
 STOCKBALL_BET365_MAX_MATCHES=20
 STOCKBALL_BET365_PRE_MATCH_CUTOFF_MINUTES=5
 STOCKBALL_BET365_BROWSER_ENABLED=true
-# Optional persistent, dedicated profile. Omit both values for an isolated temporary profile.
-STOCKBALL_BET365_BROWSER_USER_DATA_DIR="$HOME/Library/Application Support/Stockball Market/Chrome"
-STOCKBALL_BET365_BROWSER_PROFILE_DIRECTORY=Default
 ```
 
 Run the ingestion manually with:
@@ -63,35 +84,45 @@ Run the ingestion manually with:
 scripts/local-ingestion.sh bet365 --league PL --max-matches 20
 ```
 
-To exercise the same browser client and inspect normalized results without writing to the
-database, run from `services/worker`:
+The worker CLI exposes both modes:
+
+```bash
+stockball-worker ingest-bet365-odds --mode PRE_MATCH --league PL --max-matches 20
+stockball-worker ingest-bet365-odds --mode LIVE --max-matches 20
+```
+
+To exercise the same browser client and inspect all supported results without writing to the database,
+run from `services/worker`:
 
 ```bash
 python3 -m scripts.test_bet365_search --league PL --max-matches 5
 ```
 
-Website access is disabled until the deployment owner explicitly acknowledges that the
-access, storage, and product use have been reviewed. Temporary browser profiles require no
-personal Chrome access. If a dedicated persistent profile is configured, that profile must
-not already be open because Chrome locks its user-data directory. The 15-minute scheduler
-remains opt-in and should only be enabled after validating access and crawl duration.
+Worker ingestion always uses an isolated temporary browser profile and does not access a
+personal Chrome profile. Both the 15-minute discovery scheduler and one-minute live scheduler
+remain independently opt-in. Keep live navigation time below its schedule interval to avoid a
+queue backlog.
 
 Website event IDs are not FBref fixture IDs. Website observations therefore remain
 unlinked (`fixture_id = NULL`) until a separate canonical fixture-matching step is added.
 
-## Candidate Markets
+## Storage Shape
 
-- Match result: home/draw/away.
-- Draw no bet.
-- Asian handicap.
-- Total goals.
-- Both teams to score.
-- Correct score.
-- Future player props if licensing and coverage are clear.
+- `betting_market_selections` identifies a stable provider event, scope, market type,
+  period, outcome, and optional threshold line.
+- `betting_market_selection_players` links one or more canonical players to a selection
+  when names resolve unambiguously; the provider player name is retained regardless.
+- `betting_market_observations` stores each observed odds quote and raw provider payload.
+- Duplicate quotes are prevented per selection and `observed_at`; repeated crawls at new
+  times intentionally create new observations so odds movement remains queryable.
+
+Thresholds are data (`line = 0.5`, `1.5`, and so on), not new market-type values. Market,
+period, outcome, scope, and participant role values are constrained by the database and
+mirrored by typed worker enums.
 
 ## Usage
 
-- Betting observations may feed future market-aware synthetic trader signals.
+- Player-linked betting observations feed the `BETTING_MARKET_VALUE` synthetic trader engine.
 - Betting observations may support admin context around fixtures and player demand.
 - Betting observations should be treated as external facts, not Stockball prices.
 

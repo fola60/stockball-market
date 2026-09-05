@@ -210,7 +210,7 @@ Modules involved:
 
 - `services/worker/app/signals/social`
 - `services/worker/app/signals/stats`
-- future `services/worker/app/ingestion/betting_markets`
+- `services/worker/app/ingestion/betting_markets`
 - future `services/worker/app/signals/market`
 - `services/worker/app/synthetic_traders`
 
@@ -219,7 +219,7 @@ Deliverables:
 - social mention volume observations
 - basic positive/negative sentiment observations
 - player stat observations
-- future pre-match betting market observations for bot context
+- pre-match and live betting market observations for bot context
 - bot strategies that use signal observations
 
 Definition of done:
@@ -227,7 +227,7 @@ Definition of done:
 - signals change bot buy/sell decisions
 - signals do not directly mutate instrument prices
 - prices still move only through executed trades
-- betting market observations, when implemented, remain external context and do not set Stockball prices directly
+- betting market observations remain external context and do not set Stockball prices directly
 
 ## Milestone 9: Admin UI
 

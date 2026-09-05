@@ -151,6 +151,7 @@ Purpose:
 - ingest market values
 - ingest fixture and lineup data
 - ingest social/stat signals
+- ingest pre-match and live betting-market observations
 - make synthetic trader decisions
 - apply recurring credit top-ups
 - send bot trade commands to the trading engine
@@ -164,6 +165,7 @@ Internal modules:
 - `ingestion.players`: Premier League squads and player identity
 - `ingestion.market_values`: external market-value data
 - `ingestion.fixtures`: fixtures, lineups, and match status
+- `ingestion.betting_markets`: external match/player odds observations
 - `signals.social`: mention volume and sentiment observations
 - `signals.stats`: player performance observations
 - `synthetic_traders`: bot strategy configuration, strategy selection, and trade decisions
@@ -308,6 +310,8 @@ Start with OpenAPI/JSON schema contracts. Move to protobuf/gRPC later only if th
 - API service can authenticate users and accept order requests, but cannot fill orders.
 - API service owns account provisioning, including tagged synthetic trader accounts.
 - Worker service owns synthetic trader strategy configuration after bot accounts exist.
+- Worker service owns the audited one-off player-share issuance into synthetic and reserve
+  portfolios; this bootstrap excludes social sentiment and does not execute trades.
 - Admin UI reads through the API service only.
 - Redis queues work but never owns business decisions.
 - PostgreSQL stores durable state, but services must still respect table ownership.
@@ -341,7 +345,13 @@ The V1 price rule is intentionally simple:
 
 This rule belongs inside the trading engine. It is subject to change after the core modules are fleshed out.
 
-Stats, sentiment, and market-watching signals do not directly change prices in V1. They only influence synthetic trader decisions. Synthetic traders then affect prices by buying or selling through the trading engine.
+Stats, sentiment, betting, and market-watching signals do not directly change prices in V1. They only influence synthetic trader decisions. Synthetic traders then affect prices by buying or selling through the trading engine.
+
+Initial player-share allocation is issuance rather than trading. The worker bootstrap CLI may
+create initial positions in one audited transaction without changing cash or creating orders,
+trades, fees, ledger entries, or price snapshots. Migration `0012_synthetic_portfolio_bootstrap.sql`
+provides a dedicated reserve portfolio and one-off allocation audit. Every later ownership and
+cash change goes through the trading engine.
 
 ## Suggested Repository Layout
 

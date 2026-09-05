@@ -7,7 +7,15 @@ from math import log10
 from app.synthetic_traders.config import StatsValueConfig
 from app.synthetic_traders.models import BotTickContext, DecisionSide, StrategyDecision, StrategyEngine
 
-from .base import clamp, filter_candidates, price_change_pct, rank_percentiles, sorted_decisions, volatility_pct
+from .base import (
+    canonical_position_codes,
+    clamp,
+    filter_candidates,
+    price_change_pct,
+    rank_percentiles,
+    sorted_decisions,
+    volatility_pct,
+)
 
 
 @dataclass(frozen=True)
@@ -72,11 +80,12 @@ class StatsValueStrategyEngine:
                 market_value_gap = 0.0
             position_adjustment = 0.0
             if config.stats_inputs.position_baseline_enabled:
-                if candidate.position == "FWD":
+                position_codes = canonical_position_codes(candidate.position)
+                if "FWD" in position_codes:
                     position_adjustment = 0.1
-                elif candidate.position == "MID":
+                elif "MID" in position_codes:
                     position_adjustment = 0.05
-                elif candidate.position == "GK":
+                elif "GK" in position_codes:
                     position_adjustment = -0.05
             price_momentum = price_change_pct(
                 candidate.recent_prices,

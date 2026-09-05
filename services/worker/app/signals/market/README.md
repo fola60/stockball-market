@@ -9,7 +9,7 @@ Future module for interpreting internal market behavior for synthetic trader str
 - Calculate price momentum.
 - Calculate recent volume and buy/sell pressure.
 - Detect unusual trading activity.
-- Interpret future pre-match betting market observations as context signals.
+- Interpret pre-match and live betting market observations as reusable context signals.
 - Produce market-watching signals for bots.
 
 ## Boundaries

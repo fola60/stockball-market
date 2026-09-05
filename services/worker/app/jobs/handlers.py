@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Callable, Mapping, Protocol
 
 from app.ingestion.fixtures import FixtureIngestionService
@@ -10,6 +12,7 @@ from app.ingestion.players import PlayerSeedService
 from app.ingestion.stats import PlayerStatsIngestionService
 from app.ingestion.social.twitter import TwitterInjuryIngestionService, TwitterTransientError
 from app.jobs.models import (
+    Bet365IngestionMode,
     IngestFixturesJobPayload,
     IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
@@ -21,8 +24,12 @@ from app.jobs.models import (
     TopupJobPayload,
     WorkerJob,
 )
-from app.synthetic_traders import SyntheticTraderService
-from app.topups import TopupService
+from app.synthetic_traders import (
+    SyntheticTraderService,
+    SyntheticTraderTickBatchResult,
+    SyntheticTraderTickDiagnostics,
+)
+from app.topups import TopupCadence, TopupOutcomeStatus, TopupService
 
 
 def _utc_now() -> datetime:
@@ -31,6 +38,17 @@ def _utc_now() -> datetime:
 
 class JobHandler(Protocol):
     def handle(self, job: WorkerJob) -> JobExecutionResult: ...
+
+
+@dataclass(frozen=True)
+class FunctionJobHandler:
+    job_type: JobType
+    execute: Callable[[Mapping[str, object]], JobExecutionResult]
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not self.job_type:
+            raise UnknownJobError(f"handler cannot process {job.job_type.value}")
+        return self.execute(job.payload)
 
 
 class UnknownJobError(Exception):
@@ -43,9 +61,16 @@ class RetryableJobError(Exception):
         super().__init__(message)
 
 
+class SyntheticTopupPolicyProvisioner(Protocol):
+    def ensure_active_synthetic_trader_policies(
+        self, cadence: TopupCadence, amount: str
+    ) -> int: ...
+
+
 @dataclass(frozen=True)
 class TopupJobHandler:
     topup_service: TopupService
+    synthetic_policy_provisioner: SyntheticTopupPolicyProvisioner | None = None
     clock: Callable[[], datetime] = _utc_now
 
     def handle(self, job: WorkerJob) -> JobExecutionResult:
@@ -53,7 +78,21 @@ class TopupJobHandler:
             raise UnknownJobError(f"top-up handler cannot process {job.job_type.value}")
 
         payload = TopupJobPayload.from_payload(job.payload)
+        configured_policies = 0
+        if payload.synthetic_trader_amount is not None:
+            if self.synthetic_policy_provisioner is None:
+                raise RuntimeError("synthetic top-up policy provisioner is not configured")
+            configured_policies = (
+                self.synthetic_policy_provisioner.ensure_active_synthetic_trader_policies(
+                    payload.cadence, payload.synthetic_trader_amount
+                )
+            )
         result = self.topup_service.apply_topups(payload.cadence, payload.effective_at)
+        credited_amount = sum(
+            Decimal(outcome.amount)
+            for outcome in result.outcomes
+            if outcome.status is TopupOutcomeStatus.APPLIED
+        )
         job_result = JobExecutionResult(
             job_type=job.job_type,
             handled_at=self.clock(),
@@ -61,6 +100,13 @@ class TopupJobHandler:
             skipped_items=result.skipped_count,
             failed_items=result.failed_count,
             retryable_failures=result.retryable_failure_count,
+            metrics={
+                "cadence": payload.cadence.value,
+                "window": result.window.key,
+                "configured_policies": configured_policies,
+                "credited_amount": str(credited_amount),
+                "amount_per_synthetic_trader": payload.synthetic_trader_amount,
+            },
         )
         if result.has_retryable_failures:
             raise RetryableJobError(
@@ -82,14 +128,132 @@ class SyntheticTraderTickJobHandler:
             )
 
         payload = SyntheticTraderTickJobPayload.from_payload(job.payload)
-        result = self.synthetic_trader_service.tick_due_bots(payload.effective_at)
+        results = [
+            self.synthetic_trader_service.tick_due_bots(
+                payload.effective_at + timedelta(microseconds=iteration),
+                limit=500 if payload.force_timing else 100,
+                force_timing=payload.force_timing,
+                bot_ids=payload.bot_ids,
+            )
+            for iteration in range(payload.tick_count)
+        ]
+        diagnostics = _aggregate_tick_diagnostics(results)
+        execution_failures = _aggregate_execution_failures(results)
         return JobExecutionResult(
             job_type=job.job_type,
             handled_at=self.clock(),
-            successful_items=result.submitted_count,
-            skipped_items=result.skipped_count,
-            failed_items=result.failed_count,
+            successful_items=sum(result.submitted_count for result in results),
+            skipped_items=sum(result.skipped_count for result in results),
+            failed_items=sum(result.failed_count for result in results),
+            metrics={
+                "processed_bots": sum(result.processed_bots for result in results),
+                "forced": payload.force_timing,
+                "targeted_bots": len(payload.bot_ids) if payload.bot_ids else "ALL_ACTIVE",
+                "ticks_requested": payload.tick_count,
+                "ticks_completed": len(results),
+                "decision_diagnostics": diagnostics,
+                "execution_failures": execution_failures,
+                "failed_order_samples": _failed_order_samples(results),
+                "tick_diagnostics": [
+                    {
+                        "tick": index + 1,
+                        **_summarize_tick_diagnostics(result.diagnostics, include_profiles=False),
+                    }
+                    for index, result in enumerate(results)
+                ],
+            },
         )
+
+
+def _aggregate_tick_diagnostics(
+    results: list[SyntheticTraderTickBatchResult],
+) -> dict[str, object]:
+    return _summarize_tick_diagnostics(
+        tuple(diagnostic for result in results for diagnostic in result.diagnostics),
+        include_profiles=True,
+    )
+
+
+def _summarize_tick_diagnostics(
+    diagnostics: tuple[SyntheticTraderTickDiagnostics, ...],
+    *,
+    include_profiles: bool,
+) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "bots": len(diagnostics),
+        "candidates_loaded": sum(item.candidates_loaded for item in diagnostics),
+        "candidates_evaluated": sum(item.candidates_evaluated for item in diagnostics),
+        "recovery_decisions": sum(item.recovery_decisions for item in diagnostics),
+        "recovery_orders": sum(item.recovery_orders for item in diagnostics),
+        "decisions": _sum_diagnostic_maps(item.decisions for item in diagnostics),
+        "negative_alpha": _sum_diagnostic_maps(item.negative_alpha for item in diagnostics),
+        "candidate_exclusions": _sum_diagnostic_maps(
+            item.candidate_exclusions for item in diagnostics
+        ),
+        "rejection_reasons": _sum_diagnostic_maps(
+            item.rejection_reasons for item in diagnostics
+        ),
+    }
+    if include_profiles:
+        profiles: dict[str, dict[str, object]] = {}
+        for strategy_engine in sorted({item.strategy_engine.value for item in diagnostics}):
+            profile_diagnostics = tuple(
+                item for item in diagnostics if item.strategy_engine.value == strategy_engine
+            )
+            profiles[strategy_engine] = _summarize_tick_diagnostics(
+                profile_diagnostics,
+                include_profiles=False,
+            )
+        summary["by_strategy"] = profiles
+    return summary
+
+
+def _sum_diagnostic_maps(values) -> dict[str, int]:
+    totals: Counter[str] = Counter()
+    for value in values:
+        totals.update(value)
+    return dict(sorted(totals.items()))
+
+
+def _aggregate_execution_failures(
+    results: list[SyntheticTraderTickBatchResult],
+) -> dict[str, int]:
+    failures: Counter[str] = Counter()
+    for result in results:
+        for outcome in result.outcomes:
+            if outcome.status.value != "FAILED":
+                continue
+            key = outcome.error_code or outcome.message or "unknown_error"
+            failures[key] += 1
+    return dict(sorted(failures.items()))
+
+
+def _failed_order_samples(
+    results: list[SyntheticTraderTickBatchResult],
+    *,
+    limit: int = 20,
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for result in results:
+        for outcome in result.outcomes:
+            if outcome.status.value != "FAILED" or outcome.request_id is None:
+                continue
+            samples.append(
+                {
+                    "request_id": outcome.request_id,
+                    "bot_id": str(outcome.bot_id),
+                    "instrument_id": (
+                        str(outcome.instrument_id) if outcome.instrument_id else None
+                    ),
+                    "side": outcome.side.value if outcome.side else None,
+                    "code": outcome.error_code,
+                    "message": outcome.message,
+                    "details": outcome.error_details,
+                }
+            )
+            if len(samples) >= limit:
+                return samples
+    return samples
 
 
 @dataclass(frozen=True)
@@ -109,6 +273,7 @@ class IngestPlayersJobHandler:
             successful_items=result.upserted_players,
             skipped_items=0,
             failed_items=0,
+            metrics={"fetched_players": result.fetched_players, "clubs_seen": result.clubs_seen},
         )
 
 
@@ -134,6 +299,7 @@ class IngestFixturesJobHandler:
             successful_items=result.upserted_fixtures,
             skipped_items=0,
             failed_items=0,
+            metrics={"fetched_fixtures": result.fetched_fixtures},
         )
 
 
@@ -160,6 +326,7 @@ class IngestPlayerStatsJobHandler:
             successful_items=result.upserted_observations,
             skipped_items=0,
             failed_items=0,
+            metrics={"fetched_observations": result.fetched_observations, "matched_players": result.matched_players},
         )
 
 
@@ -172,13 +339,20 @@ class IngestBet365OddsJobHandler:
         if job.job_type is not JobType.INGEST_BET365_ODDS:
             raise UnknownJobError(f"Bet365 handler cannot process {job.job_type.value}")
         payload = IngestBet365OddsJobPayload.from_payload(job.payload)
-        result = self.betting_market_ingestion_service.ingest_pre_match_1x2(payload.league)
+        handled_at = self.clock()
+        if payload.mode is Bet365IngestionMode.LIVE:
+            result = self.betting_market_ingestion_service.ingest_live_markets(
+                payload.effective_at or handled_at
+            )
+        else:
+            result = self.betting_market_ingestion_service.ingest_pre_match_markets(payload.league)
         return JobExecutionResult(
             job_type=job.job_type,
-            handled_at=self.clock(),
+            handled_at=handled_at,
             successful_items=result.upserted_observations,
             skipped_items=0,
             failed_items=0,
+            metrics={"fetched_observations": result.fetched_observations},
         )
 
 
@@ -213,6 +387,14 @@ class IngestTwitterInjuriesJobHandler:
             successful_items=result.persisted_posts,
             skipped_items=result.skipped_posts + result.ambiguous_posts,
             failed_items=0,
+            metrics={
+                "fetched_posts": result.fetched_posts,
+                "classified_posts": result.classified_posts,
+                "resolved_posts": result.resolved_posts,
+                "ambiguous_posts": result.ambiguous_posts,
+                "episode_updates": result.episode_updates,
+                "pages_fetched": result.pages_fetched,
+            },
         )
 
 

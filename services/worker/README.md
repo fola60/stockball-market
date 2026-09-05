@@ -126,3 +126,39 @@ stockball-worker spawn-synthetic-traders \
 Use `--config-key STATS_VALUE_AGGRESSIVE` instead of `--strategy-engine` when you want an exact seeded profile. Public names use fictional persona-style handles and display names by default; use `--name-style NUMBERED` with `--handle-prefix` and `--display-name-prefix` only for internal/test batches.
 
 This command provisions accounts through the API and writes only the worker-owned `synthetic_trader_bots` attachment rows, including per-bot randomized `config_overrides`. Omit `--random-seed` for non-deterministic variation. It does not grant cash or write trades, positions, ledger entries, or prices.
+
+### Synthetic Portfolio Bootstrap
+
+Run the market bootstrap in this order:
+
+1. Spawn the synthetic trader fleet.
+2. Seed players, market values, and player-share instruments.
+3. Fund synthetic accounts through the existing trading-engine top-up/admin path.
+4. Preview and commit the one-off portfolio issuance.
+
+```bash
+cd services/worker
+python3 -m app.main bootstrap-synthetic-portfolios \
+  --all-active-synthetic-bots \
+  --seed 20260903 \
+  --min-holders-per-player 5 \
+  --max-player-supply-per-bot 20 \
+  --reserve-supply-percent 10 \
+  --max-positions-per-bot 100 \
+  --dry-run
+
+python3 -m app.main bootstrap-synthetic-portfolios \
+  --all-active-synthetic-bots \
+  --seed 20260903
+```
+
+Use repeated `--bot-id UUID` arguments instead of `--all-active-synthetic-bots` to target a
+specific fleet. Omit `--seed` to generate one; the command always prints the resolved seed.
+Social-sentiment bots and social signals are intentionally excluded from this bootstrap.
+
+Bootstrap allocation is issuance, not trading. It transfers no cash and creates no orders,
+trades, fees, price changes, or cash-ledger entries. It creates integer positions directly in
+one audited transaction, values them at the instrument seed price, and assigns the configured
+reserve to the dedicated `system-player-share-reserve` portfolio. A unique audit marker rejects
+attempts to bootstrap an instrument twice. After issuance, every ownership and cash change must
+use the normal trading-engine order path.

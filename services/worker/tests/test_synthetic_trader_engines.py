@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from app.clients.trading_engine import OrderSide
 from app.synthetic_traders import (
+    BettingMarketContext,
+    BettingMarketQuote,
     BotActivityContext,
     BotPortfolioContext,
     BotPositionContext,
@@ -20,14 +22,17 @@ from app.synthetic_traders import (
     parse_strategy_config,
 )
 from app.synthetic_traders.engines import (
+    BettingMarketValueStrategyEngine,
     MarketMomentumStrategyEngine,
     NoiseStrategyEngine,
     PortfolioRebalancerStrategyEngine,
     SocialSentimentStrategyEngine,
     StatsValueStrategyEngine,
 )
+from app.synthetic_traders.engines.base import canonical_position_codes, filter_candidates
 
-from .test_synthetic_trader_configs import (
+from tests.test_synthetic_trader_configs import (
+    _betting_market_payload,
     _market_momentum_payload,
     _portfolio_payload,
     _social_payload,
@@ -154,6 +159,20 @@ class SyntheticTraderEngineTests(unittest.TestCase):
 
         self.assertEqual(decisions[0].side.value, "BUY")
 
+    def test_candidate_filter_normalizes_provider_position_codes(self) -> None:
+        config = parse_strategy_config(StrategyEngine.STATS_VALUE, _stats_value_payload())
+        candidates = (
+            _candidate(position="FW"),
+            _candidate(position="MF,FW"),
+            _candidate(position="DF"),
+            _candidate(position="GK"),
+        )
+
+        filtered = filter_candidates(candidates, config.universe)
+
+        self.assertEqual(len(filtered), 4)
+        self.assertEqual(canonical_position_codes("MF,FW"), ("MID", "FWD"))
+
     def test_market_momentum_engine_buys_confirmed_trend(self) -> None:
         config = parse_strategy_config(StrategyEngine.MARKET_MOMENTUM, _market_momentum_payload())
         candidate = _candidate(
@@ -215,6 +234,29 @@ class SyntheticTraderEngineTests(unittest.TestCase):
 
         self.assertEqual(decisions[0].side.value, "HOLD")
 
+    def test_betting_market_engine_applies_limit_after_selecting_odds_players(
+        self,
+    ) -> None:
+        payload = _betting_market_payload()
+        payload["universe"]["max_candidates"] = 1
+        config = parse_strategy_config(StrategyEngine.BETTING_MARKET_VALUE, payload)
+        no_odds = _candidate(holding_quantity=Decimal("20"))
+        with_odds = _candidate(
+            betting=_betting_context(
+                self.as_of,
+                current_probabilities=(Decimal("0.65"), Decimal("0.72")),
+                previous_probabilities=(Decimal("0.50"), Decimal("0.55")),
+            )
+        )
+
+        decisions = BettingMarketValueStrategyEngine().evaluate(
+            _context(self.bot, candidates=(no_odds, with_odds)),
+            config,
+        )
+
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0].instrument_id, with_odds.instrument_id)
+
     def test_portfolio_rebalancer_engine_sells_overweight_position(self) -> None:
         config = parse_strategy_config(StrategyEngine.PORTFOLIO_REBALANCER, _portfolio_payload())
         candidate = _candidate(
@@ -258,6 +300,83 @@ class SyntheticTraderEngineTests(unittest.TestCase):
 
         self.assertEqual(decisions_by_id[candidate.instrument_id].side.value, "SELL")
 
+    def test_betting_market_engine_buys_strong_probability_candidate(self) -> None:
+        config = parse_strategy_config(
+            StrategyEngine.BETTING_MARKET_VALUE,
+            _betting_market_payload(),
+        )
+        strong = _candidate(
+            betting=_betting_context(
+                self.as_of,
+                current_probabilities=(Decimal("0.65"), Decimal("0.72")),
+                previous_probabilities=(Decimal("0.50"), Decimal("0.55")),
+            )
+        )
+        weak = _candidate(
+            betting=_betting_context(
+                self.as_of,
+                current_probabilities=(Decimal("0.15"), Decimal("0.20")),
+                previous_probabilities=(Decimal("0.20"), Decimal("0.25")),
+            )
+        )
+
+        decisions = BettingMarketValueStrategyEngine().evaluate(
+            _context(self.bot, candidates=(strong, weak)),
+            config,
+        )
+        decisions_by_id = {decision.instrument_id: decision for decision in decisions}
+
+        self.assertEqual(decisions_by_id[strong.instrument_id].side.value, "BUY")
+
+    def test_betting_market_engine_sells_weak_held_candidate(self) -> None:
+        config = parse_strategy_config(
+            StrategyEngine.BETTING_MARKET_VALUE,
+            _betting_market_payload(),
+        )
+        strong = _candidate(
+            betting=_betting_context(
+                self.as_of,
+                current_probabilities=(Decimal("0.65"), Decimal("0.72")),
+                previous_probabilities=(Decimal("0.55"), Decimal("0.60")),
+            )
+        )
+        weak = _candidate(
+            holding_quantity=Decimal("5"),
+            betting=_betting_context(
+                self.as_of,
+                current_probabilities=(Decimal("0.12"), Decimal("0.16")),
+                previous_probabilities=(Decimal("0.24"), Decimal("0.28")),
+            ),
+        )
+
+        decisions = BettingMarketValueStrategyEngine().evaluate(
+            _context(self.bot, candidates=(strong, weak)),
+            config,
+        )
+        decisions_by_id = {decision.instrument_id: decision for decision in decisions}
+
+        self.assertEqual(decisions_by_id[weak.instrument_id].side.value, "SELL")
+
+    def test_betting_market_engine_holds_stale_quotes(self) -> None:
+        config = parse_strategy_config(
+            StrategyEngine.BETTING_MARKET_VALUE,
+            _betting_market_payload(),
+        )
+        stale = _candidate(
+            betting=_betting_context(
+                self.as_of - timedelta(hours=2),
+                current_probabilities=(Decimal("0.65"), Decimal("0.72")),
+                previous_probabilities=(Decimal("0.50"), Decimal("0.55")),
+            )
+        )
+
+        decisions = BettingMarketValueStrategyEngine().evaluate(
+            _context(self.bot, candidates=(stale,)),
+            config,
+        )
+
+        self.assertEqual(decisions[0].side.value, "HOLD")
+
 
 def _context(
     bot: SyntheticTraderBotRecord,
@@ -297,6 +416,7 @@ def _candidate(
     market_value: Decimal | None = Decimal("50000000"),
     stats: PlayerStatsContext | None = None,
     social: SocialSignalContext | None = None,
+    betting: BettingMarketContext | None = None,
     holding_quantity: Decimal = Decimal("0"),
 ) -> CandidateInstrumentContext:
     candidate_player_id = player_id or uuid4()
@@ -334,7 +454,43 @@ def _candidate(
         recent_trades=recent_trades,
         stats=stats or PlayerStatsContext(observation_count=1, average_rating=7.0, average_minutes=80.0),
         social=social or SocialSignalContext(),
+        betting=betting or BettingMarketContext(),
     )
+
+
+def _betting_context(
+    observed_at: datetime,
+    *,
+    current_probabilities: tuple[Decimal, Decimal],
+    previous_probabilities: tuple[Decimal, Decimal],
+) -> BettingMarketContext:
+    market_types = ("GOALSCORER", "SCORE_OR_ASSIST")
+    quotes: list[BettingMarketQuote] = []
+    for market_type, previous, current in zip(
+        market_types,
+        previous_probabilities,
+        current_probabilities,
+        strict=True,
+    ):
+        selection_key = f"{market_type}|FULL_MATCH|ANYTIME|1|player"
+        for timestamp, probability in (
+            (observed_at - timedelta(minutes=10), previous),
+            (observed_at, current),
+        ):
+            quotes.append(
+                BettingMarketQuote(
+                    provider_event_id="event-1",
+                    canonical_selection_key=selection_key,
+                    market_type=market_type,
+                    outcome_type="ANYTIME",
+                    line=Decimal("1"),
+                    decimal_odds=Decimal("1") / probability,
+                    implied_probability=probability,
+                    observed_at=timestamp,
+                    kickoff_at=observed_at - timedelta(minutes=30),
+                )
+            )
+    return BettingMarketContext(quotes=tuple(quotes))
 
 
 def _price_point(captured_at: datetime, price: Decimal):

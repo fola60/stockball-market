@@ -1,20 +1,10 @@
-# Admin UI
+# Stockball dev portal
 
-## Purpose
+Local-only operations console for data ingestion and synthetic traders. The UI talks only to the API's `/internal/v1/dev` endpoints; it does not access Postgres, Redis, or the trading engine directly.
 
-Internal dashboard for operating and inspecting the Stockball market.
+```bash
+npm install
+NEXT_PUBLIC_STOCKBALL_API_URL=http://localhost:8000 npm run dev -- --port 3001
+```
 
-## Responsibilities
-
-- Show instruments, prices, and price history.
-- Show portfolios, positions, orders, and trades.
-- Show synthetic trader activity.
-- Show market freezes and fixture-related status.
-- Show ingestion jobs, signal health, and failures.
-
-## Boundaries
-
-- Talks only to the API service.
-- Does not call the trading engine directly.
-- Does not connect directly to PostgreSQL or Redis.
-- Does not contain market business logic.
+Enable the API endpoints with `STOCKBALL_DEV_PORTAL_ENABLED=true`.

@@ -38,6 +38,26 @@ class FakeRetryQueue:
         return self.moved
 
 
+class FakeReporter:
+    def __init__(self) -> None:
+        self.events = []
+    def mark_running(self, run_id, attempt): self.events.append(("running", run_id, attempt))
+    def mark_succeeded(self, run_id, result, elapsed_ms): self.events.append(("succeeded", run_id, result.successful_items))
+    def mark_retrying(self, run_id, attempt, error, result): self.events.append(("retrying", run_id, attempt))
+    def mark_failed(self, run_id, error, result=None): self.events.append(("failed", run_id, error))
+
+
+class FakeActiveJobReporter:
+    def __init__(self) -> None:
+        self.events = []
+
+    def mark_job_started(self, job, started_at):
+        self.events.append(("started", job.job_type, started_at))
+
+    def mark_job_finished(self, job):
+        self.events.append(("finished", job.job_type))
+
+
 class SuccessHandler:
     def handle(self, job: WorkerJob) -> JobExecutionResult:
         return JobExecutionResult(
@@ -63,6 +83,34 @@ class RetryableHandler:
 
 
 class WorkerProcessTests(unittest.TestCase):
+    def test_active_job_is_reported_and_cleared(self) -> None:
+        active_reporter = FakeActiveJobReporter()
+        job = WorkerJob(JobType.APPLY_TOPUPS, {})
+        process = WorkerProcess(
+            queue=FakeQueue([job]),
+            retry_queue=FakeRetryQueue(),
+            runner=WorkerJobRunner({JobType.APPLY_TOPUPS: SuccessHandler()}),
+            retry_delay_seconds=30,
+            max_attempts=5,
+            active_job_reporter=active_reporter,
+        )
+
+        process.run_once(0)
+
+        self.assertEqual([event[0] for event in active_reporter.events], ["started", "finished"])
+
+    def test_correlated_operation_reports_running_and_success(self) -> None:
+        reporter = FakeReporter()
+        run_id = uuid4()
+        job = WorkerJob(JobType.APPLY_TOPUPS, {}, operation_run_id=run_id)
+        process = WorkerProcess(
+            queue=FakeQueue([job]), retry_queue=FakeRetryQueue(),
+            runner=WorkerJobRunner({JobType.APPLY_TOPUPS: SuccessHandler()}),
+            retry_delay_seconds=30, max_attempts=5, operation_reporter=reporter,
+        )
+        process.run_once(0)
+        self.assertEqual([event[0] for event in reporter.events], ["running", "succeeded"])
+
     def test_run_once_executes_job_without_retry(self) -> None:
         job = WorkerJob.topup(
             TopupJobPayload(

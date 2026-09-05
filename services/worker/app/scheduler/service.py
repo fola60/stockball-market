@@ -16,6 +16,10 @@ class ScheduleClaimStore(Protocol):
     def claim(self, schedule_name: str, window_key: str) -> bool: ...
 
 
+class ScheduleControlStore(Protocol):
+    def is_enabled(self, schedule_name: str, default: bool) -> bool: ...
+
+
 class InMemoryJobQueue:
     def __init__(self) -> None:
         self.jobs: list[WorkerJob] = []
@@ -41,11 +45,17 @@ class SchedulerService:
     queue: JobQueue
     claim_store: ScheduleClaimStore
     plans: tuple[SchedulePlan, ...] = default_scheduler_plans()
+    control_store: ScheduleControlStore | None = None
 
     def schedule_due_jobs(self, effective_at: datetime) -> tuple[ScheduledJobDecision, ...]:
         decisions: list[ScheduledJobDecision] = []
         for plan in self.plans:
-            if not plan.enabled:
+            enabled = (
+                plan.enabled
+                if self.control_store is None
+                else self.control_store.is_enabled(plan.name, plan.enabled)
+            )
+            if not enabled:
                 continue
 
             window_key = plan.window_key_for(effective_at)

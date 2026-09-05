@@ -15,6 +15,8 @@ PROFILE_VARIATION_BY_CONFIG_KEY: dict[str, float] = {
     "SOCIAL_HYPE_CHASER": 0.30,
     "SOCIAL_CONTRARIAN": 0.22,
     "PORTFOLIO_REBALANCER": 0.12,
+    "BETTING_MARKET_CONSERVATIVE": 0.15,
+    "BETTING_MARKET_AGGRESSIVE": 0.30,
 }
 
 ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
@@ -103,6 +105,18 @@ ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
         "execution.trade_probability",
         "execution.size_noise_pct",
     ),
+    StrategyEngine.BETTING_MARKET_VALUE: (
+        "signal_weights.*",
+        "betting_inputs.market_type_weights.*",
+        "betting_inputs.min_implied_probability",
+        "betting_inputs.movement_scale",
+        "sizing.base_cash_pct",
+        "sizing.confidence_multiplier",
+        "sizing.movement_multiplier",
+        "sizing.position_concentration_penalty",
+        "execution.trade_probability",
+        "execution.size_noise_pct",
+    ),
 }
 
 RATIO_FIELD_SUFFIXES = (
@@ -113,6 +127,7 @@ RATIO_FIELD_SUFFIXES = (
     "size_noise_pct",
     "buy_pressure_threshold",
     "positive_sentiment_threshold",
+    "min_implied_probability",
 )
 
 

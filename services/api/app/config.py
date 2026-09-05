@@ -9,6 +9,8 @@ DATABASE_URL_FALLBACK_ENV = "DATABASE_URL"
 TRADING_ENGINE_URL_ENV = "STOCKBALL_API_TRADING_ENGINE_URL"
 TRADING_ENGINE_URL_FALLBACK_ENV = "STOCKBALL_TRADING_ENGINE_URL"
 DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS = 5.0
+REDIS_URL_ENV = "STOCKBALL_API_REDIS_URL"
+DEV_PORTAL_ENABLED_ENV = "STOCKBALL_DEV_PORTAL_ENABLED"
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,9 @@ class Settings:
     database_url: str
     trading_engine_url: str
     trading_engine_timeout_seconds: float = DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS
+    redis_url: str = "redis://redis:6379/0"
+    queue_name: str = "stockball:worker:jobs"
+    dev_portal_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -38,4 +43,8 @@ class Settings:
             database_url=database_url,
             trading_engine_url=trading_engine_url,
             trading_engine_timeout_seconds=DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS,
+            redis_url=os.getenv(REDIS_URL_ENV, "redis://redis:6379/0"),
+            queue_name=os.getenv("STOCKBALL_API_QUEUE_NAME", "stockball:worker:jobs"),
+            dev_portal_enabled=os.getenv(DEV_PORTAL_ENABLED_ENV, "false").lower()
+            in {"1", "true", "yes", "on"},
         )

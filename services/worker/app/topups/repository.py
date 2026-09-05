@@ -41,6 +41,35 @@ class PostgresTopupRepository:
             for account_id, portfolio_id, cadence_value, amount, enabled in rows
         ]
 
+    def ensure_active_synthetic_trader_policies(
+        self,
+        cadence: TopupCadence,
+        amount: str,
+    ) -> int:
+        with psycopg2.connect(self._database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO worker_topup_policies (
+                        account_id, portfolio_id, cadence, amount, enabled
+                    )
+                    SELECT b.account_id, p.id, %s, %s, true
+                    FROM synthetic_trader_bots b
+                    JOIN synthetic_trader_bot_configs c ON c.id = b.config_id
+                    JOIN portfolios p ON p.account_id = b.account_id
+                    WHERE b.status = 'ACTIVE'
+                      AND c.strategy_engine <> 'SOCIAL_SENTIMENT'
+                    ON CONFLICT (account_id, portfolio_id, cadence) DO UPDATE
+                    SET amount = EXCLUDED.amount,
+                        enabled = true,
+                        updated_at = now()
+                    """,
+                    (cadence.value, amount),
+                )
+                configured = cursor.rowcount
+            connection.commit()
+        return configured
+
     def get_record(self, request_id: str) -> TopupAuditRecord | None:
         with psycopg2.connect(self._database_url) as connection:
             with connection.cursor() as cursor:

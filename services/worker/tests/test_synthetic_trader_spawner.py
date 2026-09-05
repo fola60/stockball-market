@@ -186,6 +186,30 @@ class SyntheticTraderSpawnerTests(unittest.TestCase):
         self.assertEqual(result.spawned_count, 1)
         self.assertEqual(repository.created_bots[0].config_id, config_id)
 
+    def test_spawn_resolves_betting_engine_to_conservative_profile(self) -> None:
+        config_id = uuid4()
+        repository = FakeSyntheticTraderRepository(
+            _config(
+                config_id,
+                config_key="BETTING_MARKET_CONSERVATIVE",
+                strategy_engine=StrategyEngine.BETTING_MARKET_VALUE,
+            )
+        )
+
+        result = SyntheticTraderSpawner(
+            api_client=FakeApiClient(),
+            repository=repository,
+        ).spawn(
+            SpawnSyntheticTraderCommand(
+                strategy_engine=StrategyEngine.BETTING_MARKET_VALUE,
+                count=1,
+                random_seed=42,
+            )
+        )
+
+        self.assertEqual(repository.lookup_keys, ["BETTING_MARKET_CONSERVATIVE"])
+        self.assertEqual(result.config_key, "BETTING_MARKET_CONSERVATIVE")
+
     def test_spawn_uses_seeded_persona_names_by_default(self) -> None:
         first_repository = FakeSyntheticTraderRepository(_config(uuid4()))
         second_repository = FakeSyntheticTraderRepository(_config(uuid4()))

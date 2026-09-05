@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from uuid import UUID
 
 from app.clients import ApiClientError, ApiUnavailableError, HttpApiClient, HttpTradingEngineClient
 from app.config import FbrefIngestionSettings, DatabaseSettings, Settings
@@ -26,6 +28,7 @@ from app.ingestion.social.twitter import (
     load_registry,
 )
 from app.jobs import (
+    Bet365IngestionMode,
     IngestFixturesJobHandler,
     IngestBet365OddsJobHandler,
     IngestPlayerStatsJobHandler,
@@ -36,19 +39,32 @@ from app.jobs import (
     TopupJobHandler,
     WorkerJobRunner,
     WorkerProcess,
+    FunctionJobHandler,
 )
+from app.jobs.dev_handlers import (
+    bootstrap_portfolios_handler,
+    market_value_import_handler,
+    seed_player_shares_handler,
+    set_bot_status_handler,
+    spawn_traders_handler,
+)
+from app.dev_operations import PostgresOperationRunReporter
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
+from app.process_state import RedisProcessState
 from app.scheduler import SchedulerProcess, SchedulerService
 from app.scheduler.models import default_scheduler_plans
 from app.synthetic_traders import (
+    BootstrapAllocationError,
     BotStatus,
     PostgresSyntheticTraderRepository,
+    PostgresSyntheticPortfolioBootstrapRepository,
     SpawnNameStyle,
     SpawnSyntheticTraderCommand,
     StrategyEngine,
     SyntheticTraderConfigNotFoundError,
     SyntheticTraderService,
     SyntheticTraderSpawner,
+    SyntheticPortfolioBootstrapService,
 )
 from app.topups import PostgresTopupRepository, TopupService
 
@@ -158,14 +174,18 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_env()
         _configure_logging(args.log_level)
         try:
-            result = _build_bet365_ingestion_service(
+            service = _build_bet365_ingestion_service(
                 settings,
                 max_matches_override=args.max_matches,
-            ).ingest_pre_match_1x2(args.league)
+            )
+            if Bet365IngestionMode(args.mode) is Bet365IngestionMode.LIVE:
+                result = service.ingest_live_markets(datetime.now(UTC))
+            else:
+                result = service.ingest_pre_match_markets(args.league)
         except Bet365IngestionError as error:
             print(f"Bet365 odds ingestion unavailable: {error}")
             return 1
-        print(f"upserted {result.upserted_observations} Bet365 1X2 odds observations")
+        print(f"upserted {result.upserted_observations} Bet365 market observations")
         return 0
 
     if args.command == "sync-twitter-injury-registry":
@@ -216,7 +236,9 @@ def main(argv: list[str] | None = None) -> int:
                     display_name_prefix=args.display_name_prefix,
                     config_key=args.config_key,
                     strategy_engine=(
-                        None if args.strategy_engine is None else StrategyEngine(args.strategy_engine)
+                        None
+                        if args.strategy_engine is None
+                        else StrategyEngine(args.strategy_engine)
                     ),
                     name_style=SpawnNameStyle(args.name_style),
                     random_seed=args.random_seed,
@@ -243,6 +265,37 @@ def main(argv: list[str] | None = None) -> int:
                 f"{trader.handle} account={trader.account_id} "
                 f"portfolio={trader.portfolio_id} bot={trader.bot_id}"
             )
+        return 0
+
+    if args.command == "bootstrap-synthetic-portfolios":
+        settings = DatabaseSettings.from_env()
+        _configure_logging(args.log_level)
+        try:
+            result = SyntheticPortfolioBootstrapService(
+                PostgresSyntheticPortfolioBootstrapRepository(settings.database_url)
+            ).bootstrap(
+                bot_ids=tuple(args.bot_id or ()),
+                all_active_synthetic_bots=args.all_active_synthetic_bots,
+                seed=args.seed,
+                min_holders_per_player=args.min_holders_per_player,
+                max_player_supply_per_bot=args.max_player_supply_per_bot,
+                reserve_supply_percent=args.reserve_supply_percent,
+                max_positions_per_bot=args.max_positions_per_bot,
+                dry_run=args.dry_run,
+            )
+        except BootstrapAllocationError as error:
+            print(f"bootstrap allocation failed: {error}")
+            return 1
+        mode = "dry-run" if args.dry_run else "committed"
+        print(
+            f"bootstrap synthetic portfolios ({mode}): seed={result.seed}, "
+            f"bots={len(result.selected_bot_ids)}, "
+            f"instruments={result.instruments_processed}, "
+            f"bot_shares={result.bot_shares}, reserve_shares={result.reserve_shares}, "
+            f"positions={result.created_positions}, skipped={len(result.skipped_instruments)}"
+        )
+        for symbol, reason in result.skipped_instruments:
+            print(f"skipped {symbol}: {reason}")
         return 0
 
     settings = Settings.from_env()
@@ -328,7 +381,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ingest_bet365 = subcommands.add_parser(
         "ingest-bet365-odds",
-        help="discover and ingest Bet365 pre-match 1X2 odds from the rendered website",
+        help="ingest Bet365 pre-match or live match and player markets",
+    )
+    ingest_bet365.add_argument(
+        "--mode",
+        choices=[mode.value for mode in Bet365IngestionMode],
+        default=Bet365IngestionMode.PRE_MATCH.value,
+        help="PRE_MATCH discovers fixtures; LIVE refreshes known active event URLs",
     )
     ingest_bet365.add_argument(
         "--league",
@@ -452,6 +511,37 @@ def _build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off spawn command, default: INFO",
     )
+    bootstrap_portfolios = subcommands.add_parser(
+        "bootstrap-synthetic-portfolios",
+        help="issue seeded player-share supply to synthetic traders and the reserve",
+    )
+    bot_selector = bootstrap_portfolios.add_mutually_exclusive_group(required=True)
+    bot_selector.add_argument(
+        "--bot-id",
+        action="append",
+        type=UUID,
+        help="synthetic trader bot UUID; repeat to select multiple bots",
+    )
+    bot_selector.add_argument(
+        "--all-active-synthetic-bots",
+        action="store_true",
+        help="select every active non-social synthetic trader",
+    )
+    bootstrap_portfolios.add_argument("--seed", type=int)
+    bootstrap_portfolios.add_argument(
+        "--min-holders-per-player", type=_positive_int, default=3
+    )
+    bootstrap_portfolios.add_argument(
+        "--max-player-supply-per-bot", type=_percentage_up_to_100, default=Decimal("20")
+    )
+    bootstrap_portfolios.add_argument(
+        "--reserve-supply-percent", type=_percentage, default=Decimal("10")
+    )
+    bootstrap_portfolios.add_argument(
+        "--max-positions-per-bot", type=_positive_int, default=100
+    )
+    bootstrap_portfolios.add_argument("--dry-run", action="store_true")
+    bootstrap_portfolios.add_argument("--log-level", default="INFO")
     return parser
 
 
@@ -469,6 +559,26 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _percentage(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise argparse.ArgumentTypeError("value must be a decimal percentage") from error
+    if not Decimal("0") < parsed < Decimal("100"):
+        raise argparse.ArgumentTypeError("value must be greater than 0 and less than 100")
+    return parsed
+
+
+def _percentage_up_to_100(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise argparse.ArgumentTypeError("value must be a decimal percentage") from error
+    if not Decimal("0") < parsed <= Decimal("100"):
+        raise argparse.ArgumentTypeError("value must be greater than 0 and at most 100")
+    return parsed
+
+
 def _print_provider_access_error(error: FbrefAccessDeniedError) -> None:
     logging.getLogger(__name__).error("FBref ingestion access denied", extra={"error": str(error)})
     print(
@@ -483,15 +593,28 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
         settings.schedule_claim_prefix,
         settings.schedule_claim_ttl_seconds,
     )
+    process_state = RedisProcessState(
+        settings.redis_url,
+        scheduler_heartbeat_ttl_seconds=max(30, settings.scheduler_poll_seconds * 3),
+    )
     scheduler = SchedulerService(
         queue=queue,
         claim_store=claim_store,
+        control_store=process_state,
         plans=default_scheduler_plans(
+            player_stats_enabled=settings.player_stats_schedule_enabled,
+            player_stats_run_hour_utc=settings.player_stats_schedule_hour_utc,
+            player_stats_league=settings.player_stats_schedule_league,
+            player_stats_season=settings.player_stats_schedule_season,
             bet365_enabled=(
                 settings.bet365_schedule_enabled
-                and settings.bet365_policy_acknowledged
                 and settings.bet365_browser_enabled
             ),
+            bet365_live_enabled=(
+                settings.bet365_live_schedule_enabled
+                and settings.bet365_browser_enabled
+            ),
+            bet365_live_interval_minutes=settings.bet365_live_schedule_interval_minutes,
             twitter_injury_enabled=(
                 settings.twitter_injury_schedule_enabled
                 and settings.twitter_policy_acknowledged
@@ -502,7 +625,7 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
             twitter_query_key=settings.twitter_query_key,
         ),
     )
-    return SchedulerProcess(scheduler=scheduler)
+    return SchedulerProcess(scheduler=scheduler, status_reporter=process_state)
 
 
 def _build_worker_process(settings: Settings) -> WorkerProcess:
@@ -522,8 +645,16 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
         audit_store=topup_repository,
     )
     synthetic_trader_service = _build_synthetic_trader_service(settings)
+    trading_engine_client = HttpTradingEngineClient(
+        settings.trading_engine_url,
+        timeout_seconds=settings.trading_engine_timeout_seconds,
+    )
+    synthetic_repository = PostgresSyntheticTraderRepository(settings.database_url)
     handlers = {
-        JobType.APPLY_TOPUPS: TopupJobHandler(topup_service=topup_service),
+        JobType.APPLY_TOPUPS: TopupJobHandler(
+            topup_service=topup_service,
+            synthetic_policy_provisioner=topup_repository,
+        ),
         JobType.SYNTHETIC_TRADER_TICK: SyntheticTraderTickJobHandler(
             synthetic_trader_service=synthetic_trader_service
         ),
@@ -547,6 +678,29 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
     handlers[JobType.INGEST_BET365_ODDS] = IngestBet365OddsJobHandler(
         betting_market_ingestion_service=_build_bet365_ingestion_service(settings)
     )
+    handlers[JobType.IMPORT_MARKET_VALUES] = FunctionJobHandler(
+        JobType.IMPORT_MARKET_VALUES,
+        market_value_import_handler(_build_market_value_import_service(settings)),
+    )
+    handlers[JobType.SEED_PLAYER_SHARES] = FunctionJobHandler(
+        JobType.SEED_PLAYER_SHARES, seed_player_shares_handler(trading_engine_client)
+    )
+    handlers[JobType.SPAWN_SYNTHETIC_TRADERS] = FunctionJobHandler(
+        JobType.SPAWN_SYNTHETIC_TRADERS,
+        spawn_traders_handler(_build_synthetic_trader_spawner(settings)),
+    )
+    handlers[JobType.BOOTSTRAP_SYNTHETIC_PORTFOLIOS] = FunctionJobHandler(
+        JobType.BOOTSTRAP_SYNTHETIC_PORTFOLIOS,
+        bootstrap_portfolios_handler(
+            SyntheticPortfolioBootstrapService(
+                PostgresSyntheticPortfolioBootstrapRepository(settings.database_url)
+            )
+        ),
+    )
+    handlers[JobType.SET_SYNTHETIC_TRADER_STATUS] = FunctionJobHandler(
+        JobType.SET_SYNTHETIC_TRADER_STATUS,
+        set_bot_status_handler(synthetic_repository),
+    )
     if settings.twitter_search_query:
         handlers[JobType.INGEST_TWITTER_INJURIES] = IngestTwitterInjuriesJobHandler(
             twitter_injury_ingestion_service=_build_twitter_injury_ingestion_service(settings),
@@ -559,6 +713,8 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
         runner=runner,
         retry_delay_seconds=settings.retry_delay_seconds,
         max_attempts=settings.max_attempts,
+        operation_reporter=PostgresOperationRunReporter(settings.database_url),
+        active_job_reporter=RedisProcessState(settings.redis_url),
     )
 
 
@@ -599,7 +755,6 @@ def _build_bet365_ingestion_service(
     max_matches_override: int | None = None,
 ) -> BettingMarketIngestionService:
     client = Bet365Client(
-        policy_acknowledged=settings.bet365_policy_acknowledged,
         browser_enabled=settings.bet365_browser_enabled,
         homepage_url=settings.bet365_website_url,
         competition_name=settings.bet365_competition_name,
@@ -611,12 +766,16 @@ def _build_bet365_ingestion_service(
         pre_match_cutoff_minutes=settings.bet365_pre_match_cutoff_minutes,
         request_interval_seconds=settings.bet365_website_navigation_interval_seconds,
         browser_idle_seconds=settings.bet365_browser_idle_seconds,
-        browser_user_data_dir=settings.bet365_browser_user_data_dir,
-        browser_profile_directory=settings.bet365_browser_profile_directory,
     )
     return BettingMarketIngestionService(
         client=client,
         repository=PostgresBettingMarketRepository(settings.database_url),
+        live_event_window_minutes=settings.bet365_live_event_window_minutes,
+        live_event_limit=(
+            max_matches_override
+            if max_matches_override is not None
+            else settings.bet365_max_matches
+        ),
     )
 
 

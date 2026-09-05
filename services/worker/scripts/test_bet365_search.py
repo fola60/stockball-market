@@ -1,4 +1,4 @@
-"""Quick local test: discover Bet365 fixtures and print normalized 1X2 odds.
+"""Quick local test: discover Bet365 fixtures and print normalized market odds.
 
 Usage:
     python3 -m scripts.test_bet365_search --league PL --max-matches 5
@@ -34,7 +34,7 @@ from scripts.open_chrome_profile import (
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Fetch Bet365 1X2 data with the worker's rendered-browser client"
+        description="Fetch Bet365 match and player markets with the worker browser client"
     )
     parser.add_argument(
         "--league",
@@ -103,7 +103,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         user_data_dir, profile = _resolve_profile(args)
         client = Bet365Client(
-            policy_acknowledged=True,
             browser_enabled=True,
             homepage_url=args.homepage_url,
             competition_name=args.competition,
@@ -122,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Using an isolated temporary Chrome profile\n", flush=True)
         else:
             print(f"Using Chrome profile: {profile} ({user_data_dir})\n", flush=True)
-        observations = client.list_pre_match_1x2(args.league)
+        observations = client.list_pre_match_markets(args.league)
     except (Bet365IngestionError, OSError, ValueError) as exc:
         print(f"Bet365 fetch failed: {exc}", file=sys.stderr)
         if exc.__cause__ is not None:
@@ -150,23 +149,53 @@ def _print_observations(observations: list[BettingMarketObservation]) -> None:
     for observation in observations:
         grouped.setdefault(observation.provider_event_id, []).append(observation)
 
-    print(f"Found {len(grouped)} matches and {len(observations)} 1X2 selections\n")
+    print(f"Found {len(grouped)} matches and {len(observations)} market selections\n")
     for index, (event_id, selections) in enumerate(grouped.items(), 1):
-        first = selections[0]
-        home_team = str(first.raw_payload.get("home_team", "Home"))
-        away_team = str(first.raw_payload.get("away_team", "Away"))
+        match_selection = next(
+            (selection for selection in selections if "home_team" in selection.raw_payload),
+            selections[0],
+        )
+        home_team = str(match_selection.raw_payload.get("home_team", "Home"))
+        away_team = str(match_selection.raw_payload.get("away_team", "Away"))
         print(f"{index}. {home_team} vs {away_team}")
         print(f"   event_id={event_id}")
-        print(f"   observed_at={first.observed_at.isoformat()}")
-        if first.source_url:
-            print(f"   url={first.source_url}")
-        for selection in selections:
-            display_name = str(selection.raw_payload.get("selection", selection.selection_key))
-            display_odds = str(selection.raw_payload.get("display_odds", "unknown"))
-            implied_percent = selection.implied_probability * Decimal("100")
+        print(f"   observed_at={match_selection.observed_at.isoformat()}")
+        if match_selection.source_url:
+            print(f"   url={match_selection.source_url}")
+
+        market_counts: dict[str, int] = {}
+        for observation in selections:
+            market_type = observation.selection.market_type
+            market_counts[market_type] = market_counts.get(market_type, 0) + 1
+        summary = ", ".join(
+            f"{market_type}={count}"
+            for market_type, count in sorted(market_counts.items())
+        )
+        print(f"   markets: {summary}")
+
+        for observation in sorted(
+            selections,
+            key=lambda item: (
+                item.selection.market_type,
+                item.selection.participants[0].provider_player_name
+                if item.selection.participants
+                else item.selection.provider_selection_label,
+                item.selection.line or Decimal("0"),
+            ),
+        ):
+            selection = observation.selection
+            participants = ", ".join(
+                participant.provider_player_name
+                for participant in selection.participants
+            )
+            subject = participants or selection.provider_selection_label
+            line = "-" if selection.line is None else str(selection.line)
+            display_odds = str(observation.raw_payload.get("display_odds", "unknown"))
+            implied_percent = observation.implied_probability * Decimal("100")
             print(
-                f"   {selection.selection_key:<4} {display_name}: "
-                f"decimal={selection.decimal_odds} quoted={display_odds} "
+                f"   {selection.market_type:<24} {subject}: "
+                f"outcome={selection.outcome_type.value} line={line} "
+                f"decimal={observation.decimal_odds} quoted={display_odds} "
                 f"implied={implied_percent:.2f}%"
             )
         print()
