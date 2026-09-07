@@ -35,8 +35,33 @@ def enqueue_operation(command: EnqueueOperationRequest, request: Request) -> dic
 
 
 @router.get("/runs")
-def list_runs(request: Request, limit: int = 100) -> list[dict[str, Any]]:
-    return _service(request).repository.list_runs(max(1, min(limit, 500)))
+def list_runs(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    operation_type: str | None = Query(default=None),
+    exclude_operation_type: list[str] | None = Query(default=None),
+    status: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+) -> list[dict[str, Any]]:
+    if status not in {
+        None,
+        "QUEUED",
+        "RUNNING",
+        "RETRYING",
+        "SUCCEEDED",
+        "FAILED",
+        "SUPERSEDED",
+    }:
+        raise HTTPException(status_code=422, detail="invalid run status")
+    if source not in {None, "MANUAL", "SCHEDULED"}:
+        raise HTTPException(status_code=422, detail="invalid run source")
+    return _service(request).repository.list_runs(
+        limit,
+        operation_type=operation_type,
+        exclude_operation_type=exclude_operation_type,
+        status=status,
+        source=source,
+    )
 
 
 @router.get("/runs/{run_id}")

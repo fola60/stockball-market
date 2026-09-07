@@ -130,7 +130,11 @@ class FbrefParserTests(unittest.TestCase):
 
 class FbrefClientTests(unittest.TestCase):
     def test_browser_fallback_response_exposes_page_source_text(self) -> None:
-        page_source = "<html><body>FBref fallback page</body></html>"
+        page_source = (
+            "<html><body><table><tr>"
+            "<td data-stat='player'>FBref fallback page</td>"
+            "</tr></table></body></html>"
+        )
 
         class FakeBrowser:
             def __init__(self, **kwargs: object) -> None:
@@ -161,6 +165,46 @@ class FbrefClientTests(unittest.TestCase):
 
         self.assertEqual(response.content, page_source.encode("utf-8"))
         self.assertEqual(response.text, page_source)
+
+    def test_browser_fallback_waits_for_challenge_and_table_content(self) -> None:
+        challenge = "<html><title>Just a moment...</title></html>"
+        loaded = "<html><table><td data-stat='player'>Saka</td></table></html>"
+
+        class FakeBrowser:
+            instance: "FakeBrowser | None" = None
+
+            def __init__(self, **kwargs: object) -> None:
+                self.kwargs = kwargs
+                self.polls = 0
+                self.sleeps: list[float] = []
+                FakeBrowser.instance = self
+
+            def __enter__(self) -> "FakeBrowser":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def open(self, url: str) -> None:
+                self.url = url
+
+            def sleep(self, seconds: float) -> None:
+                self.sleeps.append(seconds)
+                self.polls += 1
+
+            def get_page_source(self) -> str:
+                return challenge if self.polls < 2 else loaded
+
+            def get_cookies(self) -> list[dict[str, str]]:
+                return []
+
+        client = FbrefClient(request_interval_seconds=0)
+
+        with patch("app.ingestion.fbref.client.SB", FakeBrowser):
+            response = client._request_with_browser("https://fbref.com/en/comps/9/test")
+
+        self.assertEqual(response.text, loaded)
+        self.assertEqual(FakeBrowser.instance.sleeps, [1.0, 1.0])
 
     def test_client_fetches_fbref_fixture_player_and_stat_pages(self) -> None:
         paths_seen: list[str] = []
@@ -195,6 +239,8 @@ class FbrefClientTests(unittest.TestCase):
 
         def handler(request: httpx.Request) -> httpx.Response:
             nonlocal calls
+            if request.url.path == "/":
+                return _html_response(_fixture_html("fbref_standard_stats.html"))
             calls += 1
             if calls == 1:
                 return httpx.Response(429, headers={"Retry-After": "2"})

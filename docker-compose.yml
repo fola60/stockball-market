@@ -81,7 +81,9 @@ services:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
-    command: ["stockball-worker", "worker"]
+    command:
+      ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24", "stockball-worker", "worker"]
+    init: true
     platform: linux/amd64
     profiles: ["worker"]
     environment:
@@ -92,6 +94,7 @@ services:
       STOCKBALL_WORKER_BLOCK_SECONDS: ${STOCKBALL_WORKER_BLOCK_SECONDS:-5}
       STOCKBALL_WORKER_RETRY_DELAY_SECONDS: ${STOCKBALL_WORKER_RETRY_DELAY_SECONDS:-30}
       STOCKBALL_WORKER_MAX_ATTEMPTS: ${STOCKBALL_WORKER_MAX_ATTEMPTS:-5}
+      TZ: ${STOCKBALL_BET365_BROWSER_TIMEZONE:-Europe/Dublin}
       STOCKBALL_FBREF_BASE_URL: ${STOCKBALL_FBREF_BASE_URL:-https://fbref.com}
       STOCKBALL_FBREF_USER_AGENT: ${STOCKBALL_FBREF_USER_AGENT:-StockballMarketWorker/0.1;contact=engineering@stockball.local;provider=FBREF}
       STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}
@@ -107,6 +110,8 @@ services:
       STOCKBALL_BET365_PRE_MATCH_CUTOFF_MINUTES: ${STOCKBALL_BET365_PRE_MATCH_CUTOFF_MINUTES:-5}
       STOCKBALL_BET365_BROWSER_ENABLED: ${STOCKBALL_BET365_BROWSER_ENABLED:-false}
       STOCKBALL_BET365_BROWSER_IDLE_SECONDS: ${STOCKBALL_BET365_BROWSER_IDLE_SECONDS:-0.3}
+      STOCKBALL_BET365_JOB_TIMEOUT_SECONDS: ${STOCKBALL_BET365_JOB_TIMEOUT_SECONDS:-600}
+      STOCKBALL_SCHEDULED_REALTIME_MAX_LAG_SECONDS: ${STOCKBALL_SCHEDULED_REALTIME_MAX_LAG_SECONDS:-120}
       STOCKBALL_PLAYER_STATS_SCHEDULE_ENABLED: ${STOCKBALL_PLAYER_STATS_SCHEDULE_ENABLED:-true}
       STOCKBALL_PLAYER_STATS_SCHEDULE_HOUR_UTC: ${STOCKBALL_PLAYER_STATS_SCHEDULE_HOUR_UTC:-3}
       STOCKBALL_PLAYER_STATS_SCHEDULE_LEAGUE: ${STOCKBALL_PLAYER_STATS_SCHEDULE_LEAGUE:-9}
@@ -139,7 +144,6 @@ services:
       context: .
       dockerfile: services/worker/Dockerfile
     command: ["stockball-worker", "scheduler"]
-    platform: linux/amd64
     profiles: ["worker"]
     environment:
       STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}

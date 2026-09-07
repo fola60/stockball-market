@@ -276,6 +276,14 @@ class WorkerJob:
             operation_run_id=self.operation_run_id,
         )
 
+    def with_operation_run_id(self, run_id: UUID) -> "WorkerJob":
+        return WorkerJob(
+            job_type=self.job_type,
+            payload=self.payload,
+            attempt=self.attempt,
+            operation_run_id=run_id,
+        )
+
 
 @dataclass(frozen=True)
 class JobExecutionResult:

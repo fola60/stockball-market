@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ARG TARGETARCH
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
@@ -34,14 +36,20 @@ RUN apt-get update \
         libxfixes3 \
         libxkbcommon0 \
         libxrandr2 \
+        python3-tk \
         wget \
+        xauth \
         xdg-utils \
         xvfb \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-linux.gpg \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-linux.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && if [ "$TARGETARCH" = "amd64" ]; then \
+        mkdir -p /etc/apt/keyrings; \
+        curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-linux.gpg; \
+        echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-linux.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends google-chrome-stable; \
+    else \
+        apt-get install -y --no-install-recommends chromium chromium-driver; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 COPY services/worker/pyproject.toml ./
@@ -50,7 +58,7 @@ COPY services/worker/app ./app
 RUN echo "BUILD MARKER: services/worker/Dockerfile fbref-no-cache interval-7.5"
 RUN pip install --no-cache-dir .
 
-RUN seleniumbase install chromedriver
+RUN if [ "$TARGETARCH" = "amd64" ]; then seleniumbase install chromedriver; fi
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash appuser \
     && mkdir -p /home/appuser/.cache /home/appuser/.config /home/appuser/Downloads /tmp/fbref-debug \

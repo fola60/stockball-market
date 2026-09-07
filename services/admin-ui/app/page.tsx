@@ -22,6 +22,9 @@ type Run = {
   id: string;
   operation_type: string;
   job_type: string;
+  source: "MANUAL" | "SCHEDULED";
+  schedule_name?: string;
+  schedule_window_key?: string;
   status: string;
   attempt: number;
   successful_items: number;
@@ -230,6 +233,23 @@ const INGEST_COMMANDS = [
     "Ingest configured injury-report query",
   ],
 ] as const;
+const RUN_OPERATION_TYPES = [
+  "INGEST_PLAYERS",
+  "INGEST_FIXTURES",
+  "INGEST_PLAYER_STATS",
+  "IMPORT_MARKET_VALUES",
+  "SEED_PLAYER_SHARES",
+  "INGEST_BETTING_MARKETS",
+  "INGEST_TWITTER_INJURIES",
+  "APPLY_TOPUPS",
+  "TICK_SYNTHETIC_TRADERS",
+  "SPAWN_SYNTHETIC_TRADERS",
+  "BOOTSTRAP_SYNTHETIC_PORTFOLIOS",
+  "SET_SYNTHETIC_TRADER_STATUS",
+] as const;
+const DEFAULT_RUN_OPERATIONS = RUN_OPERATION_TYPES.filter(
+  (operationType) => operationType !== "TICK_SYNTHETIC_TRADERS",
+);
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API}${path}`, { cache: "no-store" });
@@ -241,6 +261,9 @@ async function getJson<T>(path: string): Promise<T> {
 export default function Home() {
   const [view, setView] = useState<View>("runs");
   const [runs, setRuns] = useState<Run[]>([]);
+  const [runOperations, setRunOperations] = useState<Set<string>>(
+    () => new Set(DEFAULT_RUN_OPERATIONS),
+  );
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [traders, setTraders] = useState<Trader[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -250,9 +273,15 @@ export default function Home() {
 
   const refresh = useCallback(async () => {
     try {
+      const runQuery = new URLSearchParams({ limit: "100" });
+      RUN_OPERATION_TYPES.filter(
+        (operationType) => !runOperations.has(operationType),
+      ).forEach((operationType) =>
+        runQuery.append("exclude_operation_type", operationType),
+      );
       const [nextRuns, nextSummary, nextTraders, nextProfiles, nextProcesses] =
         await Promise.all([
-          getJson<Run[]>("/internal/v1/dev/runs?limit=100"),
+          getJson<Run[]>(`/internal/v1/dev/runs?${runQuery}`),
           getJson<Summary>("/internal/v1/dev/summary"),
           getJson<Trader[]>("/internal/v1/dev/synthetic-traders"),
           getJson<Profile[]>("/internal/v1/dev/synthetic-trader-profiles"),
@@ -267,7 +296,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "API unavailable");
     }
-  }, []);
+  }, [runOperations]);
 
   useEffect(() => {
     const initial = setTimeout(refresh, 0);
@@ -413,6 +442,8 @@ export default function Home() {
             summary={summary}
             rate={successRate}
             enqueue={enqueue}
+            selectedOperations={runOperations}
+            setSelectedOperations={setRunOperations}
           />
         )}
         {view === "processes" && (
@@ -557,13 +588,25 @@ function RunsView({
   summary,
   rate,
   enqueue,
+  selectedOperations,
+  setSelectedOperations,
 }: {
   runs: Run[];
   summary: Summary;
   rate: number;
   enqueue: (a: string, b?: Record<string, unknown>) => void;
+  selectedOperations: Set<string>;
+  setSelectedOperations: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
+  function toggleOperation(operationType: string, checked: boolean) {
+    setSelectedOperations((current) => {
+      const next = new Set(current);
+      if (checked) next.add(operationType);
+      else next.delete(operationType);
+      return next;
+    });
+  }
   return (
     <>
       <div className="stats">
@@ -576,12 +619,32 @@ function RunsView({
           bad={summary.failed_items_24h > 0}
         />
       </div>
+      <div className="runToolbar">
+        <div className="runFilters">
+          {RUN_OPERATION_TYPES.map((operationType) => (
+            <label className="runCheck" key={operationType}>
+              <input
+                type="checkbox"
+                checked={selectedOperations.has(operationType)}
+                onChange={(event) =>
+                  toggleOperation(operationType, event.target.checked)
+                }
+              />
+              {label(operationType)}
+            </label>
+          ))}
+        </div>
+        <span>
+          Showing {runs.length} latest matching runs
+        </span>
+      </div>
       <div className="tableWrap">
         <table>
           <thead>
             <tr>
               <th>Operation</th>
               <th>Status</th>
+              <th>Source</th>
               <th>Queued</th>
               <th>Duration</th>
               <th className="num">Success</th>
@@ -613,6 +676,10 @@ function RunsView({
                 <td>
                   <Status value={run.status} />
                 </td>
+                <td>
+                  <strong>{label(run.source)}</strong>
+                  <small>{run.schedule_name ?? "dev portal"}</small>
+                </td>
                 <td>{time(run.enqueued_at)}</td>
                 <td>{duration(run)}</td>
                 <td className="num good">{run.successful_items}</td>
@@ -637,8 +704,8 @@ function RunsView({
             ))}
             {!runs.length && (
               <tr>
-                <td colSpan={9} className="empty">
-                  No operation runs recorded.
+                <td colSpan={10} className="empty">
+                  No runs match the selected filters.
                 </td>
               </tr>
             )}
@@ -1371,6 +1438,9 @@ function RunDetails({
       <DetailList
         items={[
           ["Status", run.status],
+          ["Source", label(run.source)],
+          ["Schedule", run.schedule_name ?? "-"],
+          ["Schedule window", run.schedule_window_key ?? "-"],
           ["Job type", run.job_type],
           ["Attempt", run.attempt],
           ["Retryable failures", run.retryable_failures],

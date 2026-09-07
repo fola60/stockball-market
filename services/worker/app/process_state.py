@@ -14,9 +14,15 @@ WORKER_ACTIVE_JOB_KEY = "stockball:dev:worker:active-job"
 
 
 class RedisProcessState:
-    def __init__(self, redis_url: str, scheduler_heartbeat_ttl_seconds: int = 180) -> None:
+    def __init__(
+        self,
+        redis_url: str,
+        scheduler_heartbeat_ttl_seconds: int = 180,
+        active_job_ttl_seconds: int = 3600,
+    ) -> None:
         self._client = redis.Redis.from_url(redis_url, decode_responses=True)
         self._scheduler_heartbeat_ttl_seconds = scheduler_heartbeat_ttl_seconds
+        self._active_job_ttl_seconds = active_job_ttl_seconds
 
     def is_enabled(self, schedule_name: str, default: bool) -> bool:
         override = self._client.hget(SCHEDULE_OVERRIDES_KEY, schedule_name)
@@ -41,8 +47,9 @@ class RedisProcessState:
         )
 
     def mark_job_started(self, job: WorkerJob, started_at: datetime) -> None:
-        self._client.set(
+        self._client.setex(
             WORKER_ACTIVE_JOB_KEY,
+            self._active_job_ttl_seconds,
             json.dumps(
                 {
                     "job_type": job.job_type.value,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
+from uuid import UUID
 
 from app.jobs import (
     IngestPlayerStatsJobPayload,
@@ -19,6 +20,78 @@ from app.topups import TopupCadence
 
 
 class SchedulerServiceTests(unittest.TestCase):
+    def test_scheduled_jobs_are_created_as_correlated_runs(self) -> None:
+        class RunRepository:
+            def __init__(self) -> None:
+                self.created = []
+
+            def create_run(
+                self,
+                run_id,
+                schedule_name,
+                window_key,
+                job_type,
+                parameters,
+                supersede_pending,
+            ) -> bool:
+                self.created.append(
+                    (
+                        run_id,
+                        schedule_name,
+                        window_key,
+                        job_type,
+                        parameters,
+                        supersede_pending,
+                    )
+                )
+                return True
+
+            def mark_enqueue_failed(self, run_id, message) -> None:
+                raise AssertionError("enqueue should not fail")
+
+        queue = InMemoryJobQueue()
+        runs = RunRepository()
+        scheduler = SchedulerService(
+            queue=queue,
+            claim_store=InMemoryScheduleClaimStore(),
+            plans=(DailyPlayerStatsIngestionPlan(),),
+            run_repository=runs,
+        )
+
+        decisions = scheduler.schedule_due_jobs(
+            datetime(2026, 4, 22, 15, 30, tzinfo=UTC)
+        )
+
+        self.assertEqual(len(runs.created), 1)
+        self.assertEqual(runs.created[0][1], "daily-player-stats")
+        self.assertEqual(runs.created[0][2], "2026-04-22")
+        self.assertTrue(runs.created[0][5])
+        self.assertIsInstance(queue.jobs[0].operation_run_id, UUID)
+        self.assertEqual(decisions[0].job.operation_run_id, queue.jobs[0].operation_run_id)
+
+    def test_existing_scheduled_run_is_not_enqueued_again(self) -> None:
+        class ExistingRunRepository:
+            def create_run(self, *args, **kwargs) -> bool:
+                return False
+
+            def mark_enqueue_failed(self, run_id, message) -> None:
+                raise AssertionError("enqueue should not be attempted")
+
+        queue = InMemoryJobQueue()
+        scheduler = SchedulerService(
+            queue=queue,
+            claim_store=InMemoryScheduleClaimStore(),
+            plans=(DailyPlayerStatsIngestionPlan(),),
+            run_repository=ExistingRunRepository(),
+        )
+
+        decisions = scheduler.schedule_due_jobs(
+            datetime(2026, 4, 22, 15, 30, tzinfo=UTC)
+        )
+
+        self.assertEqual(decisions, ())
+        self.assertEqual(queue.jobs, [])
+
     def test_runtime_control_can_pause_an_enabled_schedule(self) -> None:
         class PausedControl:
             def is_enabled(self, schedule_name: str, default: bool) -> bool:

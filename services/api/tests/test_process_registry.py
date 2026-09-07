@@ -31,6 +31,7 @@ class RedisProcessRegistryTests(unittest.TestCase):
         self.registry = RedisProcessRegistry.__new__(RedisProcessRegistry)
         self.registry._client = self.redis
         self.registry._queue_name = "jobs"
+        self.registry._executable_run_ids = None
         definitions = __import__(
             "app.dev_operations.processes", fromlist=["configured_processes"]
         ).configured_processes()
@@ -64,6 +65,33 @@ class RedisProcessRegistryTests(unittest.TestCase):
         )
         self.assertTrue(player_stats["running"])
         self.assertEqual(live_odds["queued"], 1)
+
+    def test_snapshot_excludes_non_executable_correlated_messages(self) -> None:
+        self.registry._executable_run_ids = lambda run_ids: {"current-run"}
+        self.redis.queues["jobs"] = [
+            json.dumps(
+                {
+                    "job_type": "INGEST_BET365_ODDS",
+                    "payload": {"mode": "PRE_MATCH"},
+                    "operation_run_id": "superseded-run",
+                }
+            ),
+            json.dumps(
+                {
+                    "job_type": "INGEST_BET365_ODDS",
+                    "payload": {"mode": "PRE_MATCH"},
+                    "operation_run_id": "current-run",
+                }
+            ),
+        ]
+
+        snapshot = self.registry.snapshot()
+
+        pre_match = next(
+            item for item in snapshot["processes"] if item["name"] == "bet365-odds"
+        )
+        self.assertEqual(pre_match["queued"], 1)
+        self.assertEqual(len(snapshot["queued_jobs"]), 1)
 
     def test_set_enabled_persists_override(self) -> None:
         process = self.registry.set_enabled("bet365-odds", True)

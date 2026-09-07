@@ -20,6 +20,7 @@ from app.topups.models import TopupCadence, TopupWindow
 class SchedulePlan(Protocol):
     name: str
     enabled: bool
+    supersede_pending: bool
 
     def window_key_for(self, effective_at: datetime) -> str: ...
 
@@ -31,6 +32,7 @@ class RecurringTopupPlan:
     name: str
     cadence: TopupCadence
     enabled: bool = True
+    supersede_pending: bool = False
 
     def window_for(self, effective_at: datetime) -> TopupWindow:
         return TopupWindow.for_datetime(self.cadence, effective_at)
@@ -53,6 +55,7 @@ class SyntheticTraderTickPlan:
     name: str = "synthetic-trader-ticks"
     interval_minutes: int = 1
     enabled: bool = True
+    supersede_pending: bool = True
 
     def window_key_for(self, effective_at: datetime) -> str:
         return _normalize_tick_time(effective_at).isoformat()
@@ -72,6 +75,7 @@ class DailyPlayerStatsIngestionPlan:
     season: int = 2025
     run_hour_utc: int = 3
     enabled: bool = True
+    supersede_pending: bool = True
 
     def __post_init__(self) -> None:
         if self.league <= 0:
@@ -105,6 +109,7 @@ class Bet365OddsIngestionPlan:
     name: str = "bet365-odds"
     interval_minutes: int = 15
     enabled: bool = False
+    supersede_pending: bool = True
 
     def window_key_for(self, effective_at: datetime) -> str:
         normalized = _normalize_tick_time(effective_at)
@@ -122,6 +127,7 @@ class Bet365LiveOddsIngestionPlan:
     name: str = "bet365-live-odds"
     interval_minutes: int = 1
     enabled: bool = False
+    supersede_pending: bool = True
 
     def __post_init__(self) -> None:
         if self.interval_minutes <= 0:
@@ -148,6 +154,7 @@ class TwitterInjuryIngestionPlan:
     interval_minutes: int = 5
     query_key: str | None = None
     enabled: bool = False
+    supersede_pending: bool = True
 
     def window_key_for(self, effective_at: datetime) -> str:
         normalized = _normalize_tick_time(effective_at)

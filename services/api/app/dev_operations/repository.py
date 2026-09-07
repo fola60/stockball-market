@@ -33,8 +33,13 @@ class PostgresDevOperationsRepository:
         with self._connection() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(
                 """
-                INSERT INTO dev_operation_runs (id, operation_type, job_type, status, parameters)
-                VALUES (%(id)s, %(operation_type)s, %(job_type)s, 'QUEUED', %(parameters)s::jsonb)
+                INSERT INTO job_runs (
+                    id, operation_type, job_type, source, status, parameters
+                )
+                VALUES (
+                    %(id)s, %(operation_type)s, %(job_type)s, 'MANUAL',
+                    'QUEUED', %(parameters)s::jsonb
+                )
                 RETURNING *
                 """,
                 {
@@ -50,7 +55,7 @@ class PostgresDevOperationsRepository:
         with self._connection() as connection, connection.cursor() as cursor:
             cursor.execute(
                 """
-                UPDATE dev_operation_runs
+                UPDATE job_runs
                 SET status = 'FAILED', error_message = %(message)s,
                     completed_at = now(), updated_at = now()
                 WHERE id = %(id)s
@@ -58,17 +63,40 @@ class PostgresDevOperationsRepository:
                 {"id": str(run_id), "message": message[:2000]},
             )
 
-    def list_runs(self, limit: int = 100) -> list[dict[str, Any]]:
+    def list_runs(
+        self,
+        limit: int = 100,
+        *,
+        operation_type: str | None = None,
+        exclude_operation_type: list[str] | None = None,
+        status: str | None = None,
+        source: str | None = None,
+    ) -> list[dict[str, Any]]:
         with self._connection() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(
-                "SELECT * FROM dev_operation_runs ORDER BY enqueued_at DESC LIMIT %(limit)s",
-                {"limit": limit},
+                """
+                SELECT *
+                FROM job_runs
+                WHERE (%(operation_type)s IS NULL OR operation_type = %(operation_type)s)
+                  AND (%(exclude_operation_type)s IS NULL OR NOT operation_type = ANY(%(exclude_operation_type)s))
+                  AND (%(status)s IS NULL OR status = %(status)s)
+                  AND (%(source)s IS NULL OR source = %(source)s)
+                ORDER BY enqueued_at DESC
+                LIMIT %(limit)s
+                """,
+                {
+                    "limit": limit,
+                    "operation_type": operation_type,
+                    "exclude_operation_type": exclude_operation_type,
+                    "status": status,
+                    "source": source,
+                },
             )
             return [_serialize(row) for row in cursor.fetchall()]
 
     def get_run(self, run_id: UUID) -> dict[str, Any] | None:
         with self._connection() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("SELECT * FROM dev_operation_runs WHERE id = %(id)s", {"id": str(run_id)})
+            cursor.execute("SELECT * FROM job_runs WHERE id = %(id)s", {"id": str(run_id)})
             row = cursor.fetchone()
             return None if row is None else _serialize(row)
 
@@ -82,7 +110,7 @@ class PostgresDevOperationsRepository:
                     COUNT(*) FILTER (WHERE status = 'FAILED' AND enqueued_at >= now() - interval '24 hours') AS failed_24h,
                     COALESCE(SUM(successful_items) FILTER (WHERE enqueued_at >= now() - interval '24 hours'), 0) AS successful_items_24h,
                     COALESCE(SUM(failed_items) FILTER (WHERE enqueued_at >= now() - interval '24 hours'), 0) AS failed_items_24h
-                FROM dev_operation_runs
+                FROM job_runs
                 """
             )
             run_stats = dict(cursor.fetchone())
@@ -98,6 +126,21 @@ class PostgresDevOperationsRepository:
             )
             bot_statuses = {row["status"]: int(row["count"]) for row in cursor.fetchall()}
         return {**{key: int(value) for key, value in run_stats.items()}, "bot_statuses": bot_statuses}
+
+    def executable_run_ids(self, run_ids: list[str]) -> set[str]:
+        if not run_ids:
+            return set()
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id
+                FROM job_runs
+                WHERE id = ANY(%(run_ids)s::uuid[])
+                  AND status IN ('QUEUED', 'RETRYING')
+                """,
+                {"run_ids": run_ids},
+            )
+            return {str(row[0]) for row in cursor.fetchall()}
 
     def list_bots(self) -> list[dict[str, Any]]:
         with self._connection() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:

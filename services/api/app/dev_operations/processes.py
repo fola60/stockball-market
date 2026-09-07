@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import redis
 
@@ -80,9 +80,15 @@ def configured_processes() -> tuple[ProcessDefinition, ...]:
 
 
 class RedisProcessRegistry:
-    def __init__(self, redis_url: str, queue_name: str) -> None:
+    def __init__(
+        self,
+        redis_url: str,
+        queue_name: str,
+        executable_run_ids: Callable[[list[str]], set[str]] | None = None,
+    ) -> None:
         self._client = redis.Redis.from_url(redis_url, decode_responses=True)
         self._queue_name = queue_name
+        self._executable_run_ids = executable_run_ids
         self._definitions = {item.name: item for item in configured_processes()}
 
     def snapshot(self) -> dict[str, Any]:
@@ -91,6 +97,19 @@ class RedisProcessRegistry:
         active_job = _json_value(self._client.get(WORKER_ACTIVE_JOB_KEY))
         queued_messages = self._client.lrange(self._queue_name, 0, -1)
         queued_jobs = [_job_summary(message) for message in queued_messages]
+        correlated_ids = [
+            str(job["operation_run_id"])
+            for job in queued_jobs
+            if job.get("operation_run_id")
+        ]
+        if self._executable_run_ids is not None and correlated_ids:
+            executable_ids = self._executable_run_ids(correlated_ids)
+            queued_jobs = [
+                job
+                for job in queued_jobs
+                if not job.get("operation_run_id")
+                or str(job["operation_run_id"]) in executable_ids
+            ]
         processes = []
         for definition in self._definitions.values():
             enabled = (

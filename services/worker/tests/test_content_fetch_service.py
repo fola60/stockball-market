@@ -43,10 +43,10 @@ class FakeBrowser:
             raise RuntimeError("fake browser has not opened a URL")
         return self.opened
 
-    def execute_script(self, script: str) -> int | bool:
+    def execute_script(self, script: str) -> int | str:
         self.executed_scripts.append(script)
-        if "data-stockball-click-target" in script:
-            return True
+        if "segments.join" in script:
+            return "/html[1]/body[1]/span[2]"
         return 2
 
     def click(self, selector: str) -> None:
@@ -54,13 +54,27 @@ class FakeBrowser:
 
 
 class ContentFetchServiceTests(unittest.TestCase):
+    @patch("app.ingestion.fetch.service.os.environ.get", return_value=None)
     @patch("app.ingestion.fetch.service.Path.exists", return_value=True)
-    def test_chrome_arguments_are_container_safe(self, _: object) -> None:
+    def test_chrome_arguments_are_container_safe(self, _: object, __: object) -> None:
         arguments = ContentFetchService()._chrome_arguments()
 
         self.assertIn("--headless=new", arguments)
         self.assertIn("--no-sandbox", arguments)
         self.assertIn("--disable-dev-shm-usage", arguments)
+
+    @patch("app.ingestion.fetch.service.os.environ.get", return_value=":99")
+    @patch("app.ingestion.fetch.service.Path.exists", return_value=True)
+    def test_virtual_display_keeps_container_browser_headed(
+        self,
+        _: object,
+        __: object,
+    ) -> None:
+        service = ContentFetchService()
+
+        self.assertFalse(service._container_browser_is_headless())
+        self.assertNotIn("--headless=new", service._chrome_arguments())
+        self.assertIn("--no-sandbox", service._chrome_arguments())
 
     @patch("app.ingestion.fetch.service.Path.exists", return_value=False)
     def test_chrome_arguments_leave_local_browser_visible(self, _: object) -> None:
@@ -312,6 +326,7 @@ class ContentFetchServiceTests(unittest.TestCase):
             browser_enabled=True,
             use_undetected_chrome=True,
             host_chrome_binary_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            browser_locale_code="en-GB",
         )
 
         with service.browser_session(allowed_hosts=("publisher.test",)) as session:
@@ -325,10 +340,12 @@ class ContentFetchServiceTests(unittest.TestCase):
             headless=False,
             page_load_strategy="eager",
             binary_location="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            locale_code="en-GB",
         )
         self.assertEqual(browser.opened, "https://publisher.test/story")
         self.assertTrue(any("document.evaluate" in script for script in browser.executed_scripts))
         self.assertTrue(any("visible[1]" in script for script in browser.executed_scripts))
+        self.assertIn("click:/html[1]/body[1]/span[2]", browser.executed_scripts)
 
     def test_browser_profile_requires_user_data_directory(self) -> None:
         with self.assertRaises(ValueError):

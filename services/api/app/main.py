@@ -62,7 +62,11 @@ def create_app(
             dev_operations_service = DevOperationsService(
                 repository=repository,
                 publisher=RedisJobPublisher(settings.redis_url, settings.queue_name),
-                process_registry=RedisProcessRegistry(settings.redis_url, settings.queue_name),
+                process_registry=RedisProcessRegistry(
+                    settings.redis_url,
+                    settings.queue_name,
+                    executable_run_ids=repository.executable_run_ids,
+                ),
             )
 
     app.state.accounts_service = accounts_service

@@ -48,7 +48,7 @@ from app.jobs.dev_handlers import (
     set_bot_status_handler,
     spawn_traders_handler,
 )
-from app.dev_operations import PostgresOperationRunReporter
+from app.dev_operations import PostgresOperationRunReporter, PostgresScheduledRunRepository
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.process_state import RedisProcessState
 from app.scheduler import SchedulerProcess, SchedulerService
@@ -601,6 +601,7 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
         queue=queue,
         claim_store=claim_store,
         control_store=process_state,
+        run_repository=PostgresScheduledRunRepository(settings.database_url),
         plans=default_scheduler_plans(
             player_stats_enabled=settings.player_stats_schedule_enabled,
             player_stats_run_hour_utc=settings.player_stats_schedule_hour_utc,
@@ -713,8 +714,22 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
         runner=runner,
         retry_delay_seconds=settings.retry_delay_seconds,
         max_attempts=settings.max_attempts,
-        operation_reporter=PostgresOperationRunReporter(settings.database_url),
-        active_job_reporter=RedisProcessState(settings.redis_url),
+        operation_reporter=PostgresOperationRunReporter(
+            settings.database_url,
+            scheduled_realtime_max_lag_seconds=(
+                settings.scheduled_realtime_max_lag_seconds
+            ),
+        ),
+        active_job_reporter=RedisProcessState(
+            settings.redis_url,
+            active_job_ttl_seconds=max(
+                60,
+                round(settings.bet365_job_timeout_seconds) + 60,
+            ),
+        ),
+        isolated_job_timeouts={
+            JobType.INGEST_BET365_ODDS: settings.bet365_job_timeout_seconds,
+        },
     )
 
 

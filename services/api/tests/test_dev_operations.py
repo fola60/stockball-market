@@ -18,7 +18,7 @@ class FakeRepository:
         return run
 
     def mark_enqueue_failed(self, run_id, message): self.failed.append((run_id, message))
-    def list_runs(self, limit=100): return self.created[:limit]
+    def list_runs(self, limit=100, **filters): return self.created[:limit]
     def get_run(self, run_id): return None
     def summary(self): return {}
     def list_bots(self): return []

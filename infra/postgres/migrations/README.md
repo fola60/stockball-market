@@ -17,6 +17,8 @@ Stores database migration files.
   append-only odds observations.
 - Seed conservative and aggressive `BETTING_MARKET_VALUE` synthetic trader profiles.
 - Store audited, one-off synthetic portfolio issuance and dedicated reserve ownership.
+- Store manual and recurring worker execution history in the shared `job_runs` table.
+- Preserve scheduled-run history while superseding stale pending snapshots and trader ticks.
 
 ## Boundaries
 

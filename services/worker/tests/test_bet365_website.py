@@ -183,6 +183,51 @@ class FootballHubBrowser(FakeBrowser):
         super().wait_for_xpath(xpath, timeout=timeout)
 
 
+class RerenderingCompetitionBrowser(FakeBrowser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.competition_click_indexes: list[int] = []
+
+    def count_xpath(self, xpath: str) -> int:
+        if self.current_url == HOME_URL and "Premier League" in xpath:
+            return 2 if not self.competition_click_indexes else 1
+        return super().count_xpath(xpath)
+
+    def click_xpath(self, xpath: str, index: int = 0) -> None:
+        if self.current_url == HOME_URL and "Premier League" in xpath:
+            self.competition_click_indexes.append(index)
+            if len(self.competition_click_indexes) == 1:
+                return
+            if index == 0:
+                self.current_url = COMPETITION_URL
+                return
+        super().click_xpath(xpath, index=index)
+
+
+class CookieConsentBrowser(FakeBrowser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.accepted_cookies = False
+
+    def count_xpath(self, xpath: str) -> int:
+        if "Accept All" in xpath:
+            return 0 if self.accepted_cookies else 1
+        return super().count_xpath(xpath)
+
+    def click_xpath(self, xpath: str, index: int = 0) -> None:
+        if "Accept All" in xpath:
+            self.accepted_cookies = True
+            return
+        if not self.accepted_cookies:
+            return
+        super().click_xpath(xpath, index=index)
+
+    def wait_for_xpath(self, xpath: str, timeout: float = 15.0) -> None:
+        if "Accept All" in xpath and not self.accepted_cookies:
+            return
+        super().wait_for_xpath(xpath, timeout=timeout)
+
+
 @contextmanager
 def browser_context(browser: FakeBrowser):
     yield browser
@@ -335,6 +380,36 @@ class Bet365ClientTests(unittest.TestCase):
 
         self.assertEqual(len(observations), 3)
         self.assertEqual(browser.opened, [HOME_URL, COMPETITION_URL])
+
+    def test_recounts_competition_candidates_after_page_rerender(self) -> None:
+        browser = RerenderingCompetitionBrowser()
+        client = Bet365Client(
+            browser_enabled=True,
+            request_interval_seconds=0,
+            browser_idle_seconds=0,
+            browser_factory=lambda: browser_context(browser),
+            utc_clock=lambda: datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+        )
+
+        observations = client.list_pre_match_1x2("PL")
+
+        self.assertEqual(len(observations), 3)
+        self.assertEqual(browser.competition_click_indexes, [0, 0])
+
+    def test_accepts_cookie_consent_before_navigation(self) -> None:
+        browser = CookieConsentBrowser()
+        client = Bet365Client(
+            browser_enabled=True,
+            request_interval_seconds=0,
+            browser_idle_seconds=0,
+            browser_factory=lambda: browser_context(browser),
+            utc_clock=lambda: datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+        )
+
+        observations = client.list_pre_match_1x2("PL")
+
+        self.assertTrue(browser.accepted_cookies)
+        self.assertEqual(len(observations), 3)
 
     def test_skips_fixture_inside_pre_match_cutoff(self) -> None:
         browser = FakeBrowser()

@@ -403,7 +403,10 @@ class WorkerJobRunner:
         self._handlers = dict(handlers)
 
     def run(self, job: WorkerJob) -> JobExecutionResult:
-        handler = self._handlers.get(job.job_type)
+        return self.handler_for(job.job_type).handle(job)
+
+    def handler_for(self, job_type: JobType) -> JobHandler:
+        handler = self._handlers.get(job_type)
         if handler is None:
-            raise UnknownJobError(f"no handler registered for {job.job_type.value}")
-        return handler.handle(job)
+            raise UnknownJobError(f"no handler registered for {job_type.value}")
+        return handler

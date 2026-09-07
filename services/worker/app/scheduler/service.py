@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Mapping, Protocol
+from uuid import UUID, uuid4
 
-from app.jobs.models import WorkerJob
+from app.jobs.models import JobType, WorkerJob
 from app.scheduler.models import SchedulePlan, ScheduledJobDecision, default_scheduler_plans
 
 
@@ -18,6 +19,20 @@ class ScheduleClaimStore(Protocol):
 
 class ScheduleControlStore(Protocol):
     def is_enabled(self, schedule_name: str, default: bool) -> bool: ...
+
+
+class ScheduledRunRepository(Protocol):
+    def create_run(
+        self,
+        run_id: UUID,
+        schedule_name: str,
+        window_key: str,
+        job_type: JobType,
+        parameters: Mapping[str, Any],
+        supersede_pending: bool,
+    ) -> bool: ...
+
+    def mark_enqueue_failed(self, run_id: UUID, message: str) -> None: ...
 
 
 class InMemoryJobQueue:
@@ -46,6 +61,7 @@ class SchedulerService:
     claim_store: ScheduleClaimStore
     plans: tuple[SchedulePlan, ...] = default_scheduler_plans()
     control_store: ScheduleControlStore | None = None
+    run_repository: ScheduledRunRepository | None = None
 
     def schedule_due_jobs(self, effective_at: datetime) -> tuple[ScheduledJobDecision, ...]:
         decisions: list[ScheduledJobDecision] = []
@@ -63,7 +79,27 @@ class SchedulerService:
                 continue
 
             job = plan.build_job(effective_at)
-            self.queue.enqueue(job)
+            if self.run_repository is not None:
+                run_id = uuid4()
+                created = self.run_repository.create_run(
+                    run_id,
+                    plan.name,
+                    window_key,
+                    job.job_type,
+                    job.payload,
+                    plan.supersede_pending,
+                )
+                if not created:
+                    continue
+                job = job.with_operation_run_id(run_id)
+            try:
+                self.queue.enqueue(job)
+            except Exception as error:
+                if self.run_repository is not None and job.operation_run_id is not None:
+                    self.run_repository.mark_enqueue_failed(
+                        job.operation_run_id, f"failed to enqueue scheduled job: {error}"
+                    )
+                raise
             decisions.append(
                 ScheduledJobDecision(
                     schedule_name=plan.name,

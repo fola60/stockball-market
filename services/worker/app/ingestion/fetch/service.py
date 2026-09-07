@@ -70,7 +70,7 @@ class ContentFetchService:
 
     When ``browser_enabled`` is set and the allowlisted source answers a direct request
     with a bot-detection / access-denied response, the service transparently retries the
-    fetch through a headless browser (mirroring the FBref client fallback). The browser
+    fetch through a browser (mirroring the FBref client fallback). The browser
     path is optional so the service remains usable in environments without Chrome.
     """
 
@@ -88,6 +88,7 @@ class ContentFetchService:
         browser_factory: Callable[..., object] | None = None,
         browser_user_data_dir: str | None = None,
         browser_profile_directory: str | None = None,
+        browser_locale_code: str | None = None,
         bot_detection_markers: tuple[str, ...] = _BOT_DETECTION_MARKERS,
     ) -> None:
         self._transport = transport
@@ -103,6 +104,7 @@ class ContentFetchService:
             browser_profile_directory,
             browser_user_data_dir,
         )
+        self._browser_locale_code = browser_locale_code
         self._bot_detection_markers = bot_detection_markers
         self._open_browser = browser_factory or self._default_open_browser
 
@@ -246,7 +248,7 @@ class ContentFetchService:
             self._assert_user_data_dir_available()
             browser_kwargs: dict[str, object] = {
                 "uc": True,
-                "headless": Path("/.dockerenv").exists(),
+                "headless": self._container_browser_is_headless(),
                 "page_load_strategy": "eager",
             }
             if self._use_host_chrome:
@@ -259,6 +261,8 @@ class ContentFetchService:
                 browser_kwargs["chromium_arg"] = (
                     f"--profile-directory={self._browser_profile_directory}"
                 )
+            if self._browser_locale_code:
+                browser_kwargs["locale_code"] = self._browser_locale_code
 
             with SB(**browser_kwargs) as browser:
                 yield _SeleniumBaseBrowser(browser)
@@ -271,20 +275,26 @@ class ContentFetchService:
             "--no-first-run",
             "--no-default-browser-check",
         ]
-        # Docker containers have no display server and cannot create Chrome's sandbox.
+        # Containers cannot create Chrome's sandbox. Xvfb supplies a display for
+        # headed browser sessions; one-off containers without it retain headless mode.
         if Path("/.dockerenv").exists():
             arguments.extend(
                 (
-                    "--headless=new",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                 )
             )
+            if not os.environ.get("DISPLAY"):
+                arguments.append("--headless=new")
         if self._browser_user_data_dir:
             arguments.append(f"--user-data-dir={self._browser_user_data_dir}")
         if self._browser_profile_directory:
             arguments.append(f"--profile-directory={self._browser_profile_directory}")
         return tuple(arguments)
+
+    @staticmethod
+    def _container_browser_is_headless() -> bool:
+        return Path("/.dockerenv").exists() and not os.environ.get("DISPLAY")
 
     def _assert_user_data_dir_available(self) -> None:
         if not self._browser_user_data_dir:
@@ -530,12 +540,17 @@ class _SeleniumBaseBrowser:
     def click_xpath(self, xpath: str, index: int = 0) -> None:
         if index < 0:
             raise LookupError(f"browser XPath did not contain visible element {index}: {xpath}")
-        marked = self._browser.execute_script(
-            self._visible_xpath_script(xpath, "mark", index=index)
+        target_xpath = self._browser.execute_script(
+            self._visible_xpath_script(xpath, "path", index=index)
         )
-        if not marked:
+        if not target_xpath:
             raise LookupError(f"browser XPath did not contain visible element {index}: {xpath}")
-        self._browser.click('[data-stockball-click-target="true"]')
+        try:
+            self._browser.click(str(target_xpath))
+        except Exception as exc:
+            raise LookupError(
+                f"browser XPath element {index} could not be clicked: {xpath}"
+            ) from exc
 
     def wait_for_xpath(self, xpath: str, timeout: float = 15.0) -> None:
         deadline = time.monotonic() + timeout
@@ -559,15 +574,23 @@ class _SeleniumBaseBrowser:
     @staticmethod
     def _visible_xpath_script(xpath: str, action: str, *, index: int = 0) -> str:
         action_script = "return visible.length;"
-        if action == "mark":
+        if action == "path":
             action_script = f"""
                 const target = visible[{index}];
-                if (!target) return false;
-                document.querySelectorAll('[data-stockball-click-target]').forEach(
-                    element => element.removeAttribute('data-stockball-click-target')
-                );
-                target.setAttribute('data-stockball-click-target', 'true');
-                return true;
+                if (!target) return null;
+                const segments = [];
+                let current = target;
+                while (current && current.nodeType === Node.ELEMENT_NODE) {{
+                    let position = 1;
+                    let sibling = current.previousElementSibling;
+                    while (sibling) {{
+                        if (sibling.tagName === current.tagName) position += 1;
+                        sibling = sibling.previousElementSibling;
+                    }}
+                    segments.unshift(`${{current.tagName.toLowerCase()}}[${{position}}]`);
+                    current = current.parentElement;
+                }}
+                return `/${{segments.join('/')}}`;
             """
         return f"""
             (() => {{

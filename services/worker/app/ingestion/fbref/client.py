@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import httpx
 from curl_cffi import requests
 from seleniumbase import SB
 from app.ingestion.fixtures.models import ExternalFixture
@@ -35,6 +36,14 @@ _STAT_PATHS: Mapping[str, str] = {
 }
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 _DEBUG_DUMP_DIR = Path("/tmp/fbref-debug")
+_ACCESS_DENIED_MARKERS = (
+    "checking if the site connection is secure",
+    "verify you are human",
+    "cf-browser-verification",
+    "just a moment...",
+    "attention required!",
+    "error 1020",
+)
 
 
 class FbrefError(Exception):
@@ -54,6 +63,7 @@ class FbrefClient:
         page_cache: FbrefPageCache | None = None,
         use_host_chrome_for_browser: bool = True,
         host_chrome_binary_path: str | None = None,
+        transport: httpx.BaseTransport | None = None,
         sleeper: Any = time.sleep,
         clock: Any = time.monotonic,
         wall_clock: Any = lambda: datetime.now(UTC),
@@ -70,27 +80,36 @@ class FbrefClient:
         self._wall_clock = wall_clock
         self._last_request_at: float | None = None
         self._timeout_seconds = timeout_seconds
-        self._session = requests.Session(
-            base_url=self._base_url,
-            impersonate="chrome124",
-            timeout=timeout_seconds,
-            headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Cache-Control": "no-cache",
-                "Pragma": "no-cache",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1",
-                "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-            },
-        )
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+        if transport is None:
+            self._session = requests.Session(
+                base_url=self._base_url,
+                impersonate="chrome124",
+                timeout=timeout_seconds,
+                headers=headers,
+            )
+        else:
+            self._session = httpx.Client(
+                base_url=self._base_url,
+                transport=transport,
+                timeout=timeout_seconds,
+                headers=headers,
+            )
         self._cookies_seeded = False
 
     def _request(self, source_url: str) -> requests.Response:
@@ -162,9 +181,8 @@ class FbrefClient:
 
             with SB(**browser_kwargs) as browser:
                 browser.open(source_url)
-                browser.sleep(2)
-                print("[DEBUG] Browser loaded page")
-                body = browser.get_page_source()
+                body = self._wait_for_browser_page(browser)
+                print("[DEBUG] Browser finished loading page")
                 for cookie in browser.get_cookies():
                     name = cookie.get("name")
                     value = cookie.get("value")
@@ -201,6 +219,17 @@ class FbrefClient:
         response.headers = {"content-type": "text/html; charset=utf-8"}
         response.content = body.encode("utf-8")
         return response
+
+    def _wait_for_browser_page(self, browser: Any) -> str:
+        deadline = time.monotonic() + self._timeout_seconds
+        body = str(browser.get_page_source())
+        while not _browser_page_is_ready(body):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            browser.sleep(min(1.0, remaining))
+            body = str(browser.get_page_source())
+        return body
 
         
 
@@ -418,19 +447,18 @@ def _looks_like_fbref_page(body: str) -> bool:
 
 def _looks_access_denied(body: str) -> bool:
     lowered = body.lower()
-    denied_markers = (
-        "checking if the site connection is secure",
-        "verify you are human",
-        "cf-browser-verification",
-        "just a moment...",
-        "attention required!",
-        "error 1020",
-    )
-    matched_markers = [marker for marker in denied_markers if marker in lowered]
+    matched_markers = [marker for marker in _ACCESS_DENIED_MARKERS if marker in lowered]
     if matched_markers:
         print(f"[DEBUG] Access denied markers matched: {matched_markers}")
         return True
     return False
+
+
+def _browser_page_is_ready(body: str) -> bool:
+    lowered = body.lower()
+    return "data-stat=" in lowered and not any(
+        marker in lowered for marker in _ACCESS_DENIED_MARKERS
+    )
 
 
 def _save_debug_html(filename: str, body: str) -> Path:

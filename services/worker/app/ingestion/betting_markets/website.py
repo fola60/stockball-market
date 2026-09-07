@@ -35,6 +35,10 @@ from .models import (
 
 LOGGER = logging.getLogger(__name__)
 
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
 DEFAULT_BET365_HOMEPAGE_URL = "https://www.bet365.com/#/HO/"
 DEFAULT_BET365_COMPETITION_NAME = "Premier League"
 
@@ -61,6 +65,7 @@ _SCORE_OR_ASSIST_COLUMNS = {
     "Assist": PlayerMarketType.ASSIST,
     "Score or Assist": PlayerMarketType.SCORE_OR_ASSIST,
 }
+_COOKIE_ACCEPT_XPATH = "//button[normalize-space(.)='Accept All']"
 
 
 class Bet365Client:
@@ -84,7 +89,7 @@ class Bet365Client:
         browser_factory: Callable[..., object] | None = None,
         sleeper: Any = time.sleep,
         clock: Any = time.monotonic,
-        utc_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        utc_clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         parsed_homepage = urlparse(homepage_url)
         if parsed_homepage.scheme not in {"http", "https"} or not parsed_homepage.hostname:
@@ -116,6 +121,7 @@ class Bet365Client:
             browser_factory=browser_factory,
             browser_user_data_dir=browser_user_data_dir,
             browser_profile_directory=browser_profile_directory,
+            browser_locale_code="en-GB",
         )
 
     @property
@@ -189,7 +195,9 @@ class Bet365Client:
         except Bet365IngestionError:
             raise
         except (FetchResponseError, FetchUnavailableError, LookupError, TimeoutError) as exc:
-            raise Bet365IngestionError("Bet365 website browser session failed") from exc
+            raise Bet365IngestionError(
+                f"Bet365 website browser session failed: {exc}"
+            ) from exc
 
         if failures == len(targets):
             raise Bet365IngestionError("Bet365 could not refresh any active event pages")
@@ -241,7 +249,9 @@ class Bet365Client:
         except Bet365IngestionError:
             raise
         except (FetchResponseError, FetchUnavailableError, LookupError, TimeoutError) as exc:
-            raise Bet365IngestionError("Bet365 website browser session failed") from exc
+            raise Bet365IngestionError(
+                f"Bet365 website browser session failed: {exc}"
+            ) from exc
 
         if listings and not discovered:
             raise Bet365IngestionError(
@@ -323,25 +333,56 @@ class Bet365Client:
             _exact_text_xpath(label) for label in competition_labels
         )
         self._navigate(browser, self._homepage_url)
+        self._dismiss_cookie_consent(browser)
         browser.wait_for_xpath(football_xpath, timeout=self._timeout_seconds)
         candidate_count = browser.count_xpath(football_xpath)
 
-        for candidate_index in range(candidate_count):
-            if candidate_index:
+        for candidate_attempt in range(candidate_count):
+            if candidate_attempt:
                 self._navigate(browser, self._homepage_url)
                 browser.wait_for_xpath(football_xpath, timeout=self._timeout_seconds)
+            current_candidate_count = browser.count_xpath(football_xpath)
+            if current_candidate_count == 0:
+                continue
+            candidate_index = min(candidate_attempt, current_candidate_count - 1)
             starting_url = browser.get_current_url()
             self._throttle()
-            browser.click_xpath(football_xpath, index=candidate_index)
             try:
+                browser.click_xpath(football_xpath, index=candidate_index)
                 browser.wait_for_url_change(starting_url, timeout=self._timeout_seconds)
                 browser.wait_for_xpath(competition_xpath, timeout=self._timeout_seconds)
-            except (LookupError, TimeoutError):
+            except (LookupError, TimeoutError) as exc:
+                LOGGER.debug(
+                    "Bet365 Football candidate %s of %s did not open the hub: %s",
+                    candidate_index + 1,
+                    current_candidate_count,
+                    exc,
+                )
                 continue
             browser.sleep(self._browser_idle_seconds)
             return
 
         raise Bet365IngestionError("Bet365 Football navigation did not open its competition hub")
+
+    def _dismiss_cookie_consent(self, browser: Any) -> None:
+        try:
+            browser.wait_for_xpath(
+                _COOKIE_ACCEPT_XPATH,
+                timeout=min(self._timeout_seconds, 3.0),
+            )
+        except TimeoutError:
+            return
+
+        for _ in range(2):
+            try:
+                browser.click_xpath(_COOKIE_ACCEPT_XPATH)
+            except LookupError:
+                return
+            browser.sleep(max(self._browser_idle_seconds, 0.3))
+            if browser.count_xpath(_COOKIE_ACCEPT_XPATH) == 0:
+                return
+
+        LOGGER.warning("Bet365 cookie consent remained visible after accepting it")
 
     def _try_open_competition_from_current_page(
         self,
@@ -354,19 +395,30 @@ class Bet365Client:
                 self._navigate(browser, origin_url)
             label_xpath = _exact_text_xpath(label)
             candidate_count = browser.count_xpath(label_xpath)
-            for candidate_index in range(candidate_count):
-                if candidate_index or browser.get_current_url() != origin_url:
+            for candidate_attempt in range(candidate_count):
+                if candidate_attempt or browser.get_current_url() != origin_url:
                     self._navigate(browser, origin_url)
+                current_candidate_count = browser.count_xpath(label_xpath)
+                if current_candidate_count == 0:
+                    continue
+                candidate_index = min(candidate_attempt, current_candidate_count - 1)
                 starting_url = browser.get_current_url()
                 self._throttle()
-                browser.click_xpath(label_xpath, index=candidate_index)
                 try:
+                    browser.click_xpath(label_xpath, index=candidate_index)
                     browser.wait_for_url_change(starting_url, timeout=self._timeout_seconds)
                     browser.wait_for_xpath(
                         _exact_text_xpath(_MARKET_TITLE),
                         timeout=self._timeout_seconds,
                     )
-                except (LookupError, TimeoutError):
+                except (LookupError, TimeoutError) as exc:
+                    LOGGER.debug(
+                        "Bet365 competition candidate %s of %s for %r did not open: %s",
+                        candidate_index + 1,
+                        current_candidate_count,
+                        label,
+                        exc,
+                    )
                     continue
                 browser.sleep(self._browser_idle_seconds)
                 listings = parse_competition_fixture_listings(
