@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import psycopg2
 from psycopg2.extras import Json
+
+from app.database import connection as pooled_connection
 
 from .models import ExternalPlayer
 
@@ -14,7 +15,7 @@ class PostgresPlayerRepository:
         if not players:
             return 0
 
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 for player in players:
                     cursor.execute(

@@ -10,9 +10,9 @@ from uuid import uuid4
 
 from app.main import main
 from app.synthetic_traders.bootstrap import (
+    RESERVE_PORTFOLIO_ID,
     BootstrapAllocationPlan,
     BootstrapPositionAllocation,
-    RESERVE_PORTFOLIO_ID,
 )
 
 

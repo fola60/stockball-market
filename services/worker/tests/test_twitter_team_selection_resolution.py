@@ -18,7 +18,6 @@ from app.ingestion.social.twitter.team_selection import (
     TeamSelectionInterpreter,
 )
 
-
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
 PLAYER_ID = UUID("00000000-0000-0000-0000-000000000101")
 TEAM_ID = UUID("00000000-0000-0000-0000-000000000201")

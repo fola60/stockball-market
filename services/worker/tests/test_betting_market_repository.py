@@ -50,7 +50,7 @@ class BettingMarketRepositoryTests(unittest.TestCase):
         )
 
         with patch(
-            "app.ingestion.betting_markets.repository.psycopg2.connect",
+            "app.ingestion.betting_markets.repository.pooled_connection",
             return_value=connection,
         ):
             count = repository.upsert_observations([observation])
@@ -84,7 +84,7 @@ class BettingMarketRepositoryTests(unittest.TestCase):
         connection = _RecordingConnection(cursor)
 
         with patch(
-            "app.ingestion.betting_markets.repository.psycopg2.connect",
+            "app.ingestion.betting_markets.repository.pooled_connection",
             return_value=connection,
         ):
             fixtures = repository.list_live_event_pages(

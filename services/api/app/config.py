@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-
 DATABASE_URL_ENV = "STOCKBALL_API_DATABASE_URL"
 DATABASE_URL_FALLBACK_ENV = "DATABASE_URL"
 TRADING_ENGINE_URL_ENV = "STOCKBALL_API_TRADING_ENGINE_URL"

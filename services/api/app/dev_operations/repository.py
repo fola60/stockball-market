@@ -10,6 +10,8 @@ from uuid import UUID
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from app.database import connection as pooled_connection
+
 
 class PostgresDevOperationsRepository:
     def __init__(self, database_url: str) -> None:
@@ -17,15 +19,8 @@ class PostgresDevOperationsRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def create_run(
         self, run_id: UUID, operation_type: str, job_type: str, parameters: Mapping[str, Any]
@@ -49,7 +44,7 @@ class PostgresDevOperationsRepository:
                     "parameters": json.dumps(dict(parameters)),
                 },
             )
-            return _serialize(cursor.fetchone())
+            return _serialize_required(cursor.fetchone(), "job run insert")
 
     def mark_enqueue_failed(self, run_id: UUID, message: str) -> None:
         with self._connection() as connection, connection.cursor() as cursor:
@@ -113,7 +108,7 @@ class PostgresDevOperationsRepository:
                 FROM job_runs
                 """
             )
-            run_stats = dict(cursor.fetchone())
+            run_stats = dict(_required_row(cursor.fetchone(), "job run summary"))
             cursor.execute(
                 """
                 SELECT b.status, COUNT(*) AS count
@@ -246,7 +241,7 @@ class PostgresDevOperationsRepository:
                 """,
                 {"account_id": str(bot["account_id"])},
             )
-            activity = _serialize(cursor.fetchone())
+            activity = _serialize_required(cursor.fetchone(), "bot activity summary")
 
         serialized_bot = _serialize(bot)
         total_position_value = sum(
@@ -295,7 +290,7 @@ class PostgresDevOperationsRepository:
                 """,
                 params,
             )
-            summary = _serialize(cursor.fetchone())
+            summary = _serialize_required(cursor.fetchone(), "trade summary")
             cursor.execute(
                 f"""
                 SELECT t.id, t.order_id, t.account_id, t.portfolio_id, t.instrument_id,
@@ -387,3 +382,13 @@ def _serialize(row: Mapping[str, Any]) -> dict[str, Any]:
         else:
             result[key] = value
     return result
+
+
+def _required_row(row: Mapping[str, Any] | None, query: str) -> Mapping[str, Any]:
+    if row is None:
+        raise RuntimeError(f"{query} returned no row")
+    return row
+
+
+def _serialize_required(row: Mapping[str, Any] | None, query: str) -> dict[str, Any]:
+    return _serialize(_required_row(row, query))

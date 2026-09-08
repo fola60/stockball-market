@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import psycopg2
+from app.database import connection as pooled_connection
 from psycopg2.extras import Json
 
 from .models import ExternalFixture
@@ -14,7 +14,7 @@ class PostgresFixtureRepository:
         if not fixtures:
             return 0
 
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 for fixture in fixtures:
                     cursor.execute(

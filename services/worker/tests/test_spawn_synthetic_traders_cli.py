@@ -9,9 +9,9 @@ from uuid import uuid4
 
 from app.main import main
 from app.synthetic_traders import (
+    SpawnedSyntheticTrader,
     SpawnNameStyle,
     SpawnSyntheticTraderBatchResult,
-    SpawnedSyntheticTrader,
     StrategyEngine,
 )
 

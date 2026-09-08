@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -120,6 +121,15 @@ class HttpApiClient:
         self._timeout_seconds = timeout_seconds
         self._endpoints = endpoints or ApiEndpoints()
         self._transport = transport
+        self._client = httpx.Client(
+            timeout=self._timeout_seconds,
+            transport=self._transport,
+        )
+        atexit.register(self.close)
+
+    def close(self) -> None:
+        if not self._client.is_closed:
+            self._client.close()
 
     def create_synthetic_trader_account(
         self,
@@ -133,8 +143,7 @@ class HttpApiClient:
 
     def _post(self, path: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:
-            with httpx.Client(timeout=self._timeout_seconds, transport=self._transport) as client:
-                response = client.post(f"{self._base_url}{path}", json=dict(payload))
+            response = self._client.post(f"{self._base_url}{path}", json=dict(payload))
         except httpx.HTTPError as exc:
             raise ApiUnavailableError("api request failed") from exc
 

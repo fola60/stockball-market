@@ -9,7 +9,6 @@ from .models import (
     BettingMarketObservation,
 )
 
-
 DEFAULT_LIVE_EVENT_WINDOW_MINUTES = 180
 DEFAULT_LIVE_EVENT_LIMIT = 20
 

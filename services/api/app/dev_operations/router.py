@@ -6,7 +6,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-
 router = APIRouter(prefix="/internal/v1/dev", tags=["dev operations"])
 
 
@@ -17,6 +16,12 @@ class EnqueueOperationRequest(BaseModel):
 
 class SetProcessStateRequest(BaseModel):
     enabled: bool
+
+
+class OperationCapabilityResponse(BaseModel):
+    operation_type: str
+    job_type: str
+    label: str
 
 
 def _service(request: Request):
@@ -32,6 +37,11 @@ def enqueue_operation(command: EnqueueOperationRequest, request: Request) -> dic
         return _service(request).enqueue(command.operation_type, command.parameters)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/operations/capabilities", response_model=list[OperationCapabilityResponse])
+def list_operation_capabilities(request: Request) -> list[dict[str, str]]:
+    return _service(request).capabilities()
 
 
 @router.get("/runs")

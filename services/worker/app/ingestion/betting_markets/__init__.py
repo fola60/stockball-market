@@ -15,12 +15,7 @@ from .models import (
     MarketScope,
     PlayerMarketType,
 )
-from .repository import PostgresBettingMarketRepository
-from .service import BettingMarketIngestionService
-from .website import (
-    DEFAULT_BET365_COMPETITION_NAME,
-    DEFAULT_BET365_HOMEPAGE_URL,
-    Bet365Client,
+from .parsing import (
     decimal_odds_from_display,
     parse_competition_fixture_listings,
     parse_saved_page_url,
@@ -28,6 +23,9 @@ from .website import (
     parse_website_player_markets,
     provider_event_id_from_url,
 )
+from .repository import PostgresBettingMarketRepository
+from .service import BettingMarketIngestionService
+from .website import DEFAULT_BET365_COMPETITION_NAME, DEFAULT_BET365_HOMEPAGE_URL, Bet365Client
 
 __all__ = [
     "BET365_PROVIDER",

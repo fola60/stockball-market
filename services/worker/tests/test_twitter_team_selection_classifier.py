@@ -6,10 +6,9 @@ from datetime import UTC, datetime, timedelta
 from app.ingestion.social.twitter import SourceAccountKind, TwitterSourceAccount
 from app.ingestion.social.twitter.team_selection import (
     RuleBasedTeamSelectionClassifier,
-    TeamSelectionEvidencePhase,
     TeamSelectionEventKind,
+    TeamSelectionEvidencePhase,
 )
-
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
 KICKOFF = NOW + timedelta(hours=3)

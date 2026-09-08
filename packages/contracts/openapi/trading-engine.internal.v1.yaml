@@ -4,6 +4,43 @@ info:
   version: 0.1.0
   description: Internal REST contract for trading-engine commands used by Stockball services.
 paths:
+  /internal/v1/ledger/topups/apply:
+    post:
+      operationId: applyTopup
+      summary: Apply an idempotent portfolio cash top-up
+      tags:
+        - Ledger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyTopupRequest"
+      responses:
+        "200":
+          description: Top-up applied or its prior result replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashLedgerEntry"
+        "404":
+          description: Account or portfolio was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The idempotency key conflicts with another request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The top-up command is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /internal/v1/instruments/player-shares/seed:
     post:
       operationId: seedPlayerShares
@@ -125,6 +162,10 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
+    ApplyTopupRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/ApplyTopupRequest"
+    CashLedgerEntry:
+      $ref: "../schemas/trading.schema.json#/$defs/CashLedgerEntry"
     ExecuteOrderRequest:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderRequest"
     ExecuteOrderResponse:

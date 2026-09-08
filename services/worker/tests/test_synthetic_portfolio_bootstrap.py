@@ -281,7 +281,7 @@ class BootstrapPersistenceTests(unittest.TestCase):
         repository = PostgresSyntheticPortfolioBootstrapRepository("postgres://test")
 
         with patch(
-            "app.synthetic_traders.bootstrap.psycopg2.connect",
+            "app.synthetic_traders.bootstrap.pooled_connection",
             return_value=RecordingConnection(cursor),
         ):
             repository.persist(

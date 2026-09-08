@@ -16,6 +16,7 @@ from app.accounts.models import (
     CreateAccountCommand,
     PortfolioRecord,
 )
+from app.database import connection as pooled_connection
 
 
 class AccountsRepository(Protocol):
@@ -39,11 +40,8 @@ class PostgresAccountsRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-        finally:
-            connection.close()
 
     def create_account(self, command: CreateAccountCommand) -> AccountRecord:
         try:
@@ -81,6 +79,8 @@ class PostgresAccountsRepository:
                             },
                         )
                         account_row = cursor.fetchone()
+                        if account_row is None:
+                            raise RuntimeError("account insert returned no row")
 
                         cursor.execute(
                             """
@@ -99,6 +99,8 @@ class PostgresAccountsRepository:
                             {"account_id": account_row["id"]},
                         )
                         portfolio_row = cursor.fetchone()
+                        if portfolio_row is None:
+                            raise RuntimeError("portfolio insert returned no row")
         except errors.UniqueViolation as exc:
             raise self._map_unique_violation(exc, command) from exc
 

@@ -7,8 +7,8 @@ from typing import Protocol
 from ..models import SourceAccountKind, TwitterSourceAccount
 from .models import (
     TeamSelectionClassification,
-    TeamSelectionEvidencePhase,
     TeamSelectionEventKind,
+    TeamSelectionEvidencePhase,
     TeamSelectionSignal,
 )
 

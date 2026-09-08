@@ -6,7 +6,6 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Mapping
 
-
 BET365_PROVIDER = "BET365"
 MATCH_RESULT_1X2 = "MATCH_RESULT_1X2"
 

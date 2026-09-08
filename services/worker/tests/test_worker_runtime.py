@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import unittest
 import time
+import unittest
 from datetime import UTC, datetime
 from uuid import uuid4
 

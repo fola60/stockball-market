@@ -18,7 +18,6 @@ from app.synthetic_traders.models import (
     StrategyEngine,
 )
 
-
 POSITION_ALIASES = {
     "FW": "FWD",
     "FWD": "FWD",

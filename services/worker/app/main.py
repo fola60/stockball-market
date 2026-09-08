@@ -1,25 +1,23 @@
 from __future__ import annotations
 
-import argparse
 import logging
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from uuid import UUID
 
+from app.cli import build_parser
 from app.clients import ApiClientError, ApiUnavailableError, HttpApiClient, HttpTradingEngineClient
-from app.config import FbrefIngestionSettings, DatabaseSettings, Settings
-from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
+from app.config import DatabaseSettings, FbrefIngestionSettings, Settings
+from app.dev_operations import PostgresOperationRunReporter, PostgresScheduledRunRepository
 from app.ingestion.betting_markets import (
     Bet365Client,
     Bet365IngestionError,
     BettingMarketIngestionService,
     PostgresBettingMarketRepository,
 )
+from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
 from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
-from app.ingestion.stats import PlayerStatsIngestionService, PostgresPlayerStatsRepository
 from app.ingestion.social.twitter import (
     PostgresTwitterInjuryRepository,
     TwitterIngestionError,
@@ -27,19 +25,20 @@ from app.ingestion.social.twitter import (
     TwitterRecentSearchClient,
     load_registry,
 )
+from app.ingestion.stats import PlayerStatsIngestionService, PostgresPlayerStatsRepository
 from app.jobs import (
     Bet365IngestionMode,
-    IngestFixturesJobHandler,
+    FunctionJobHandler,
     IngestBet365OddsJobHandler,
-    IngestPlayerStatsJobHandler,
+    IngestFixturesJobHandler,
     IngestPlayersJobHandler,
+    IngestPlayerStatsJobHandler,
     IngestTwitterInjuriesJobHandler,
     JobType,
     SyntheticTraderTickJobHandler,
     TopupJobHandler,
     WorkerJobRunner,
     WorkerProcess,
-    FunctionJobHandler,
 )
 from app.jobs.dev_handlers import (
     bootstrap_portfolios_handler,
@@ -48,29 +47,28 @@ from app.jobs.dev_handlers import (
     set_bot_status_handler,
     spawn_traders_handler,
 )
-from app.dev_operations import PostgresOperationRunReporter, PostgresScheduledRunRepository
-from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.process_state import RedisProcessState
+from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import SchedulerProcess, SchedulerService
 from app.scheduler.models import default_scheduler_plans
 from app.synthetic_traders import (
     BootstrapAllocationError,
     BotStatus,
-    PostgresSyntheticTraderRepository,
     PostgresSyntheticPortfolioBootstrapRepository,
+    PostgresSyntheticTraderRepository,
     SpawnNameStyle,
     SpawnSyntheticTraderCommand,
     StrategyEngine,
+    SyntheticPortfolioBootstrapService,
     SyntheticTraderConfigNotFoundError,
     SyntheticTraderService,
     SyntheticTraderSpawner,
-    SyntheticPortfolioBootstrapService,
 )
 from app.topups import PostgresTopupRepository, TopupService
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "seed-players":
@@ -321,228 +319,6 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Stockball worker service")
-    subcommands = parser.add_subparsers(dest="command", required=True)
-    subcommands.add_parser("scheduler", help="run the recurring scheduler loop")
-    subcommands.add_parser("schedule-once", help="enqueue due recurring jobs once")
-    subcommands.add_parser("worker", help="run the worker consumer loop")
-    subcommands.add_parser("work-once", help="consume and execute at most one queued job")
-    seed_players = subcommands.add_parser(
-        "seed-players",
-        help="ingest league players from FBref into players",
-    )
-    seed_players.add_argument(
-        "--league",
-        type=int,
-        default=9,
-        help="FBref competition id, default: 9",
-    )
-    seed_players.add_argument(
-        "--season",
-        type=int,
-        required=True,
-        help="season year",
-    )
-    seed_players.add_argument(
-        "--log-level",
-        default="INFO",
-        help="log level for the one-off seed command, default: INFO",
-    )
-    ingest_fixtures = subcommands.add_parser(
-        "ingest-fixtures",
-        help="ingest fixtures from FBref",
-    )
-    ingest_fixtures.add_argument("--league", type=int, default=9, help="FBref competition id")
-    ingest_fixtures.add_argument("--season", type=int, required=True, help="season year")
-    ingest_fixtures.add_argument("--from-date", help="optional start date YYYY-MM-DD")
-    ingest_fixtures.add_argument("--to-date", help="optional end date YYYY-MM-DD")
-    ingest_fixtures.add_argument(
-        "--log-level",
-        default="INFO",
-        help="log level for the one-off ingestion command, default: INFO",
-    )
-    ingest_stats = subcommands.add_parser(
-        "ingest-player-stats",
-        help="ingest season player stat tables from FBref",
-    )
-    ingest_stats.add_argument("--league", type=int, default=9, help="FBref competition id")
-    ingest_stats.add_argument("--season", type=int, required=True, help="season start year")
-    ingest_stats.add_argument(
-        "--stat-type",
-        action="append",
-        choices=("standard", "shooting", "passing", "defense", "keeper"),
-        help="FBref stat table to ingest; repeat to ingest multiple tables",
-    )
-    ingest_stats.add_argument(
-        "--log-level",
-        default="INFO",
-        help="log level for the one-off ingestion command, default: INFO",
-    )
-    ingest_bet365 = subcommands.add_parser(
-        "ingest-bet365-odds",
-        help="ingest Bet365 pre-match or live match and player markets",
-    )
-    ingest_bet365.add_argument(
-        "--mode",
-        choices=[mode.value for mode in Bet365IngestionMode],
-        default=Bet365IngestionMode.PRE_MATCH.value,
-        help="PRE_MATCH discovers fixtures; LIVE refreshes known active event URLs",
-    )
-    ingest_bet365.add_argument(
-        "--league",
-        help="website competition name; PL maps to Premier League",
-    )
-    ingest_bet365.add_argument(
-        "--max-matches",
-        type=_positive_int,
-        help="maximum fixture pages to inspect during this run",
-    )
-    ingest_bet365.add_argument("--log-level", default="INFO")
-    sync_twitter_registry = subcommands.add_parser(
-        "sync-twitter-injury-registry",
-        help="sync manually reviewed X source accounts and player aliases from JSON",
-    )
-    sync_twitter_registry.add_argument("--registry", required=True, help="path to registry JSON")
-    sync_twitter_registry.add_argument("--log-level", default="INFO")
-    ingest_twitter_injuries = subcommands.add_parser(
-        "ingest-twitter-injuries",
-        help="poll approved X API recent search and update player injury episodes",
-    )
-    ingest_twitter_injuries.add_argument(
-        "--query",
-        help="X recent-search query; defaults to STOCKBALL_TWITTER_SEARCH_QUERY",
-    )
-    ingest_twitter_injuries.add_argument(
-        "--query-key",
-        help="stable cursor key; defaults to STOCKBALL_TWITTER_QUERY_KEY or a query hash",
-    )
-    ingest_twitter_injuries.add_argument("--log-level", default="INFO")
-    import_market_values = subcommands.add_parser(
-        "import-market-values",
-        help="import Transfermarkt-derived market values from CSV files",
-    )
-    import_market_values.add_argument(
-        "--valuations-csv",
-        required=True,
-        help="path to player_valuations.csv",
-    )
-    import_market_values.add_argument(
-        "--players-csv",
-        help="optional path to players.csv for names, clubs, DOBs, and source URLs",
-    )
-    import_market_values.add_argument(
-        "--source",
-        default="transfermarkt_csv",
-        help="source label to store with import rows, default: transfermarkt_csv",
-    )
-    import_market_values.add_argument(
-        "--currency",
-        default="EUR",
-        help="currency for market values, default: EUR",
-    )
-    import_market_values.add_argument(
-        "--log-level",
-        default="INFO",
-        help="log level for the one-off import command, default: INFO",
-    )
-    seed_player_shares = subcommands.add_parser(
-        "seed-player-shares",
-        help="create PLAYER_SHARE instruments from players and market values",
-    )
-    seed_player_shares.add_argument(
-        "--log-level",
-        default="INFO",
-        help="log level for the one-off seed command, default: INFO",
-    )
-    spawn_synthetic_traders = subcommands.add_parser(
-        "spawn-synthetic-traders",
-        help="create synthetic trader accounts through the API and attach worker bot configs",
-    )
-    spawn_config_selector = spawn_synthetic_traders.add_mutually_exclusive_group(required=True)
-    spawn_config_selector.add_argument(
-        "--config-key",
-        help="exact synthetic_trader_bot_configs.config_key to attach",
-    )
-    spawn_config_selector.add_argument(
-        "--strategy-engine",
-        choices=[engine.value for engine in StrategyEngine],
-        help="strategy engine to spawn using its default seeded config",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--count",
-        type=int,
-        required=True,
-        help="number of bots to create",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--handle-prefix",
-        help="prefix for account handles and bot keys when --name-style NUMBERED is used",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--display-name-prefix",
-        help="prefix for display names when --name-style NUMBERED is used",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--name-style",
-        choices=[name_style.value for name_style in SpawnNameStyle],
-        default=SpawnNameStyle.PERSONA.value,
-        help="public account naming style, default: PERSONA",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--start-index",
-        type=int,
-        default=1,
-        help="first numeric suffix to use, default: 1",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--random-seed",
-        type=int,
-        help="optional seed for reproducible per-bot config randomization",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--status",
-        choices=[status.value for status in BotStatus],
-        default=BotStatus.ACTIVE.value,
-        help="initial bot status, default: ACTIVE",
-    )
-    spawn_synthetic_traders.add_argument(
-        "--log-level",
-        default="INFO",
-        help="log level for the one-off spawn command, default: INFO",
-    )
-    bootstrap_portfolios = subcommands.add_parser(
-        "bootstrap-synthetic-portfolios",
-        help="issue seeded player-share supply to synthetic traders and the reserve",
-    )
-    bot_selector = bootstrap_portfolios.add_mutually_exclusive_group(required=True)
-    bot_selector.add_argument(
-        "--bot-id",
-        action="append",
-        type=UUID,
-        help="synthetic trader bot UUID; repeat to select multiple bots",
-    )
-    bot_selector.add_argument(
-        "--all-active-synthetic-bots",
-        action="store_true",
-        help="select every active non-social synthetic trader",
-    )
-    bootstrap_portfolios.add_argument("--seed", type=int)
-    bootstrap_portfolios.add_argument(
-        "--min-holders-per-player", type=_positive_int, default=3
-    )
-    bootstrap_portfolios.add_argument(
-        "--max-player-supply-per-bot", type=_percentage_up_to_100, default=Decimal("20")
-    )
-    bootstrap_portfolios.add_argument(
-        "--reserve-supply-percent", type=_percentage, default=Decimal("10")
-    )
-    bootstrap_portfolios.add_argument(
-        "--max-positions-per-bot", type=_positive_int, default=100
-    )
-    bootstrap_portfolios.add_argument("--dry-run", action="store_true")
-    bootstrap_portfolios.add_argument("--log-level", default="INFO")
-    return parser
 
 
 def _configure_logging(log_level: str) -> None:
@@ -552,31 +328,6 @@ def _configure_logging(log_level: str) -> None:
     )
 
 
-def _positive_int(value: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return parsed
-
-
-def _percentage(value: str) -> Decimal:
-    try:
-        parsed = Decimal(value)
-    except InvalidOperation as error:
-        raise argparse.ArgumentTypeError("value must be a decimal percentage") from error
-    if not Decimal("0") < parsed < Decimal("100"):
-        raise argparse.ArgumentTypeError("value must be greater than 0 and less than 100")
-    return parsed
-
-
-def _percentage_up_to_100(value: str) -> Decimal:
-    try:
-        parsed = Decimal(value)
-    except InvalidOperation as error:
-        raise argparse.ArgumentTypeError("value must be a decimal percentage") from error
-    if not Decimal("0") < parsed <= Decimal("100"):
-        raise argparse.ArgumentTypeError("value must be greater than 0 and at most 100")
-    return parsed
 
 
 def _print_provider_access_error(error: FbrefAccessDeniedError) -> None:

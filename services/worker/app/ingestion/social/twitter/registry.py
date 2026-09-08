@@ -10,7 +10,6 @@ from uuid import UUID
 from .models import PlayerAlias, SourceAccountKind, TwitterSourceAccount
 from .resolution import normalize_identity
 
-
 DEFAULT_TRUST_WEIGHTS = {
     SourceAccountKind.OFFICIAL_CLUB: 1.0,
     SourceAccountKind.OFFICIAL_LEAGUE: 1.0,

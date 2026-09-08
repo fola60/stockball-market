@@ -80,7 +80,10 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
         cursor = FakeCursor([row])
         repository = PostgresSyntheticTraderRepository("postgres://example")
 
-        with patch("app.synthetic_traders.repository.psycopg2.connect", return_value=FakeConnection(cursor)):
+        with patch(
+            "app.synthetic_traders.repository.pooled_connection",
+            return_value=FakeConnection(cursor),
+        ):
             bots = repository.list_due_bots(datetime(2026, 5, 22, 12, 0, tzinfo=UTC))
 
         self.assertEqual(len(bots), 1)
@@ -177,7 +180,7 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
         repository = PostgresSyntheticTraderRepository("postgres://example")
 
         with patch(
-            "app.synthetic_traders.repository.psycopg2.connect",
+            "app.synthetic_traders.repository.pooled_connection",
             return_value=FakeConnection(cursor),
         ):
             candidates = repository.load_candidate_instruments(portfolio, as_of)

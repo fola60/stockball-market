@@ -7,7 +7,6 @@ from typing import Any, Callable
 
 import redis
 
-
 SCHEDULE_OVERRIDES_KEY = "stockball:dev:schedule-overrides"
 SCHEDULER_HEARTBEAT_KEY = "stockball:dev:scheduler-heartbeat"
 WORKER_ACTIVE_JOB_KEY = "stockball:dev:worker:active-job"
@@ -86,7 +85,9 @@ class RedisProcessRegistry:
         queue_name: str,
         executable_run_ids: Callable[[list[str]], set[str]] | None = None,
     ) -> None:
-        self._client = redis.Redis.from_url(redis_url, decode_responses=True)
+        # redis-py's sync and async overloads are indistinguishable to static
+        # analyzers; this registry deliberately owns the synchronous client.
+        self._client: Any = redis.Redis.from_url(redis_url, decode_responses=True)
         self._queue_name = queue_name
         self._executable_run_ids = executable_run_ids
         self._definitions = {item.name: item for item in configured_processes()}

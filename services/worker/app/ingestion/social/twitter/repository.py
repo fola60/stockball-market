@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Iterator, Protocol
 from uuid import UUID
 
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
+from app.database import connection as pooled_connection
+
 from .models import (
     EpisodeDecision,
     InjuryClassification,
     InjuryEpisode,
-    InjuryEvidenceKind,
     InjuryStage,
     MatchParticipationEvidence,
     PendingPostObservation,
@@ -91,11 +92,8 @@ class PostgresTwitterInjuryRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-        finally:
-            connection.close()
 
     def sync_registry(self, registry: TwitterInjuryRegistry) -> TwitterInjuryRegistrySyncResult:
         with self._connection() as connection:

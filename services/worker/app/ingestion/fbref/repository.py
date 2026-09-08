@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC
 
-import psycopg2
+from app.database import connection as pooled_connection
 
 from .models import FBREF_PROVIDER, FbrefRawPage
 
@@ -12,7 +12,7 @@ class PostgresFbrefRawPageRepository:
         self._database_url = database_url
 
     def get_latest_successful_page(self, source_url: str) -> FbrefRawPage | None:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -51,7 +51,7 @@ class PostgresFbrefRawPageRepository:
         )
 
     def save_page(self, page: FbrefRawPage) -> None:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

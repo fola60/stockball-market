@@ -1,10 +1,10 @@
 from .models import (
     Bet365LiveOddsIngestionPlan,
+    Bet365OddsIngestionPlan,
     DailyPlayerStatsIngestionPlan,
     RecurringTopupPlan,
-    Bet365OddsIngestionPlan,
-    SchedulePlan,
     ScheduledJobDecision,
+    SchedulePlan,
     SyntheticTraderTickPlan,
     TwitterInjuryIngestionPlan,
     default_scheduler_plans,

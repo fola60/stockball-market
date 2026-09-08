@@ -5,8 +5,8 @@ from .models import (
     TeamResolutionStatus,
     TeamSelectionAssessment,
     TeamSelectionClassification,
-    TeamSelectionEvidencePhase,
     TeamSelectionEventKind,
+    TeamSelectionEvidencePhase,
     TeamSelectionSignal,
 )
 from .resolution import TeamResolver

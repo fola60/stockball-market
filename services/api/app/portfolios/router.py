@@ -9,7 +9,6 @@ from app.common.schemas import ErrorResponse
 from app.portfolios.schemas import PortfolioResponse
 from app.portfolios.service import PortfolioNotFoundError, PortfoliosService
 
-
 router = APIRouter(prefix="/v1/portfolios", tags=["portfolios"])
 
 

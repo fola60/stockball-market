@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Any, Mapping
 
 from bs4 import BeautifulSoup, Tag
 

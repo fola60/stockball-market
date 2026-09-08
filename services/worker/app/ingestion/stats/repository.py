@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
-import psycopg2
 from psycopg2.extras import Json
+
+from app.database import connection as pooled_connection
 
 from .models import ExternalPlayerStat
 
@@ -18,7 +19,7 @@ class PostgresPlayerStatsRepository:
             return 0, 0
 
         matched_players = 0
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 for observation in observations:
                     fixture_id = _get_fixture_id(

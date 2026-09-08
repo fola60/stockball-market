@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 from random import Random
 from typing import Callable, Mapping
 from uuid import UUID
@@ -43,7 +43,6 @@ from .models import (
 )
 from .repository import SyntheticTraderRepository
 
-
 DECIMAL_QUANTITY_STEP = Decimal("0.000001")
 DECIMAL_CASH_STEP = Decimal("0.0001")
 DEFAULT_TICK_CADENCE_MINUTES = 60
@@ -80,6 +79,7 @@ class SyntheticTraderService:
         outcomes: list[SyntheticTraderTickOutcome] = []
         diagnostics: list[SyntheticTraderTickDiagnostics] = []
         config_cache: dict[tuple[UUID, str], tuple[StrategyEngine, StrategyConfig]] = {}
+        market_candidates_cache: dict[int | None, tuple[CandidateInstrumentContext, ...]] = {}
         bots = self.repository.list_due_bots(
             as_of,
             limit=limit,
@@ -123,11 +123,16 @@ class SyntheticTraderService:
                     if isinstance(strategy_config, BettingMarketValueConfig)
                     else None
                 )
-                candidates = self.repository.load_candidate_instruments(
-                    portfolio,
-                    as_of,
-                    betting_lookback_minutes=betting_lookback_minutes,
-                )
+                market_candidates = market_candidates_cache.get(betting_lookback_minutes)
+                if market_candidates is None:
+                    loaded_candidates = self.repository.load_candidate_instruments(
+                        portfolio,
+                        as_of,
+                        betting_lookback_minutes=betting_lookback_minutes,
+                    )
+                    market_candidates = _without_portfolio_holdings(loaded_candidates)
+                    market_candidates_cache[betting_lookback_minutes] = market_candidates
+                candidates = _with_portfolio_holdings(market_candidates, portfolio)
                 context = BotTickContext(
                     bot=bot,
                     portfolio=portfolio,
@@ -765,3 +770,35 @@ def _quantize_cash(value: Decimal) -> Decimal:
 
 def _format_decimal(value: Decimal, *, places: int) -> str:
     return format(value.quantize(Decimal("1").scaleb(-places), rounding=ROUND_DOWN), "f")
+
+
+def _without_portfolio_holdings(
+    candidates: tuple[CandidateInstrumentContext, ...],
+) -> tuple[CandidateInstrumentContext, ...]:
+    return tuple(
+        replace(
+            candidate,
+            current_holding_quantity=Decimal("0"),
+            current_holding_value=Decimal("0"),
+        )
+        for candidate in candidates
+    )
+
+
+def _with_portfolio_holdings(
+    candidates: tuple[CandidateInstrumentContext, ...],
+    portfolio: BotPortfolioContext,
+) -> tuple[CandidateInstrumentContext, ...]:
+    holdings = {position.instrument_id: position for position in portfolio.positions}
+    return tuple(
+        replace(
+            candidate,
+            current_holding_quantity=holdings[candidate.instrument_id].quantity
+            if candidate.instrument_id in holdings
+            else Decimal("0"),
+            current_holding_value=holdings[candidate.instrument_id].market_value
+            if candidate.instrument_id in holdings
+            else Decimal("0"),
+        )
+        for candidate in candidates
+    )

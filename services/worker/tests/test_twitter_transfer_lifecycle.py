@@ -21,7 +21,6 @@ from app.ingestion.social.twitter.transfers import (
     TransferTerms,
 )
 
-
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
 PLAYER_ID = UUID("00000000-0000-0000-0000-000000000201")
 TEAM_ID = UUID("00000000-0000-0000-0000-000000000301")

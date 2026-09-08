@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -24,8 +25,6 @@ class TradingEngineEndpoints:
     execute_order: str = "/internal/v1/orders/execute"
     seed_player_shares: str = "/internal/v1/instruments/player-shares/seed"
     apply_topup: str = "/internal/v1/ledger/topups/apply"
-    freeze_instrument: str = "/internal/v1/instruments/freeze"
-    unfreeze_instrument: str = "/internal/v1/instruments/unfreeze"
 
 
 @dataclass(frozen=True)
@@ -155,45 +154,12 @@ class SeedPlayerSharesRecord:
         )
 
 
-@dataclass(frozen=True)
-class FreezeInstrumentCommand:
-    request_id: str
-    instrument_id: UUID
-    reason: str
-
-    def to_payload(self) -> dict[str, str]:
-        return {
-            "request_id": self.request_id,
-            "instrument_id": str(self.instrument_id),
-            "reason": self.reason,
-        }
-
-
-@dataclass(frozen=True)
-class UnfreezeInstrumentCommand:
-    request_id: str
-    instrument_id: UUID
-    reason: str
-
-    def to_payload(self) -> dict[str, str]:
-        return {
-            "request_id": self.request_id,
-            "instrument_id": str(self.instrument_id),
-            "reason": self.reason,
-        }
-
-
 class TradingEngineClient(Protocol):
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
 
     def seed_player_shares(self) -> SeedPlayerSharesRecord: ...
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord: ...
-
-    def freeze_instrument(self, command: FreezeInstrumentCommand) -> dict[str, Any]: ...
-
-    def unfreeze_instrument(self, command: UnfreezeInstrumentCommand) -> dict[str, Any]: ...
-
 
 class TradingEngineClientError(Exception):
     def __init__(self, status_code: int, body: dict[str, Any]) -> None:
@@ -222,6 +188,15 @@ class HttpTradingEngineClient:
         self._timeout_seconds = timeout_seconds
         self._endpoints = endpoints or TradingEngineEndpoints()
         self._transport = transport
+        self._client = httpx.Client(
+            timeout=self._timeout_seconds,
+            transport=self._transport,
+        )
+        atexit.register(self.close)
+
+    def close(self) -> None:
+        if not self._client.is_closed:
+            self._client.close()
 
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
         payload = self._post(self._endpoints.execute_order, command.to_payload())
@@ -235,16 +210,9 @@ class HttpTradingEngineClient:
         payload = self._post(self._endpoints.apply_topup, command.to_payload())
         return CashLedgerEntryRecord.from_payload(payload)
 
-    def freeze_instrument(self, command: FreezeInstrumentCommand) -> dict[str, Any]:
-        return self._post(self._endpoints.freeze_instrument, command.to_payload())
-
-    def unfreeze_instrument(self, command: UnfreezeInstrumentCommand) -> dict[str, Any]:
-        return self._post(self._endpoints.unfreeze_instrument, command.to_payload())
-
     def _post(self, path: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:
-            with httpx.Client(timeout=self._timeout_seconds, transport=self._transport) as client:
-                response = client.post(f"{self._base_url}{path}", json=dict(payload))
+            response = self._client.post(f"{self._base_url}{path}", json=dict(payload))
         except httpx.HTTPError as exc:
             raise TradingEngineUnavailableError("trading engine request failed") from exc
 

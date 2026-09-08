@@ -7,7 +7,6 @@ import redis
 
 from app.jobs.models import WorkerJob
 
-
 SCHEDULE_OVERRIDES_KEY = "stockball:dev:schedule-overrides"
 SCHEDULER_HEARTBEAT_KEY = "stockball:dev:scheduler-heartbeat"
 WORKER_ACTIVE_JOB_KEY = "stockball:dev:worker:active-job"

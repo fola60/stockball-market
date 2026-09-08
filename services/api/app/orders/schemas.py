@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.orders.models import OrderExecutionRecord, OrderSide
 
-
 POSITIVE_DECIMAL_PATTERN = re.compile(r"^(?!(?:0(?:\.0+)?)$)(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
 
@@ -39,7 +38,8 @@ class CreateOrderRequest(BaseModel):
             raise ValueError("must be a positive decimal string")
 
         decimal_value = Decimal(normalized)
-        if decimal_value.as_tuple().exponent < -6:
+        exponent = decimal_value.as_tuple().exponent
+        if isinstance(exponent, int) and exponent < -6:
             raise ValueError("supports at most 6 decimal places")
 
         return format(decimal_value, "f")

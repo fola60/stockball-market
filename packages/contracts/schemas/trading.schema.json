@@ -316,6 +316,23 @@
         }
       }
     },
+    "ApplyTopupRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "account_id", "portfolio_id", "amount", "reason"],
+      "properties": {
+        "request_id": { "type": "string", "minLength": 1 },
+        "account_id": { "$ref": "./common.schema.json#/$defs/Uuid" },
+        "portfolio_id": { "$ref": "./common.schema.json#/$defs/Uuid" },
+        "amount": {
+          "allOf": [
+            { "$ref": "./common.schema.json#/$defs/DecimalString" },
+            { "pattern": "^(?!(?:0(?:\\.0+)?)$)(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$" }
+          ]
+        },
+        "reason": { "$ref": "./common.schema.json#/$defs/LedgerReason" }
+      }
+    },
     "ExecuteOrderRequest": {
       "type": "object",
       "additionalProperties": false,

@@ -6,7 +6,7 @@ from typing import Any, Mapping, Protocol
 from uuid import UUID, uuid4
 
 from app.jobs.models import JobType, WorkerJob
-from app.scheduler.models import SchedulePlan, ScheduledJobDecision, default_scheduler_plans
+from app.scheduler.models import ScheduledJobDecision, SchedulePlan, default_scheduler_plans
 
 
 class JobQueue(Protocol):

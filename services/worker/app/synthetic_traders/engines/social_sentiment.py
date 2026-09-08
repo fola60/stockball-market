@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from app.synthetic_traders.config import SocialSentimentConfig
-from app.synthetic_traders.models import BotTickContext, DecisionSide, StrategyDecision, StrategyEngine
+from app.synthetic_traders.models import (
+    BotTickContext,
+    DecisionSide,
+    StrategyDecision,
+    StrategyEngine,
+)
 
 from .base import clamp, filter_candidates, price_change_pct, sorted_decisions
 

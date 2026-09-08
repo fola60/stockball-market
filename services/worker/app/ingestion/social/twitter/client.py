@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import Any, Mapping
-from urllib.parse import quote, urlencode
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 
@@ -15,9 +14,8 @@ from app.ingestion.fetch import (
     FetchUnavailableError,
 )
 
-from .models import TwitterRateLimit, TwitterSearchPage
+from .models import TwitterSearchPage
 from .parser import parse_search_page_html
-
 
 TWITTER_SEARCH_BASE_URL = "https://x.com"
 

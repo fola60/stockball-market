@@ -9,6 +9,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.common.decimal import format_decimal
+from app.database import connection as pooled_connection
 from app.portfolios.models import PortfolioRecord, PositionRecord
 
 
@@ -22,11 +23,8 @@ class PostgresPortfoliosRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-        finally:
-            connection.close()
 
     def get_portfolio(self, portfolio_id: UUID) -> PortfolioRecord | None:
         with self._connection() as connection:

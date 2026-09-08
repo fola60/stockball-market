@@ -1,10 +1,10 @@
 from .handlers import (
-    IngestFixturesJobHandler,
-    IngestBet365OddsJobHandler,
-    IngestPlayerStatsJobHandler,
-    IngestPlayersJobHandler,
-    IngestTwitterInjuriesJobHandler,
     FunctionJobHandler,
+    IngestBet365OddsJobHandler,
+    IngestFixturesJobHandler,
+    IngestPlayersJobHandler,
+    IngestPlayerStatsJobHandler,
+    IngestTwitterInjuriesJobHandler,
     RetryableJobError,
     SyntheticTraderTickJobHandler,
     TopupJobHandler,
@@ -13,10 +13,10 @@ from .handlers import (
 )
 from .models import (
     Bet365IngestionMode,
-    IngestFixturesJobPayload,
     IngestBet365OddsJobPayload,
-    IngestPlayerStatsJobPayload,
+    IngestFixturesJobPayload,
     IngestPlayersJobPayload,
+    IngestPlayerStatsJobPayload,
     IngestTwitterInjuriesJobPayload,
     JobExecutionResult,
     JobType,

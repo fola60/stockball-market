@@ -1,3 +1,10 @@
+from .bootstrap import (
+    BootstrapAllocationError,
+    BootstrapAllocationPlan,
+    BootstrapAlreadyExistsError,
+    PostgresSyntheticPortfolioBootstrapRepository,
+    SyntheticPortfolioBootstrapService,
+)
 from .config import (
     BettingMarketValueConfig,
     MarketMomentumConfig,
@@ -24,10 +31,10 @@ from .models import (
     OrderIntent,
     PlayerStatsContext,
     SocialSignalContext,
+    SpawnedSyntheticTrader,
     SpawnNameStyle,
     SpawnSyntheticTraderBatchResult,
     SpawnSyntheticTraderCommand,
-    SpawnedSyntheticTrader,
     StrategyDecision,
     StrategyEngine,
     SyntheticTraderBotConfigRecord,
@@ -36,13 +43,6 @@ from .models import (
     SyntheticTraderTickDiagnostics,
     SyntheticTraderTickOutcome,
     TickOutcomeStatus,
-)
-from .bootstrap import (
-    BootstrapAllocationError,
-    BootstrapAllocationPlan,
-    BootstrapAlreadyExistsError,
-    PostgresSyntheticPortfolioBootstrapRepository,
-    SyntheticPortfolioBootstrapService,
 )
 from .repository import PostgresSyntheticTraderRepository, SyntheticTraderRepository
 from .service import SyntheticTraderService

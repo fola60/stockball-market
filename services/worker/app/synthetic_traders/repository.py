@@ -12,14 +12,15 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.clients.trading_engine import OrderSide
+from app.database import connection as pooled_connection
 
 from .models import (
+    BettingMarketContext,
+    BettingMarketQuote,
     BotActivityContext,
     BotPortfolioContext,
     BotPositionContext,
     BotStatus,
-    BettingMarketContext,
-    BettingMarketQuote,
     CandidateInstrumentContext,
     CreateSyntheticTraderBotCommand,
     MarketTradeSample,
@@ -30,7 +31,6 @@ from .models import (
     SyntheticTraderBotConfigRecord,
     SyntheticTraderBotRecord,
 )
-
 
 RECENT_MARKET_LOOKBACK_DAYS = 30
 RECENT_STATS_LOOKBACK_DAYS = 180
@@ -90,11 +90,8 @@ class PostgresSyntheticTraderRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-        finally:
-            connection.close()
 
     def set_bot_status(self, bot_ids: tuple[UUID, ...], status: BotStatus) -> int:
         if not bot_ids:
@@ -539,7 +536,7 @@ class PostgresSyntheticTraderRepository:
                 new_price,
                 captured_at
             FROM price_snapshots
-            WHERE instrument_id::text = ANY(%(instrument_ids)s)
+            WHERE instrument_id = ANY(%(instrument_ids)s::uuid[])
               AND captured_at >= %(market_since)s
             ORDER BY instrument_id, captured_at ASC, id ASC
             """,
@@ -574,7 +571,7 @@ class PostgresSyntheticTraderRepository:
                 account_id,
                 executed_at
             FROM trades
-            WHERE instrument_id::text = ANY(%(instrument_ids)s)
+            WHERE instrument_id = ANY(%(instrument_ids)s::uuid[])
               AND executed_at >= %(market_since)s
             ORDER BY instrument_id, executed_at ASC, id ASC
             """,
@@ -609,7 +606,7 @@ class PostgresSyntheticTraderRepository:
                 value,
                 observed_at
             FROM player_market_value_observations
-            WHERE player_id::text = ANY(%(player_ids)s)
+            WHERE player_id = ANY(%(player_ids)s::uuid[])
             ORDER BY player_id, observed_at DESC, id DESC
             """,
             {"player_ids": player_ids},
@@ -646,7 +643,7 @@ class PostgresSyntheticTraderRepository:
                         ORDER BY observed_at DESC, id DESC
                     ) AS row_number
                 FROM player_stat_observations
-                WHERE player_id::text = ANY(%(player_ids)s)
+                WHERE player_id = ANY(%(player_ids)s::uuid[])
                   AND observed_at >= %(stats_since)s
             ) AS ranked
             WHERE row_number <= %(max_rows)s
@@ -725,7 +722,7 @@ class PostgresSyntheticTraderRepository:
                     ON selection.id = participant.selection_id
                 JOIN betting_market_observations AS observation
                     ON observation.selection_id = selection.id
-                WHERE participant.player_id::text = ANY(%(player_ids)s)
+                WHERE participant.player_id = ANY(%(player_ids)s::uuid[])
                   AND participant.participant_role = 'PRIMARY'
                   AND selection.market_scope = 'PLAYER'
                   AND observation.observed_at >= %(betting_since)s

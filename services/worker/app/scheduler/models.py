@@ -9,11 +9,11 @@ from app.jobs.models import (
     IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
     IngestTwitterInjuriesJobPayload,
+    JobType,
     SyntheticTraderTickJobPayload,
     TopupJobPayload,
     WorkerJob,
 )
-from app.jobs.models import JobType
 from app.topups.models import TopupCadence, TopupWindow
 
 

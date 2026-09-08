@@ -30,7 +30,6 @@ from app.synthetic_traders.engines import (
     StatsValueStrategyEngine,
 )
 from app.synthetic_traders.engines.base import canonical_position_codes, filter_candidates
-
 from tests.test_synthetic_trader_configs import (
     _betting_market_payload,
     _market_momentum_payload,

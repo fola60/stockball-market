@@ -9,10 +9,10 @@ from app.accounts.service import AccountsService
 from app.clients.trading_engine import HttpTradingEngineClient
 from app.config import Settings
 from app.dev_operations import DevOperationsService
+from app.dev_operations.processes import RedisProcessRegistry
 from app.dev_operations.repository import PostgresDevOperationsRepository
 from app.dev_operations.router import router as dev_operations_router
 from app.dev_operations.service import RedisJobPublisher
-from app.dev_operations.processes import RedisProcessRegistry
 from app.instruments.repository import PostgresInstrumentsRepository
 from app.instruments.router import router as instruments_router
 from app.instruments.service import InstrumentsService

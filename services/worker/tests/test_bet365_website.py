@@ -18,7 +18,6 @@ from app.ingestion.betting_markets import (
     provider_event_id_from_url,
 )
 
-
 HOME_URL = "https://www.bet365.com/#/HO/"
 FOOTBALL_HUB_URL = "https://www.bet365.com/#/AS/B1/K%5E5/"
 COMPETITION_URL = "https://www.bet365.com/#/AC/B1/C1/D1002/E91422157/G40/"

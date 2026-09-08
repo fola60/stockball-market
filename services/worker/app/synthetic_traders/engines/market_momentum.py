@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from app.synthetic_traders.config import MarketMomentumConfig
-from app.synthetic_traders.models import BotTickContext, DecisionSide, StrategyDecision, StrategyEngine
+from app.synthetic_traders.models import (
+    BotTickContext,
+    DecisionSide,
+    StrategyDecision,
+    StrategyEngine,
+)
 
 from .base import (
     breakout_strength,

@@ -5,6 +5,7 @@ from contextlib import redirect_stderr
 from datetime import UTC, datetime
 from io import StringIO
 
+from app.cli import build_parser
 from app.ingestion.betting_markets import (
     Bet365DiscoveredFixture,
     BettingMarketIngestionResult,
@@ -17,7 +18,6 @@ from app.jobs import (
     JobType,
     WorkerJob,
 )
-from app.main import _build_parser
 from app.scheduler.models import Bet365LiveOddsIngestionPlan, Bet365OddsIngestionPlan
 
 
@@ -90,13 +90,13 @@ class Bet365JobTests(unittest.TestCase):
 
 class Bet365CommandTests(unittest.TestCase):
     def test_live_mode_is_supported(self) -> None:
-        args = _build_parser().parse_args(["ingest-bet365-odds", "--mode", "LIVE"])
+        args = build_parser().parse_args(["ingest-bet365-odds", "--mode", "LIVE"])
 
         self.assertEqual(args.mode, "LIVE")
 
     def test_source_selector_is_not_supported(self) -> None:
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as raised:
-            _build_parser().parse_args(["ingest-bet365-odds", "--source", "feed"])
+            build_parser().parse_args(["ingest-bet365-odds", "--source", "feed"])
 
         self.assertEqual(raised.exception.code, 2)
 

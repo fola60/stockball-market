@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-
 DATABASE_URL_ENV = "STOCKBALL_WORKER_DATABASE_URL"
 DATABASE_URL_FALLBACK_ENV = "DATABASE_URL"
 REDIS_URL_ENV = "STOCKBALL_WORKER_REDIS_URL"

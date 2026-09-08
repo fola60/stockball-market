@@ -227,6 +227,43 @@ class SyntheticTraderServiceTests(unittest.TestCase):
         self.assertEqual(repository.tick_updates[0][0], self.as_of)
         self.assertGreater(repository.tick_updates[0][1], self.as_of)
 
+    def test_market_candidates_are_loaded_once_for_bots_with_the_same_lookback(self) -> None:
+        second_bot = replace(
+            self.bot,
+            id=uuid4(),
+            account_id=uuid4(),
+            portfolio_id=uuid4(),
+            bot_key="bot-2",
+        )
+        repository = FakeSyntheticTraderRepository(
+            bot=(self.bot, second_bot),
+            config=self.config,
+            portfolio=BotPortfolioContext(
+                account_id=self.bot.account_id,
+                portfolio_id=self.bot.portfolio_id,
+                cash_balance=Decimal("1000"),
+                total_position_value=Decimal("0"),
+                total_equity=Decimal("1000"),
+                positions=(),
+            ),
+            activity=BotActivityContext(
+                daily_trade_count=0,
+                daily_turnover_cash=Decimal("0"),
+                last_order_at=None,
+            ),
+            candidates=(self.candidate,),
+        )
+        service = SyntheticTraderService(
+            repository=repository,
+            trading_engine_client=FakeTradingEngineClient(),
+            engine_registry={StrategyEngine.NOISE: StubEngine(())},
+        )
+
+        result = service.tick_due_bots(self.as_of)
+
+        self.assertEqual(result.processed_bots, 2)
+        self.assertEqual(repository.calls.count("load_candidate_instruments"), 1)
+
     def test_risk_layer_rejects_orders_that_fail_cash_and_position_checks(self) -> None:
         repository = FakeSyntheticTraderRepository(
             bot=self.bot,

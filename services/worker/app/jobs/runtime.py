@@ -7,8 +7,8 @@ import signal
 import traceback
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Callable, Mapping, Protocol
 from time import monotonic
+from typing import Callable, Mapping, Protocol
 
 from app.jobs.handlers import JobHandler, RetryableJobError, UnknownJobError, WorkerJobRunner
 from app.jobs.models import JobExecutionResult, JobType, WorkerJob

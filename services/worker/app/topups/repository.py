@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import psycopg2
-
+from app.database import connection as pooled_connection
 from app.topups.models import TopupAuditRecord, TopupCadence, TopupPolicy, TopupRecordStatus
 
 
@@ -12,7 +11,7 @@ class PostgresTopupRepository:
         self._database_url = database_url
 
     def list_policies(self, cadence: TopupCadence) -> list[TopupPolicy]:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -46,7 +45,7 @@ class PostgresTopupRepository:
         cadence: TopupCadence,
         amount: str,
     ) -> int:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -71,7 +70,7 @@ class PostgresTopupRepository:
         return configured
 
     def get_record(self, request_id: str) -> TopupAuditRecord | None:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -104,7 +103,7 @@ class PostgresTopupRepository:
         return _row_to_record(row)
 
     def save_record(self, record: TopupAuditRecord) -> None:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

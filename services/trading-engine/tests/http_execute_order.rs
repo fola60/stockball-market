@@ -306,7 +306,7 @@ fn sample_response() -> ExecuteOrderResult {
         quantity: Decimal::new(10, 0),
         execution_price: Decimal::new(100_0000, 4),
         gross_amount: Decimal::new(1000_0000, 4),
-        cash_balance_after: Decimal::new(99000_0000, 4),
+        cash_balance_after: Decimal::new(990_000_000, 4),
         position_quantity_after: Decimal::new(10, 0),
         old_price: Decimal::new(100_0000, 4),
         new_price: Decimal::new(100_1000, 4),
@@ -322,7 +322,7 @@ fn sample_topup_response() -> CashLedgerEntry {
         trade_id: None,
         reason: LedgerReason::WeeklyTopup,
         amount_delta: Decimal::new(100_0000, 4),
-        balance_after: Decimal::new(10_100_0000, 4),
+        balance_after: Decimal::new(101_000_000, 4),
         source_request_id: Some("topup_123".to_owned()),
         created_at: chrono::Utc::now(),
     }

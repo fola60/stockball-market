@@ -8,7 +8,13 @@ from unittest.mock import patch
 
 import httpx
 
-from app.ingestion.fbref import FBREF_PROVIDER, FbrefClient, parse_fixtures, parse_player_stats, parse_players
+from app.ingestion.fbref import (
+    FBREF_PROVIDER,
+    FbrefClient,
+    parse_fixtures,
+    parse_player_stats,
+    parse_players,
+)
 from app.ingestion.fixtures import ExternalFixture, FixtureIngestionService
 from app.ingestion.stats import ExternalPlayerStat, PlayerStatsIngestionService
 from app.jobs import (
@@ -19,7 +25,6 @@ from app.jobs import (
     JobType,
     WorkerJob,
 )
-
 
 FIXTURES_DIR = Path(__file__).with_name("fixtures")
 

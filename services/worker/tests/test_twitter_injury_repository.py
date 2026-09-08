@@ -7,7 +7,6 @@ from unittest.mock import patch
 from app.ingestion.social.twitter import TwitterIngestionCursor, TwitterRateLimit
 from app.ingestion.social.twitter.repository import PostgresTwitterInjuryRepository
 
-
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
 
 
@@ -25,7 +24,7 @@ class PostgresTwitterInjuryRepositoryTests(unittest.TestCase):
         )
 
         with patch(
-            "app.ingestion.social.twitter.repository.psycopg2.connect",
+            "app.ingestion.social.twitter.repository.pooled_connection",
             return_value=connection,
         ):
             repository.checkpoint_cursor(cursor, NOW)
@@ -40,7 +39,7 @@ class PostgresTwitterInjuryRepositoryTests(unittest.TestCase):
         repository = PostgresTwitterInjuryRepository("postgresql://test")
 
         with patch(
-            "app.ingestion.social.twitter.repository.psycopg2.connect",
+            "app.ingestion.social.twitter.repository.pooled_connection",
             return_value=connection,
         ):
             repository.complete_cursor(

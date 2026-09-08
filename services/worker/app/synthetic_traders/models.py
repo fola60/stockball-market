@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any, Mapping
 from uuid import UUID
 
-from app.clients.trading_engine import OrderSide, OrderExecutionRecord
+from app.clients.trading_engine import OrderExecutionRecord, OrderSide
 
 
 class StrategyEngine(StrEnum):

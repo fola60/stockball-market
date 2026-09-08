@@ -7,9 +7,9 @@ from fastapi.responses import JSONResponse
 
 from app.accounts.models import AccountType, CreateAccountCommand
 from app.accounts.repository import AccountAlreadyExistsError
-from app.accounts.schemas import AccountResponse, CreateAccountRequest, ErrorResponse
+from app.accounts.schemas import AccountResponse, CreateAccountRequest
 from app.accounts.service import AccountNotFoundError, AccountsService
-
+from app.common.schemas import ErrorResponse
 
 router = APIRouter()
 public_router = APIRouter(prefix="/v1/accounts", tags=["accounts"])
@@ -96,7 +96,7 @@ def list_accounts(
     response_model=AccountResponse,
     responses={404: {"model": ErrorResponse}},
 )
-def get_account(account_id: UUID, request: Request) -> AccountResponse:
+def get_account(account_id: UUID, request: Request) -> AccountResponse | JSONResponse:
     service = get_accounts_service(request)
     try:
         account = service.get_account(account_id)

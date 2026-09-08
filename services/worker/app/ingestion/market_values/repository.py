@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-import psycopg2
 from psycopg2.extras import Json
+
+from app.database import connection as pooled_connection
 
 from .matching import PlayerCandidate
 from .models import MarketValueImportResult, MarketValueImportRow, MarketValueMatchStatus
@@ -16,7 +17,7 @@ class PostgresMarketValueRepository:
         self._database_url = database_url
 
     def list_player_candidates(self) -> list[PlayerCandidate]:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -45,7 +46,7 @@ class PostgresMarketValueRepository:
         ]
 
     def list_provider_refs(self, source: str) -> dict[str, UUID]:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -65,7 +66,7 @@ class PostgresMarketValueRepository:
         valuations_csv_path: str,
         rows: list[MarketValueImportRow],
     ) -> MarketValueImportResult:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

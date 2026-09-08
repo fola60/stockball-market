@@ -12,8 +12,9 @@ from uuid import UUID
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
-from .models import StrategyEngine
+from app.database import connection as pooled_connection
 
+from .models import StrategyEngine
 
 RESERVE_ACCOUNT_ID = UUID("7f63e2d0-1adc-4af1-8ad0-000000000001")
 RESERVE_PORTFOLIO_ID = UUID("7f63e2d0-1adc-4af1-8ad0-000000000002")
@@ -467,11 +468,8 @@ class PostgresSyntheticPortfolioBootstrapRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-        finally:
-            connection.close()
 
     def load_snapshot(
         self,

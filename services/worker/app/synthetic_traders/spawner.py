@@ -7,10 +7,10 @@ from app.clients import ApiClient, CreateSyntheticTraderAccountCommand
 
 from .models import (
     CreateSyntheticTraderBotCommand,
+    SpawnedSyntheticTrader,
     SpawnNameStyle,
     SpawnSyntheticTraderBatchResult,
     SpawnSyntheticTraderCommand,
-    SpawnedSyntheticTrader,
     StrategyEngine,
 )
 from .names import SpawnedPersonaName, generate_persona_name

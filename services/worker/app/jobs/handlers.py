@@ -6,17 +6,17 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Callable, Mapping, Protocol
 
-from app.ingestion.fixtures import FixtureIngestionService
 from app.ingestion.betting_markets import BettingMarketIngestionService
+from app.ingestion.fixtures import FixtureIngestionService
 from app.ingestion.players import PlayerSeedService
-from app.ingestion.stats import PlayerStatsIngestionService
 from app.ingestion.social.twitter import TwitterInjuryIngestionService, TwitterTransientError
+from app.ingestion.stats import PlayerStatsIngestionService
 from app.jobs.models import (
     Bet365IngestionMode,
-    IngestFixturesJobPayload,
     IngestBet365OddsJobPayload,
-    IngestPlayerStatsJobPayload,
+    IngestFixturesJobPayload,
     IngestPlayersJobPayload,
+    IngestPlayerStatsJobPayload,
     IngestTwitterInjuriesJobPayload,
     JobExecutionResult,
     JobType,

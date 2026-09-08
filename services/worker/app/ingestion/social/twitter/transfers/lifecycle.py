@@ -13,7 +13,6 @@ from .models import (
     TransferTerms,
 )
 
-
 _STAGE_RANK = {
     TransferStage.RUMOUR: 1,
     TransferStage.BID: 2,

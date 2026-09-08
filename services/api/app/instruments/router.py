@@ -9,7 +9,6 @@ from app.common.schemas import ErrorResponse
 from app.instruments.schemas import InstrumentResponse, PriceSnapshotResponse
 from app.instruments.service import InstrumentNotFoundError, InstrumentsService
 
-
 router = APIRouter(prefix="/v1/instruments", tags=["instruments"])
 
 

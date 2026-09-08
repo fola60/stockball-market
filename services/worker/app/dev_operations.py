@@ -5,10 +5,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Mapping
 from uuid import UUID
 
-import psycopg2
-
+from app.database import connection as pooled_connection
 from app.jobs.models import JobExecutionResult, JobType
-
 
 SCHEDULE_OPERATION_TYPES = {
     "weekly-topups": "APPLY_TOPUPS",
@@ -35,7 +33,7 @@ class PostgresScheduledRunRepository:
         supersede_pending: bool,
     ) -> bool:
         operation_type = SCHEDULE_OPERATION_TYPES[schedule_name]
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 if supersede_pending:
                     cursor.execute(
@@ -91,7 +89,7 @@ class PostgresScheduledRunRepository:
                 return created
 
     def mark_enqueue_failed(self, run_id: UUID, message: str) -> None:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -122,7 +120,7 @@ class PostgresOperationRunReporter:
         started_at: datetime,
     ) -> bool:
         stale_before = started_at - self._scheduled_realtime_max_lag
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -198,7 +196,7 @@ class PostgresOperationRunReporter:
         error: str,
         result: JobExecutionResult,
     ) -> bool:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -286,6 +284,6 @@ class PostgresOperationRunReporter:
         )
 
     def _update(self, query: str, parameters: Mapping[str, Any]) -> None:
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query, parameters)

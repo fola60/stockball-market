@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
-from app.scheduler import InMemoryJobQueue, InMemoryScheduleClaimStore, SchedulerProcess, SchedulerService
+from app.scheduler import (
+    InMemoryJobQueue,
+    InMemoryScheduleClaimStore,
+    SchedulerProcess,
+    SchedulerService,
+)
 
 
 class SchedulerProcessTests(unittest.TestCase):

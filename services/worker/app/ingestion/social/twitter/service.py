@@ -13,7 +13,6 @@ from .models import (
     PlayerResolutionStatus,
     TwitterIngestionCursor,
     TwitterInjuryIngestionResult,
-    TwitterRateLimit,
     TwitterSearchPage,
 )
 from .repository import TwitterInjuryRepository

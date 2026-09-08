@@ -12,7 +12,6 @@ from app.orders.models import SubmitOrderCommand
 from app.orders.schemas import CreateOrderRequest, OrderExecutionResponse
 from app.orders.service import OrdersService
 
-
 router = APIRouter(prefix="/v1/orders", tags=["orders"])
 
 

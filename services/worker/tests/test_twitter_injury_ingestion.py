@@ -41,7 +41,6 @@ from app.jobs import (
 )
 from app.scheduler.models import TwitterInjuryIngestionPlan
 
-
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
 PLAYER_ID = UUID("00000000-0000-0000-0000-000000000101")
 

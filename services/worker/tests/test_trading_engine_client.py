@@ -10,7 +10,6 @@ import httpx
 from app.clients.trading_engine import (
     ApplyTopupCommand,
     ExecuteOrderCommand,
-    FreezeInstrumentCommand,
     HttpTradingEngineClient,
     LedgerReason,
     OrderSide,
@@ -152,26 +151,6 @@ class TradingEngineClientTests(unittest.TestCase):
         self.assertEqual(result.created_count, 1)
         self.assertEqual(result.skipped_existing_count, 2)
         self.assertEqual(result.created_instrument_ids, (instrument_id,))
-
-    def test_freeze_instrument_uses_configured_path(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            self.assertEqual(request.url.path, "/internal/v1/instruments/freeze")
-            return httpx.Response(200, json={"status": "FROZEN"})
-
-        client = HttpTradingEngineClient(
-            base_url="http://trading-engine.test",
-            transport=httpx.MockTransport(handler),
-        )
-
-        response = client.freeze_instrument(
-            FreezeInstrumentCommand(
-                request_id="freeze:req_1",
-                instrument_id=uuid4(),
-                reason="fixture_started",
-            )
-        )
-
-        self.assertEqual(response["status"], "FROZEN")
 
     def test_http_error_is_retryable_unavailable_error(self) -> None:
         client = HttpTradingEngineClient(

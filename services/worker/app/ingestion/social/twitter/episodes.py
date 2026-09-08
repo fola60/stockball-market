@@ -11,7 +11,6 @@ from .models import (
     SourceAccountKind,
 )
 
-
 SUSPECTED_EXPIRY_DAYS = 14
 CONFIRMED_DEFAULT_EXPIRY_DAYS = 180
 EXPECTED_RETURN_GRACE_DAYS = 14

@@ -5,7 +5,12 @@ from datetime import timedelta
 from random import Random
 
 from app.synthetic_traders.config import NoiseConfig
-from app.synthetic_traders.models import BotTickContext, DecisionSide, StrategyDecision, StrategyEngine
+from app.synthetic_traders.models import (
+    BotTickContext,
+    DecisionSide,
+    StrategyDecision,
+    StrategyEngine,
+)
 
 from .base import (
     average,

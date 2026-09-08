@@ -5,7 +5,12 @@ from datetime import timedelta
 from math import log10
 
 from app.synthetic_traders.config import StatsValueConfig
-from app.synthetic_traders.models import BotTickContext, DecisionSide, StrategyDecision, StrategyEngine
+from app.synthetic_traders.models import (
+    BotTickContext,
+    DecisionSide,
+    StrategyDecision,
+    StrategyEngine,
+)
 
 from .base import (
     canonical_position_codes,

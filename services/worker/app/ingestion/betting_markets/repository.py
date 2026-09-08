@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import psycopg2
 from psycopg2.extras import Json
+
+from app.database import connection as pooled_connection
 
 from .models import (
     BET365_PROVIDER,
@@ -21,7 +22,7 @@ class PostgresBettingMarketRepository:
     def upsert_observations(self, observations: list[BettingMarketObservation]) -> int:
         if not observations:
             return 0
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 for observation in observations:
                     selection_id = _upsert_selection(cursor, observation.selection)
@@ -64,7 +65,7 @@ class PostgresBettingMarketRepository:
         limit: int,
     ) -> tuple[Bet365DiscoveredFixture, ...]:
         window_start = as_of - timedelta(minutes=event_window_minutes)
-        with psycopg2.connect(self._database_url) as connection:
+        with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

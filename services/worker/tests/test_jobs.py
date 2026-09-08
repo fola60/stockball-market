@@ -21,7 +21,13 @@ from app.synthetic_traders import (
     SyntheticTraderTickOutcome,
     TickOutcomeStatus,
 )
-from app.topups import TopupBatchResult, TopupCadence, TopupDispatchOutcome, TopupOutcomeStatus, TopupWindow
+from app.topups import (
+    TopupBatchResult,
+    TopupCadence,
+    TopupDispatchOutcome,
+    TopupOutcomeStatus,
+    TopupWindow,
+)
 
 
 class FakeTopupService:

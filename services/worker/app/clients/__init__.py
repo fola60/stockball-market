@@ -12,7 +12,6 @@ from .trading_engine import (
     ApplyTopupCommand,
     CashLedgerEntryRecord,
     ExecuteOrderCommand,
-    FreezeInstrumentCommand,
     HttpTradingEngineClient,
     LedgerReason,
     OrderExecutionRecord,
@@ -22,7 +21,6 @@ from .trading_engine import (
     TradingEngineClientError,
     TradingEngineEndpoints,
     TradingEngineUnavailableError,
-    UnfreezeInstrumentCommand,
 )
 
 __all__ = [
@@ -35,7 +33,6 @@ __all__ = [
     "CashLedgerEntryRecord",
     "CreateSyntheticTraderAccountCommand",
     "ExecuteOrderCommand",
-    "FreezeInstrumentCommand",
     "HttpApiClient",
     "HttpTradingEngineClient",
     "LedgerReason",
@@ -47,5 +44,4 @@ __all__ = [
     "TradingEngineClientError",
     "TradingEngineEndpoints",
     "TradingEngineUnavailableError",
-    "UnfreezeInstrumentCommand",
 ]

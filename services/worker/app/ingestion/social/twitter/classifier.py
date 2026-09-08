@@ -6,7 +6,6 @@ from typing import Protocol
 from .models import (
     InjuryClassification,
     InjuryEvidenceKind,
-    SourceAccountKind,
     TwitterSourceAccount,
 )
 

@@ -9,6 +9,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.common.decimal import format_decimal
+from app.database import connection as pooled_connection
 from app.instruments.models import (
     InstrumentRecord,
     InstrumentStatus,
@@ -32,11 +33,8 @@ class PostgresInstrumentsRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
-        connection = psycopg2.connect(self._database_url)
-        try:
+        with pooled_connection(self._database_url) as connection:
             yield connection
-        finally:
-            connection.close()
 
     def list_instruments(self) -> list[InstrumentRecord]:
         with self._connection() as connection:

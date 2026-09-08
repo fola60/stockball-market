@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 from typing import Any, Protocol
 
 import httpx
@@ -23,16 +24,26 @@ class TradingEngineUnavailableError(Exception):
 
 
 class HttpTradingEngineClient:
-    def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = 5.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._client = httpx.Client(timeout=timeout_seconds, transport=transport)
+        atexit.register(self.close)
+
+    def close(self) -> None:
+        if not self._client.is_closed:
+            self._client.close()
 
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
         try:
-            response = httpx.post(
+            response = self._client.post(
                 f"{self._base_url}/internal/v1/orders/execute",
                 json=command.to_payload(),
-                timeout=self._timeout_seconds,
             )
         except httpx.HTTPError as exc:
             raise TradingEngineUnavailableError("trading engine request failed") from exc

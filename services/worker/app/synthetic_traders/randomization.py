@@ -5,7 +5,6 @@ from typing import Any, Mapping
 
 from .models import StrategyEngine
 
-
 PROFILE_VARIATION_BY_CONFIG_KEY: dict[str, float] = {
     "NOISE_RETAIL_BUYER": 0.35,
     "NOISE_RETAIL_SELLER": 0.35,
