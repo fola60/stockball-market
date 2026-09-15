@@ -23,3 +23,16 @@ class PortfolioRecord:
     created_at: datetime
     updated_at: datetime
     positions: list[PositionRecord]
+
+
+@dataclass(frozen=True)
+class PortfolioActivityRecord:
+    id: UUID
+    instrument_id: UUID
+    symbol: str
+    player_name: str
+    side: str
+    shares: str
+    execution_price: str
+    gross_amount: str
+    executed_at: datetime

@@ -101,6 +101,26 @@ class RedisProcessRegistryTests(unittest.TestCase):
             self.redis.hashes["stockball:dev:schedule-overrides"]["bet365-odds"], "1"
         )
 
+    def test_social_ingestion_is_a_controllable_recurring_process(self) -> None:
+        social = next(
+            item
+            for item in self.registry.snapshot()["processes"]
+            if item["name"] == "social-feed-ingestion"
+        )
+
+        self.assertTrue(social["enabled"])
+        self.assertEqual(social["job_type"], "INGEST_SOCIAL_FEEDS")
+
+        paused = self.registry.set_enabled("social-feed-ingestion", False)
+
+        self.assertFalse(paused["enabled"])
+        self.assertEqual(
+            self.redis.hashes["stockball:dev:schedule-overrides"][
+                "social-feed-ingestion"
+            ],
+            "0",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

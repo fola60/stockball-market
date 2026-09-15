@@ -87,6 +87,11 @@ def get_summary(request: Request) -> dict[str, Any]:
     return _service(request).repository.summary()
 
 
+@router.get("/social-ingestion")
+def get_social_ingestion_summary(request: Request) -> dict[str, Any]:
+    return _service(request).repository.social_ingestion_summary()
+
+
 @router.get("/processes")
 def list_processes(request: Request) -> dict[str, Any]:
     registry = _service(request).process_registry

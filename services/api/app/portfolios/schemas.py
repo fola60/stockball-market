@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from app.portfolios.models import PortfolioRecord, PositionRecord
+from app.portfolios.models import PortfolioActivityRecord, PortfolioRecord, PositionRecord
 
 
 class PositionResponse(BaseModel):
@@ -43,3 +43,21 @@ class PortfolioResponse(BaseModel):
             updated_at=portfolio.updated_at,
             positions=[PositionResponse.from_record(position) for position in portfolio.positions],
         )
+
+
+class PortfolioActivityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    instrument_id: UUID
+    symbol: str
+    player_name: str
+    side: str
+    shares: str
+    execution_price: str
+    gross_amount: str
+    executed_at: datetime
+
+    @classmethod
+    def from_record(cls, activity: PortfolioActivityRecord) -> "PortfolioActivityResponse":
+        return cls.model_validate(activity)

@@ -38,6 +38,8 @@ MAX_STATS_ROWS_PER_PLAYER = 20
 
 
 class SyntheticTraderRepository(Protocol):
+    def list_reserved_handles(self) -> set[str]: ...
+
     def list_due_bots(
         self,
         as_of: datetime,
@@ -85,8 +87,16 @@ class SyntheticTraderRepository(Protocol):
 
 
 class PostgresSyntheticTraderRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        social_signals_enabled: bool = False,
+        social_signal_max_age_seconds: int = 3600,
+    ) -> None:
         self._database_url = database_url
+        self._social_signals_enabled = social_signals_enabled
+        self._social_signal_max_age_seconds = max(social_signal_max_age_seconds, 1)
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
@@ -107,6 +117,20 @@ class PostgresSyntheticTraderRepository:
                     {"status": status.value, "bot_ids": [str(bot_id) for bot_id in bot_ids]},
                 )
                 return cursor.rowcount
+
+    def list_reserved_handles(self) -> set[str]:
+        """Return all account handles so generated personas cannot collide with users."""
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT handle
+                    FROM accounts
+                    WHERE handle IS NOT NULL
+                    """
+                )
+                rows = cursor.fetchall()
+        return {str(row[0]).casefold() for row in rows}
 
     def list_due_bots(
         self,
@@ -435,7 +459,7 @@ class PostgresSyntheticTraderRepository:
                         as_of,
                     )
                 )
-                social_by_player = self._load_social(player_ids)
+                social_by_player = self._load_social(cursor, player_ids, as_of)
 
         candidates: list[CandidateInstrumentContext] = []
         for row in instrument_rows:
@@ -664,12 +688,50 @@ class PostgresSyntheticTraderRepository:
             for player_id, items in grouped.items()
         }
 
-    def _load_social(self, player_ids: list[str]) -> dict[str, SocialSignalContext]:
-        if not player_ids:
+    def _load_social(
+        self, cursor, player_ids: list[str], as_of: datetime
+    ) -> dict[str, SocialSignalContext]:
+        if not player_ids or not self._social_signals_enabled:
             return {}
-        # Social signal storage is not implemented yet in this repo. Return empty
-        # signal contexts so social strategies degrade to no-signal holds.
-        return {player_id: SocialSignalContext() for player_id in player_ids}
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (player_id)
+                player_id::text AS player_id,
+                trusted_mention_count,
+                credibility_weighted_sentiment,
+                injury_confirmation_count,
+                mention_velocity,
+                corroborating_source_count,
+                signal_confidence,
+                calculated_at
+            FROM player_social_signal_snapshots
+            WHERE player_id = ANY(%(player_ids)s::uuid[])
+              AND calculated_at <= %(as_of)s
+              AND calculated_at >= %(fresh_after)s
+            ORDER BY player_id, calculated_at DESC, lookback_seconds ASC
+            """,
+            {
+                "player_ids": player_ids,
+                "as_of": as_of,
+                "fresh_after": as_of - timedelta(seconds=self._social_signal_max_age_seconds),
+            },
+        )
+        return {
+            str(row["player_id"]): SocialSignalContext(
+                mention_count=int(row["trusted_mention_count"]),
+                mention_velocity=float(row["mention_velocity"]),
+                sentiment_score=(
+                    0.0
+                    if row["credibility_weighted_sentiment"] is None
+                    else float(row["credibility_weighted_sentiment"])
+                ),
+                news_count=int(row["injury_confirmation_count"]),
+                trusted_news_count=int(row["corroborating_source_count"]),
+                source_credibility=float(row["signal_confidence"]),
+                latest_observed_at=row["calculated_at"],
+            )
+            for row in cursor.fetchall()
+        }
 
     def _load_betting_markets(
         self,

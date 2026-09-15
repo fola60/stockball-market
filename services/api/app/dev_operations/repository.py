@@ -122,6 +122,105 @@ class PostgresDevOperationsRepository:
             bot_statuses = {row["status"]: int(row["count"]) for row in cursor.fetchall()}
         return {**{key: int(value) for key, value in run_stats.items()}, "bot_statuses": bot_statuses}
 
+    def social_ingestion_summary(self) -> dict[str, Any]:
+        with self._connection() as connection, connection.cursor(
+            cursor_factory=RealDictCursor
+        ) as cursor:
+            cursor.execute(
+                """
+                SELECT source.provider, COUNT(DISTINCT source.id) AS source_count,
+                       COUNT(DISTINCT subscription.id) FILTER (
+                           WHERE subscription.enabled
+                       ) AS subscription_count,
+                       COUNT(DISTINCT subscription.id) FILTER (
+                           WHERE subscription.enabled
+                             AND COALESCE(
+                                 ingestion_cursor.next_eligible_poll_at,
+                                 subscription.next_eligible_poll_at,
+                                 '-infinity'::timestamptz
+                             ) <= now()
+                       ) AS due_count
+                FROM social_sources source
+                LEFT JOIN social_subscriptions subscription
+                  ON subscription.source_id = source.id
+                LEFT JOIN social_ingestion_cursors ingestion_cursor
+                  ON ingestion_cursor.subscription_id = subscription.id
+                WHERE source.enabled AND source.policy_status = 'APPROVED'
+                GROUP BY source.provider
+                ORDER BY source.provider
+                """
+            )
+            provider_rows = cursor.fetchall()
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS documents,
+                       COUNT(observation.id) AS classified,
+                       COUNT(observation.id) FILTER (
+                           WHERE observation.entity_type = 'UNKNOWN'
+                       ) AS unresolved,
+                       MAX(document.ingested_at) AS latest_document_at
+                FROM social_documents document
+                LEFT JOIN social_observations observation
+                  ON observation.document_id = document.id
+                WHERE document.deleted_at IS NULL
+                """
+            )
+            document_row = _required_row(cursor.fetchone(), "social document summary")
+            cursor.execute(
+                """
+                SELECT observation.sentiment, COUNT(*) AS count
+                FROM social_observations observation
+                JOIN social_documents document ON document.id = observation.document_id
+                WHERE document.deleted_at IS NULL
+                GROUP BY observation.sentiment
+                ORDER BY observation.sentiment
+                """
+            )
+            sentiments = {
+                str(row["sentiment"]): int(row["count"]) for row in cursor.fetchall()
+            }
+            cursor.execute(
+                """
+                SELECT enrichment.status, COUNT(*) AS count
+                FROM social_document_enrichments enrichment
+                GROUP BY enrichment.status
+                ORDER BY enrichment.status
+                """
+            )
+            enrichments = {
+                str(row["status"]): int(row["count"]) for row in cursor.fetchall()
+            }
+            cursor.execute(
+                """
+                SELECT MAX(last_success_at) AS latest_success_at
+                FROM social_ingestion_cursors
+                """
+            )
+            cursor_row = _required_row(cursor.fetchone(), "social cursor summary")
+        providers = {
+            str(row["provider"]): {
+                "sources": int(row["source_count"]),
+                "subscriptions": int(row["subscription_count"]),
+                "due": int(row["due_count"]),
+            }
+            for row in provider_rows
+        }
+        return {
+            "providers": providers,
+            "enabled_sources": sum(value["sources"] for value in providers.values()),
+            "enabled_subscriptions": sum(
+                value["subscriptions"] for value in providers.values()
+            ),
+            "due_subscriptions": sum(value["due"] for value in providers.values()),
+            "documents": int(document_row["documents"]),
+            "classified": int(document_row["classified"]),
+            "unresolved": int(document_row["unresolved"]),
+            "latest_document_at": _isoformat(document_row["latest_document_at"]),
+            "latest_success_at": _isoformat(cursor_row["latest_success_at"]),
+            "sentiments": sentiments,
+            "enrichments": enrichments,
+        }
+
     def executable_run_ids(self, run_ids: list[str]) -> set[str]:
         if not run_ids:
             return set()
@@ -382,6 +481,15 @@ def _serialize(row: Mapping[str, Any]) -> dict[str, Any]:
         else:
             result[key] = value
     return result
+
+
+def _isoformat(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise TypeError("expected a datetime value")
+    normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return normalized.astimezone(UTC).isoformat()
 
 
 def _required_row(row: Mapping[str, Any] | None, query: str) -> Mapping[str, Any]:

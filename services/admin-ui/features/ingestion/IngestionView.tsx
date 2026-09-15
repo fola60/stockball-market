@@ -1,8 +1,11 @@
-import { useState } from "react";
-import { Play } from "lucide-react";
+import { useCallback, useState } from "react";
+import { Play, RefreshCw } from "lucide-react";
 
 import { Field } from "../../components/ui";
 import { INGEST_COMMANDS } from "../../lib/constants";
+import { getJson } from "../../lib/api";
+import { formatNumber, label, time } from "../../lib/format";
+import type { SocialIngestionSummary } from "../../lib/types";
 
 export function IngestionView({
   enqueue,
@@ -18,7 +21,33 @@ export function IngestionView({
     [players, setPlayers] = useState("");
   const [mode, setMode] = useState("PRE_MATCH"),
     [queryKey, setQueryKey] = useState("");
+  const [socialProvider, setSocialProvider] = useState("ALL"),
+    [socialLimit, setSocialLimit] = useState("100");
+  const [socialStatus, setSocialStatus] = useState<SocialIngestionSummary | null>(
+    null,
+  );
+  const [statusError, setStatusError] = useState("");
+  const [statusLoading, setStatusLoading] = useState(false);
   const command = INGEST_COMMANDS.find((item) => item[0] === selected)!;
+
+  const loadSocialStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      setSocialStatus(
+        await getJson<SocialIngestionSummary>(
+          "/internal/v1/dev/social-ingestion",
+        ),
+      );
+      setStatusError("");
+    } catch (caught) {
+      setStatusError(
+        caught instanceof Error ? caught.message : "Social status unavailable",
+      );
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
   function submit() {
     const base = { league: Number(league), season: Number(season) };
     let p: Record<string, unknown> = base;
@@ -27,6 +56,8 @@ export function IngestionView({
     if (selected === "INGEST_BETTING_MARKETS")
       p = { league: "Premier League", mode };
     if (selected === "INGEST_TWITTER_INJURIES") p = { query_key: queryKey };
+    if (selected === "INGEST_SOCIAL_FEEDS")
+      p = { provider: socialProvider, limit: Number(socialLimit) };
     if (selected === "SEED_PLAYER_SHARES") p = {};
     enqueue(selected, p);
   }
@@ -38,7 +69,12 @@ export function IngestionView({
           <button
             key={item[0]}
             className={selected === item[0] ? "command selected" : "command"}
-            onClick={() => setSelected(item[0])}
+            onClick={() => {
+              setSelected(item[0]);
+              if (item[0] === "INGEST_SOCIAL_FEEDS" && socialStatus === null) {
+                void loadSocialStatus();
+              }
+            }}
           >
             <strong>{item[1]}</strong>
             <small>{item[2]}</small>
@@ -53,6 +89,7 @@ export function IngestionView({
           "SEED_PLAYER_SHARES",
           "INGEST_BETTING_MARKETS",
           "INGEST_TWITTER_INJURIES",
+          "INGEST_SOCIAL_FEEDS",
         ].includes(selected) && (
           <div className="formGrid">
             <Field label="League">
@@ -103,13 +140,114 @@ export function IngestionView({
             />
           </Field>
         )}
+        {selected === "INGEST_SOCIAL_FEEDS" && (
+          <>
+            <div className="formGrid">
+              <Field label="Provider">
+                <select
+                  value={socialProvider}
+                  onChange={(event) => setSocialProvider(event.target.value)}
+                >
+                  <option value="ALL">All providers</option>
+                  <option value="RSS">RSS</option>
+                  <option value="BLUESKY">Bluesky</option>
+                  <option value="MASTODON">Mastodon</option>
+                </select>
+              </Field>
+              <Field label="Maximum due sources">
+                <input
+                  min="1"
+                  max="500"
+                  type="number"
+                  value={socialLimit}
+                  onChange={(event) => setSocialLimit(event.target.value)}
+                />
+              </Field>
+            </div>
+            <SocialHealth
+              status={socialStatus}
+              loading={statusLoading}
+              error={statusError}
+              refresh={loadSocialStatus}
+            />
+          </>
+        )}
         <button className="primary" disabled={busy} onClick={submit}>
           <Play size={15} />
-          {busy ? "Queueing..." : "Queue operation"}
+          {busy
+            ? "Queueing..."
+            : selected === "INGEST_SOCIAL_FEEDS"
+              ? "Run due social feeds"
+              : "Queue operation"}
         </button>
       </section>
     </div>
   );
 }
 
-
+function SocialHealth({
+  status,
+  loading,
+  error,
+  refresh,
+}: {
+  status: SocialIngestionSummary | null;
+  loading: boolean;
+  error: string;
+  refresh: () => Promise<void>;
+}) {
+  return (
+    <section className="socialHealth" aria-live="polite">
+      <div className="socialHealthHeader">
+        <div>
+          <h3>Pipeline health</h3>
+          <p>
+            Only due subscriptions are polled. New documents are enriched and
+            classified in the same run.
+          </p>
+        </div>
+        <button
+          className="iconButton"
+          aria-label="Refresh social ingestion status"
+          disabled={loading}
+          onClick={() => void refresh()}
+        >
+          <RefreshCw className={loading ? "spinning" : ""} size={14} />
+        </button>
+      </div>
+      {error && <p className="socialStatusError">{error}</p>}
+      {!status && !error && (
+        <p className="socialStatusLoading">Loading pipeline status…</p>
+      )}
+      {status && (
+        <>
+          <dl className="socialMetrics">
+            <div><dt>Subscriptions</dt><dd>{formatNumber(status.enabled_subscriptions)}</dd></div>
+            <div><dt>Due now</dt><dd>{formatNumber(status.due_subscriptions)}</dd></div>
+            <div><dt>Documents</dt><dd>{formatNumber(status.documents)}</dd></div>
+            <div><dt>Unresolved</dt><dd>{formatNumber(status.unresolved)}</dd></div>
+          </dl>
+          <div className="socialProviderTable">
+            <table>
+              <thead><tr><th>Provider</th><th className="num">Subscriptions</th><th className="num">Due</th></tr></thead>
+              <tbody>
+                {Object.entries(status.providers).map(([provider, values]) => (
+                  <tr key={provider}>
+                    <td><strong>{label(provider)}</strong></td>
+                    <td className="num">{formatNumber(values.subscriptions)}</td>
+                    <td className="num">{formatNumber(values.due)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="socialHealthFoot">
+            <span>Latest poll <strong>{time(status.latest_success_at)}</strong></span>
+            <span>Enrichment pending <strong>{formatNumber(status.enrichments.PENDING ?? 0)}</strong></span>
+            <span>Positive / negative <strong>{formatNumber(status.sentiments.POSITIVE ?? 0)} / {formatNumber(status.sentiments.NEGATIVE ?? 0)}</strong></span>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}

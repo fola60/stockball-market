@@ -11,8 +11,10 @@ from app.instruments.models import (
     InstrumentRecord,
     InstrumentStatus,
     InstrumentType,
+    PlayerStatsRecord,
     PriceSnapshotReason,
     PriceSnapshotRecord,
+    RadarAxisRecord,
 )
 from app.instruments.service import InstrumentsService
 from app.main import create_app
@@ -23,9 +25,15 @@ from app.portfolios.service import PortfoliosService
 
 
 class FakeInstrumentsRepository:
-    def __init__(self, instruments: list[InstrumentRecord], price_history: dict[UUID, list[PriceSnapshotRecord]]) -> None:
+    def __init__(
+        self,
+        instruments: list[InstrumentRecord],
+        price_history: dict[UUID, list[PriceSnapshotRecord]],
+        player_stats: dict[UUID, PlayerStatsRecord] | None = None,
+    ) -> None:
         self._instruments = {instrument.id: instrument for instrument in instruments}
         self._price_history = price_history
+        self._player_stats = player_stats or {}
 
     def list_instruments(self) -> list[InstrumentRecord]:
         return list(self._instruments.values())
@@ -36,6 +44,9 @@ class FakeInstrumentsRepository:
     def list_price_history(self, instrument_id: UUID) -> list[PriceSnapshotRecord]:
         return list(self._price_history.get(instrument_id, []))
 
+    def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
+        return self._player_stats.get(instrument_id)
+
 
 class FakePortfoliosRepository:
     def __init__(self, portfolios: list[PortfolioRecord]) -> None:
@@ -43,6 +54,9 @@ class FakePortfoliosRepository:
 
     def get_portfolio(self, portfolio_id: UUID) -> PortfolioRecord | None:
         return self._portfolios.get(portfolio_id)
+
+    def list_activity(self, portfolio_id: UUID, limit: int) -> list:
+        return []
 
 
 class FakeTradingEngineClient:
@@ -144,6 +158,23 @@ class MarketApiTests(unittest.TestCase):
         self.instruments_repository = FakeInstrumentsRepository(
             instruments=[instrument],
             price_history={self.instrument_id: price_history},
+            player_stats={
+                self.instrument_id: PlayerStatsRecord(
+                    season=2025,
+                    games=32,
+                    starts=28,
+                    minutes=2520,
+                    goals=18,
+                    assists=7,
+                    shots=84,
+                    shots_on_target=40,
+                    yellow_cards=2,
+                    red_cards=0,
+                    comparison_group="FW",
+                    comparison_size=96,
+                    radar_axes=[RadarAxisRecord(label="Goal threat", score=91, value="0.71 /90")],
+                )
+            },
         )
         self.portfolios_repository = FakePortfoliosRepository([portfolio])
         self.trading_engine_client = FakeTradingEngineClient(response=execution)
@@ -181,6 +212,15 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(body[0]["reason"], "TRADE_BUY")
         self.assertEqual(body[1]["reason"], "SEED")
 
+    def test_get_player_stats_returns_percentile_profile(self) -> None:
+        response = self.client.get(f"/v1/instruments/{self.instrument_id}/player-stats")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["season"], 2025)
+        self.assertEqual(body["comparison_group"], "FW")
+        self.assertEqual(body["radar_axes"][0], {"label": "Goal threat", "score": 91, "value": "0.71 /90"})
+
     def test_get_portfolio_returns_cash_and_positions(self) -> None:
         response = self.client.get(f"/v1/portfolios/{self.portfolio_id}")
 
@@ -195,6 +235,12 @@ class MarketApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["code"], "portfolio_not_found")
+
+    def test_get_portfolio_activity_returns_recent_trades(self) -> None:
+        response = self.client.get(f"/v1/portfolios/{self.portfolio_id}/activity")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
 
     def test_create_order_generates_request_id_when_missing(self) -> None:
         response = self.client.post(

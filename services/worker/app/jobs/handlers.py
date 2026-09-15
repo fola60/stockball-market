@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -9,17 +10,36 @@ from typing import Callable, Mapping, Protocol
 from app.ingestion.betting_markets import BettingMarketIngestionService
 from app.ingestion.fixtures import FixtureIngestionService
 from app.ingestion.players import PlayerSeedService
+from app.ingestion.social import (
+    ArticleFetcher,
+    InvalidSubscription,
+    PermanentProviderError,
+    PolicyDisabled,
+    RateLimited,
+    SocialArticleEnrichmentService,
+    SocialDocumentProcessor,
+    SocialIngestionService,
+    SocialProcessingService,
+    SocialProvider,
+    SocialSignalAggregationService,
+    TransientProviderError,
+)
+from app.ingestion.social.repository import PostgresSocialRepository
 from app.ingestion.social.twitter import TwitterInjuryIngestionService, TwitterTransientError
 from app.ingestion.stats import PlayerStatsIngestionService
 from app.jobs.models import (
+    AggregateSocialSignalsJobPayload,
     Bet365IngestionMode,
     IngestBet365OddsJobPayload,
     IngestFixturesJobPayload,
     IngestPlayersJobPayload,
     IngestPlayerStatsJobPayload,
+    IngestSocialFeedsJobPayload,
+    IngestSocialSourceJobPayload,
     IngestTwitterInjuriesJobPayload,
     JobExecutionResult,
     JobType,
+    ProcessSocialDocumentsJobPayload,
     SyntheticTraderTickJobPayload,
     TopupJobPayload,
     WorkerJob,
@@ -395,6 +415,201 @@ class IngestTwitterInjuriesJobHandler:
                 "episode_updates": result.episode_updates,
                 "pages_fetched": result.pages_fetched,
             },
+        )
+
+
+@dataclass(frozen=True)
+class IngestSocialSourceJobHandler:
+    social_ingestion_service: SocialIngestionService
+    clock: Callable[[], datetime] = _utc_now
+    repository: PostgresSocialRepository | None = None
+    article_fetcher: ArticleFetcher | None = None
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_SOCIAL_SOURCE:
+            raise UnknownJobError(f"social ingestion handler cannot process {job.job_type.value}")
+        payload = IngestSocialSourceJobPayload.from_payload(job.payload)
+        try:
+            result = asyncio.run(self.social_ingestion_service.ingest(payload.subscription_id))
+        except (RateLimited, TransientProviderError) as error:
+            job_result = JobExecutionResult(
+                job_type=job.job_type,
+                handled_at=self.clock(),
+                successful_items=0,
+                skipped_items=0,
+                failed_items=1,
+                retryable_failures=1,
+            )
+            raise RetryableJobError(str(error), job_result) from error
+        except (InvalidSubscription, PolicyDisabled, PermanentProviderError):
+            return JobExecutionResult(
+                job_type=job.job_type,
+                handled_at=self.clock(),
+                successful_items=0,
+                skipped_items=0,
+                failed_items=1,
+            )
+        metrics: dict[str, object] = {
+            "provider": result.provider.value,
+            "fetched_documents": result.fetched_documents,
+            "duplicate_documents": result.duplicate_documents,
+            "immediate_articles_enriched": 0,
+            "immediate_article_enrichments_skipped": 0,
+            "immediate_article_enrichments_failed": 0,
+            "immediate_documents_processed": 0,
+            "immediate_processing_failures": 0,
+        }
+        if self.repository is not None and result.inserted_documents:
+            enrichment = SocialArticleEnrichmentService(
+                self.repository, self.article_fetcher
+            ).enrich_pending(
+                limit=result.inserted_documents,
+                subscription_id=payload.subscription_id,
+            )
+            processing = SocialProcessingService(
+                self.repository,
+                SocialDocumentProcessor(
+                    self.repository.list_player_candidates(), self.repository
+                ),
+            ).process_pending(
+                limit=result.inserted_documents,
+                subscription_id=payload.subscription_id,
+            )
+            metrics.update(
+                {
+                    "immediate_articles_enriched": enrichment.enriched,
+                    "immediate_article_enrichments_skipped": enrichment.skipped,
+                    "immediate_article_enrichments_failed": enrichment.failed,
+                    "immediate_documents_processed": processing.processed,
+                    "immediate_processing_failures": processing.failed,
+                }
+            )
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.inserted_documents,
+            skipped_items=result.duplicate_documents,
+            failed_items=0,
+            metrics=metrics,
+        )
+
+
+@dataclass(frozen=True)
+class IngestSocialFeedsJobHandler:
+    repository: PostgresSocialRepository
+    source_handler: IngestSocialSourceJobHandler
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.INGEST_SOCIAL_FEEDS:
+            raise UnknownJobError(
+                f"social feed batch handler cannot process {job.job_type.value}"
+            )
+        payload = IngestSocialFeedsJobPayload.from_payload(job.payload)
+        provider = None if payload.provider == "ALL" else SocialProvider(payload.provider).value
+        subscription_ids = self.repository.list_due_subscriptions(
+            self.clock(), limit=payload.limit, provider=provider
+        )
+        totals: Counter[str] = Counter()
+        failed_sources = 0
+        for subscription_id in subscription_ids:
+            result = self.source_handler.handle(
+                WorkerJob.ingest_social_source(
+                    IngestSocialSourceJobPayload(subscription_id=subscription_id)
+                )
+            )
+            totals["fetched_documents"] += int(result.metrics.get("fetched_documents", 0))
+            totals["inserted_documents"] += result.successful_items
+            totals["duplicate_documents"] += result.skipped_items
+            totals["articles_enriched"] += int(
+                result.metrics.get("immediate_articles_enriched", 0)
+            )
+            totals["article_enrichments_skipped"] += int(
+                result.metrics.get("immediate_article_enrichments_skipped", 0)
+            )
+            totals["article_enrichments_failed"] += int(
+                result.metrics.get("immediate_article_enrichments_failed", 0)
+            )
+            totals["documents_processed"] += int(
+                result.metrics.get("immediate_documents_processed", 0)
+            )
+            totals["processing_failures"] += int(
+                result.metrics.get("immediate_processing_failures", 0)
+            )
+            if result.failed_items:
+                failed_sources += 1
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=totals["inserted_documents"],
+            skipped_items=totals["duplicate_documents"],
+            failed_items=failed_sources + totals["processing_failures"],
+            retryable_failures=totals["article_enrichments_failed"],
+            metrics={
+                "provider": payload.provider,
+                "subscription_limit": payload.limit,
+                "subscriptions_polled": len(subscription_ids),
+                "source_failures": failed_sources,
+                **dict(totals),
+            },
+        )
+
+
+@dataclass(frozen=True)
+class ProcessSocialDocumentsJobHandler:
+    repository: PostgresSocialRepository
+    clock: Callable[[], datetime] = _utc_now
+    article_fetcher: ArticleFetcher | None = None
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.PROCESS_SOCIAL_DOCUMENTS:
+            raise UnknownJobError(f"social processing handler cannot process {job.job_type.value}")
+        payload = ProcessSocialDocumentsJobPayload.from_payload(job.payload)
+        enrichment = SocialArticleEnrichmentService(
+            self.repository, self.article_fetcher
+        ).enrich_pending(limit=min(payload.limit, 20))
+        service = SocialProcessingService(
+            self.repository,
+            SocialDocumentProcessor(self.repository.list_player_candidates(), self.repository),
+        )
+        result = service.process_pending(limit=payload.limit)
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.processed,
+            skipped_items=0,
+            failed_items=result.failed,
+            retryable_failures=result.failed,
+            metrics={
+                "claimed_documents": result.claimed,
+                "episode_updates": result.evidence_updates,
+                "article_enrichments_claimed": enrichment.claimed,
+                "articles_enriched": enrichment.enriched,
+                "article_enrichments_skipped": enrichment.skipped,
+                "article_enrichments_failed": enrichment.failed,
+            },
+        )
+
+
+@dataclass(frozen=True)
+class AggregateSocialSignalsJobHandler:
+    repository: PostgresSocialRepository
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.AGGREGATE_SOCIAL_SIGNALS:
+            raise UnknownJobError(f"social signal handler cannot process {job.job_type.value}")
+        payload = AggregateSocialSignalsJobPayload.from_payload(job.payload)
+        result = SocialSignalAggregationService(
+            self.repository, clock=self.clock
+        ).aggregate(timedelta(seconds=payload.lookback_seconds))
+        return JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=result.calculated_at,
+            successful_items=result.snapshots_written,
+            skipped_items=0,
+            failed_items=0,
+            metrics={"lookback_seconds": payload.lookback_seconds},
         )
 
 

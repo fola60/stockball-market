@@ -33,6 +33,11 @@ export const INGEST_COMMANDS = [
     "Injury reports",
     "Ingest configured injury-report query",
   ],
+  [
+    "INGEST_SOCIAL_FEEDS",
+    "Social feeds",
+    "Poll due sources, enrich articles, and classify sentiment",
+  ],
 ] as const;
 export const RUN_OPERATION_TYPES = [
   "INGEST_PLAYERS",
@@ -42,6 +47,7 @@ export const RUN_OPERATION_TYPES = [
   "SEED_PLAYER_SHARES",
   "INGEST_BETTING_MARKETS",
   "INGEST_TWITTER_INJURIES",
+  "INGEST_SOCIAL_FEEDS",
   "APPLY_TOPUPS",
   "TICK_SYNTHETIC_TRADERS",
   "SPAWN_SYNTHETIC_TRADERS",
@@ -51,4 +57,3 @@ export const RUN_OPERATION_TYPES = [
 export const DEFAULT_RUN_OPERATIONS = RUN_OPERATION_TYPES.filter(
   (operationType) => operationType !== "TICK_SYNTHETIC_TRADERS",
 );
-

@@ -30,6 +30,13 @@ def configured_processes() -> tuple[ProcessDefinition, ...]:
     live_interval = int(os.getenv("STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES", "1"))
     return (
         ProcessDefinition(
+            "social-feed-ingestion",
+            "Social feed ingestion",
+            "INGEST_SOCIAL_FEEDS",
+            "Every scheduler cycle · polls only due subscriptions",
+            True,
+        ),
+        ProcessDefinition(
             "daily-player-stats",
             "Daily player stats",
             "INGEST_PLAYER_STATS",

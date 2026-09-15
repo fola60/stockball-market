@@ -45,3 +45,6 @@ services/worker/app/ingestion/*
 !services/worker/app/ingestion/social/twitter/*.py
 !services/worker/app/ingestion/social/twitter/*.md
 !services/worker/app/ingestion/social/twitter/*.json
+
+.agents
+.codex

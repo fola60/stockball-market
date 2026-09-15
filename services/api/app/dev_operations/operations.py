@@ -82,6 +82,17 @@ def _market_values(values: dict[str, Any]) -> None:
         raise ValueError("valuations_csv is required")
 
 
+def _social_feeds(values: dict[str, Any]) -> None:
+    provider = str(values.get("provider", "ALL")).upper()
+    if provider not in {"ALL", "RSS", "BLUESKY", "MASTODON"}:
+        raise ValueError("social provider must be ALL, RSS, BLUESKY, or MASTODON")
+    limit = int(values.get("limit", 100))
+    if not 1 <= limit <= 500:
+        raise ValueError("social feed limit must be between 1 and 500")
+    values["provider"] = provider
+    values["limit"] = limit
+
+
 def _bootstrap(values: dict[str, Any]) -> None:
     if not values.get("all_active_synthetic_bots") and not values.get("bot_ids"):
         raise ValueError("select all active bots or provide bot_ids")
@@ -118,6 +129,7 @@ OPERATION_DEFINITIONS = tuple(
         _definition("SEED_PLAYER_SHARES"),
         _definition("INGEST_BETTING_MARKETS", "INGEST_BET365_ODDS"),
         _definition("INGEST_TWITTER_INJURIES"),
+        _definition("INGEST_SOCIAL_FEEDS", normalizer=_social_feeds),
         _definition("APPLY_TOPUPS", normalizer=_topup),
         _definition("TICK_SYNTHETIC_TRADERS", "SYNTHETIC_TRADER_TICK", normalizer=_tick),
         _definition("SPAWN_SYNTHETIC_TRADERS", normalizer=_spawn),

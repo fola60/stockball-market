@@ -19,6 +19,10 @@ class JobType(StrEnum):
     IMPORT_MARKET_VALUES = "IMPORT_MARKET_VALUES"
     INGEST_BET365_ODDS = "INGEST_BET365_ODDS"
     INGEST_TWITTER_INJURIES = "INGEST_TWITTER_INJURIES"
+    INGEST_SOCIAL_SOURCE = "INGEST_SOCIAL_SOURCE"
+    INGEST_SOCIAL_FEEDS = "INGEST_SOCIAL_FEEDS"
+    PROCESS_SOCIAL_DOCUMENTS = "PROCESS_SOCIAL_DOCUMENTS"
+    AGGREGATE_SOCIAL_SIGNALS = "AGGREGATE_SOCIAL_SIGNALS"
     SEED_PLAYER_SHARES = "SEED_PLAYER_SHARES"
     SPAWN_SYNTHETIC_TRADERS = "SPAWN_SYNTHETIC_TRADERS"
     BOOTSTRAP_SYNTHETIC_PORTFOLIOS = "BOOTSTRAP_SYNTHETIC_PORTFOLIOS"
@@ -202,6 +206,70 @@ class IngestTwitterInjuriesJobPayload:
 
 
 @dataclass(frozen=True)
+class IngestSocialSourceJobPayload:
+    subscription_id: UUID
+
+    def to_payload(self) -> dict[str, str]:
+        return {"subscription_id": str(self.subscription_id)}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IngestSocialSourceJobPayload":
+        try:
+            return cls(subscription_id=UUID(str(payload["subscription_id"])))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("social ingestion job requires a valid subscription_id") from error
+
+
+@dataclass(frozen=True)
+class IngestSocialFeedsJobPayload:
+    provider: str = "ALL"
+    limit: int = 100
+
+    def to_payload(self) -> dict[str, str | int]:
+        return {"provider": self.provider, "limit": self.limit}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IngestSocialFeedsJobPayload":
+        provider = str(payload.get("provider", "ALL")).upper()
+        if provider not in {"ALL", "RSS", "BLUESKY", "MASTODON"}:
+            raise ValueError("social provider must be ALL, RSS, BLUESKY, or MASTODON")
+        limit = int(payload.get("limit", 100))
+        if not 1 <= limit <= 500:
+            raise ValueError("social feed limit must be between 1 and 500")
+        return cls(provider=provider, limit=limit)
+
+
+@dataclass(frozen=True)
+class ProcessSocialDocumentsJobPayload:
+    limit: int = 100
+
+    def to_payload(self) -> dict[str, int]:
+        return {"limit": self.limit}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ProcessSocialDocumentsJobPayload":
+        value = int(payload.get("limit", 100))
+        if value <= 0:
+            raise ValueError("social processing limit must be positive")
+        return cls(limit=value)
+
+
+@dataclass(frozen=True)
+class AggregateSocialSignalsJobPayload:
+    lookback_seconds: int = 3600
+
+    def to_payload(self) -> dict[str, int]:
+        return {"lookback_seconds": self.lookback_seconds}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "AggregateSocialSignalsJobPayload":
+        value = int(payload.get("lookback_seconds", 3600))
+        if value <= 0:
+            raise ValueError("social signal lookback_seconds must be positive")
+        return cls(lookback_seconds=value)
+
+
+@dataclass(frozen=True)
 class WorkerJob:
     job_type: JobType
     payload: Mapping[str, Any]
@@ -267,6 +335,22 @@ class WorkerJob:
     @classmethod
     def ingest_twitter_injuries(cls, payload: IngestTwitterInjuriesJobPayload) -> "WorkerJob":
         return cls(job_type=JobType.INGEST_TWITTER_INJURIES, payload=payload.to_payload())
+
+    @classmethod
+    def ingest_social_source(cls, payload: IngestSocialSourceJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.INGEST_SOCIAL_SOURCE, payload=payload.to_payload())
+
+    @classmethod
+    def ingest_social_feeds(cls, payload: IngestSocialFeedsJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.INGEST_SOCIAL_FEEDS, payload=payload.to_payload())
+
+    @classmethod
+    def process_social_documents(cls, payload: ProcessSocialDocumentsJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.PROCESS_SOCIAL_DOCUMENTS, payload=payload.to_payload())
+
+    @classmethod
+    def aggregate_social_signals(cls, payload: AggregateSocialSignalsJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.AGGREGATE_SOCIAL_SIGNALS, payload=payload.to_payload())
 
     def with_attempt(self, attempt: int) -> "WorkerJob":
         return WorkerJob(

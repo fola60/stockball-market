@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from app.common.schemas import ErrorResponse
-from app.portfolios.schemas import PortfolioResponse
+from app.portfolios.schemas import PortfolioActivityResponse, PortfolioResponse
 from app.portfolios.service import PortfolioNotFoundError, PortfoliosService
 
 router = APIRouter(prefix="/v1/portfolios", tags=["portfolios"])
@@ -40,3 +40,25 @@ def get_portfolio(
         )
 
     return PortfolioResponse.from_record(portfolio)
+
+
+@router.get(
+    "/{portfolio_id}/activity",
+    response_model=list[PortfolioActivityResponse],
+    responses={404: {"model": ErrorResponse}},
+)
+def list_portfolio_activity(
+    portfolio_id: UUID,
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[PortfolioActivityResponse] | JSONResponse:
+    service = get_portfolios_service(request)
+    try:
+        activity = service.list_activity(portfolio_id, limit)
+    except PortfolioNotFoundError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"code": "portfolio_not_found", "message": str(exc)},
+        )
+
+    return [PortfolioActivityResponse.from_record(item) for item in activity]

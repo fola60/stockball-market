@@ -19,6 +19,18 @@ Stores database migration files.
 - Store audited, one-off synthetic portfolio issuance and dedicated reserve ownership.
 - Store manual and recurring worker execution history in the shared `job_runs` table.
 - Preserve scheduled-run history while superseding stale pending snapshots and trader ticks.
+- Store provider-neutral social sources, subscriptions, opaque cursors, normalized documents,
+  injury observations, durable processing work, episode evidence, and rolling signal snapshots.
+- Seed technically reviewed football sources for RSS, Bluesky, and Mastodon with conservative
+  trust categories, retention, attribution metadata, and enabled polling subscriptions.
+- Expand the Bluesky registry with every current Premier League first-team club account whose
+  identity could be corroborated, while pinning immutable DIDs instead of mutable handles.
+- Seed team-specific BBC, Guardian, and independent/local RSS coverage for every supported club,
+  plus complementary breaking-news and transfer feeds, with explicit club-resolution hints.
+- Queue policy-gated article-body enrichment for trusted RSS publishers while preserving the
+  original feed summary, fetch provenance, bounded retry state, and retention controls.
+- Store general player/team observations with topic and positive, negative, neutral, or mixed
+  sentiment; retain injury observations as a specialized extension of that evidence.
 
 ## Boundaries
 

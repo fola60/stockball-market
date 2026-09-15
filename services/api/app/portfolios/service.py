@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.portfolios.models import PortfolioRecord
+from app.portfolios.models import PortfolioActivityRecord, PortfolioRecord
 from app.portfolios.repository import PortfoliosRepository
 
 
@@ -21,3 +21,7 @@ class PortfoliosService:
         if portfolio is None:
             raise PortfolioNotFoundError(portfolio_id)
         return portfolio
+
+    def list_activity(self, portfolio_id: UUID, limit: int) -> list[PortfolioActivityRecord]:
+        self.get_portfolio(portfolio_id)
+        return self._repository.list_activity(portfolio_id, limit)

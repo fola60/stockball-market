@@ -210,6 +210,9 @@ function RunDetails({
       {run.operation_type === "TICK_SYNTHETIC_TRADERS" && (
         <TickSummary run={run} />
       )}
+      {run.operation_type === "INGEST_SOCIAL_FEEDS" && (
+        <SocialFeedSummary run={run} />
+      )}
       <JsonSection title="Parameters" value={run.parameters} />
       <JsonSection title="Metrics" value={run.metrics} />
       <button
@@ -219,6 +222,27 @@ function RunDetails({
         <RefreshCw size={14} /> Queue again
       </button>
     </DetailPanel>
+  );
+}
+
+function SocialFeedSummary({ run }: { run: Run }) {
+  const metrics = run.metrics ?? {};
+  return (
+    <section className="detailSection">
+      <h3>Social ingestion</h3>
+      <div className="summaryGrid">
+        <SummaryItem label="Provider" value={String(metrics.provider ?? "ALL")} />
+        <SummaryItem label="Sources polled" value={metricNumber(metrics.subscriptions_polled)} />
+        <SummaryItem label="Entries fetched" value={metricNumber(metrics.fetched_documents)} />
+        <SummaryItem label="New documents" value={metricNumber(metrics.inserted_documents)} />
+        <SummaryItem label="Duplicates" value={metricNumber(metrics.duplicate_documents)} />
+        <SummaryItem label="Articles enriched" value={metricNumber(metrics.articles_enriched)} />
+        <SummaryItem label="Enrichment fallbacks" value={metricNumber(metrics.article_enrichments_skipped)} />
+        <SummaryItem label="Documents classified" value={metricNumber(metrics.documents_processed)} />
+        <SummaryItem label="Source failures" value={metricNumber(metrics.source_failures)} />
+        <SummaryItem label="Processing failures" value={metricNumber(metrics.processing_failures)} />
+      </div>
+    </section>
   );
 }
 

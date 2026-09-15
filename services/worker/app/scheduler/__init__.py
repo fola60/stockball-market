@@ -5,6 +5,7 @@ from .models import (
     RecurringTopupPlan,
     ScheduledJobDecision,
     SchedulePlan,
+    SocialSubscriptionIngestionPlan,
     SyntheticTraderTickPlan,
     TwitterInjuryIngestionPlan,
     default_scheduler_plans,
@@ -17,16 +18,19 @@ from .service import (
     ScheduleClaimStore,
     SchedulerService,
 )
+from .social import DueSocialSubscriptionDispatcher
 
 __all__ = [
     "Bet365LiveOddsIngestionPlan",
     "DailyPlayerStatsIngestionPlan",
+    "DueSocialSubscriptionDispatcher",
     "InMemoryJobQueue",
     "Bet365OddsIngestionPlan",
     "InMemoryScheduleClaimStore",
     "JobQueue",
     "RecurringTopupPlan",
     "SchedulePlan",
+    "SocialSubscriptionIngestionPlan",
     "ScheduleClaimStore",
     "ScheduledJobDecision",
     "SchedulerProcess",

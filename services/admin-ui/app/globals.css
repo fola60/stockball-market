@@ -64,6 +64,24 @@ td small { margin-top:3px; color:var(--muted); font:11px monospace; }
 .command small { margin-top:3px; color:var(--muted); font-size:11px; }
 .formPanel { min-height:360px; }
 .formPanel>p { margin-bottom:22px; }
+.socialHealth { margin:4px 0 18px; border:1px solid var(--line); border-radius:5px; background:var(--soft); overflow:hidden; }
+.socialHealthHeader { padding:12px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); background:white; }
+.socialHealthHeader h3 { margin:0 0 4px; font-size:12px; }
+.socialHealthHeader p { max-width:58ch; margin:0; color:var(--muted); font-size:11px; line-height:1.45; }
+.socialMetrics { margin:0; display:grid; grid-template-columns:repeat(4,1fr); background:white; }
+.socialMetrics div { min-width:0; padding:10px 12px; border-right:1px solid var(--line); }
+.socialMetrics div:last-child { border:0; }
+.socialMetrics dt { color:var(--muted); font-size:9px; text-transform:uppercase; }
+.socialMetrics dd { margin:4px 0 0; font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; }
+.socialProviderTable { max-height:180px; overflow:auto; border-top:1px solid var(--line); background:white; }
+.socialProviderTable th { height:30px; font-size:9px; }
+.socialProviderTable td { height:34px; padding-top:4px; padding-bottom:4px; font-size:11px; }
+.socialHealthFoot { padding:9px 12px; display:flex; flex-wrap:wrap; gap:6px 16px; color:var(--muted); font-size:10px; }
+.socialHealthFoot strong { color:var(--ink); font-variant-numeric:tabular-nums; }
+.socialStatusError,.socialStatusLoading { margin:0; padding:14px 12px; color:var(--muted); font-size:11px; }
+.socialStatusError { color:var(--red); }
+.spinning { animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 .formGrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .field { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
 .field span { color:#4a5651; font-size:11px; font-weight:700; }
@@ -155,4 +173,7 @@ td small { margin-top:3px; color:var(--muted); font:11px monospace; }
   .detailPanel { width:100vw; }
   .tradeToolbar,.tradeToolbar>div,.runToolbar { align-items:stretch; flex-direction:column; }
   .tradeToolbar label { justify-content:space-between; }
+  .socialMetrics { grid-template-columns:1fr 1fr; }
+  .socialMetrics div:nth-child(2) { border-right:0; }
+  .socialMetrics div:nth-child(-n+2) { border-bottom:1px solid var(--line); }
 }

@@ -180,6 +180,23 @@ export type ProcessSnapshot = {
   processes: RecurringProcess[];
 };
 
+export type SocialIngestionSummary = {
+  providers: Record<
+    string,
+    { sources: number; subscriptions: number; due: number }
+  >;
+  enabled_sources: number;
+  enabled_subscriptions: number;
+  due_subscriptions: number;
+  documents: number;
+  classified: number;
+  unresolved: number;
+  latest_document_at?: string;
+  latest_success_at?: string;
+  sentiments: Record<string, number>;
+  enrichments: Record<string, number>;
+};
+
 export type OperationCapability = {
   operation_type: string;
   job_type: string;

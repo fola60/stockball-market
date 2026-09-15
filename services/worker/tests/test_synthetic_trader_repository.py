@@ -58,6 +58,19 @@ class SequencedCursor(FakeCursor):
 
 
 class SyntheticTraderRepositoryTests(unittest.TestCase):
+    def test_list_reserved_handles_loads_all_accounts_case_insensitively(self) -> None:
+        cursor = FakeCursor([("Maya.Kerr",), ("user-1",)])
+        repository = PostgresSyntheticTraderRepository("postgres://example")
+
+        with patch(
+            "app.synthetic_traders.repository.pooled_connection",
+            return_value=FakeConnection(cursor),
+        ):
+            handles = repository.list_reserved_handles()
+
+        self.assertEqual(handles, {"maya.kerr", "user-1"})
+        self.assertIn("FROM accounts", cursor.executed[0][0])
+
     def test_list_due_bots_loads_active_due_rows(self) -> None:
         bot_id = uuid4()
         account_id = uuid4()

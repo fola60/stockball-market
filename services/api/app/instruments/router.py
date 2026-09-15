@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 
 from app.common.schemas import ErrorResponse
-from app.instruments.schemas import InstrumentResponse, PriceSnapshotResponse
+from app.instruments.schemas import InstrumentResponse, PlayerStatsResponse, PriceSnapshotResponse
 from app.instruments.service import InstrumentNotFoundError, InstrumentsService
 
 router = APIRouter(prefix="/v1/instruments", tags=["instruments"])
@@ -70,3 +70,28 @@ def list_price_history(
         )
 
     return [PriceSnapshotResponse.from_record(snapshot) for snapshot in history]
+
+
+@router.get(
+    "/{instrument_id}/player-stats",
+    response_model=PlayerStatsResponse | None,
+    responses={404: {"model": ErrorResponse}},
+)
+def get_player_stats(
+    instrument_id: UUID, request: Request
+) -> PlayerStatsResponse | None | JSONResponse:
+    service = get_instruments_service(request)
+    try:
+        stats_record = service.get_player_stats(instrument_id)
+    except InstrumentNotFoundError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "code": "instrument_not_found",
+                "message": str(exc),
+            },
+        )
+
+    if stats_record is None:
+        return None
+    return PlayerStatsResponse.from_record(stats_record)

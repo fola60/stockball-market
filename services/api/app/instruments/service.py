@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.instruments.models import InstrumentRecord, PriceSnapshotRecord
+from app.instruments.models import InstrumentRecord, PlayerStatsRecord, PriceSnapshotRecord
 from app.instruments.repository import InstrumentsRepository
 
 
@@ -28,3 +28,7 @@ class InstrumentsService:
     def list_price_history(self, instrument_id: UUID) -> list[PriceSnapshotRecord]:
         self.get_instrument(instrument_id)
         return self._repository.list_price_history(instrument_id)
+
+    def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
+        self.get_instrument(instrument_id)
+        return self._repository.get_player_stats(instrument_id)

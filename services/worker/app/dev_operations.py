@@ -16,6 +16,7 @@ SCHEDULE_OPERATION_TYPES = {
     "bet365-odds": "INGEST_BETTING_MARKETS",
     "bet365-live-odds": "INGEST_BETTING_MARKETS",
     "twitter-injury-intelligence": "INGEST_TWITTER_INJURIES",
+    "social-feed-ingestion": "INGEST_SOCIAL_FEEDS",
 }
 
 

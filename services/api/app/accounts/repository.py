@@ -130,7 +130,7 @@ class PostgresAccountsRepository:
                         ON p.account_id = a.id
                     WHERE a.id = %(account_id)s
                     """,
-                    {"account_id": account_id},
+                    {"account_id": str(account_id)},
                 )
                 row = cursor.fetchone()
 

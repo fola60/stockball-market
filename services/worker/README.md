@@ -75,6 +75,12 @@ manually reviewed and synced before polling. See
 `app/ingestion/social/twitter/README.md` for policy constraints, registry rules, cursor and
 rate-limit behavior, classification, episode transitions, and availability output.
 
+The provider-neutral social pipeline discovers approved subscriptions from PostgreSQL and needs
+no paid provider credentials for Bluesky or RSS. Derived social snapshots reach synthetic traders
+only when `STOCKBALL_SOCIAL_SIGNALS_ENABLED=true`; snapshots older than
+`STOCKBALL_SOCIAL_SIGNAL_MAX_AGE_SECONDS` (default `3600`) are ignored. See
+`app/ingestion/social/OPERATIONS.md` for source approval and replay procedures.
+
 ### Direct Worker CLI
 
 Seed current Premier League players from FBref:

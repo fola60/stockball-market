@@ -52,10 +52,19 @@ class FakeApiClient:
 
 
 class FakeSyntheticTraderRepository:
-    def __init__(self, config: SyntheticTraderBotConfigRecord | None) -> None:
+    def __init__(
+        self,
+        config: SyntheticTraderBotConfigRecord | None,
+        *,
+        reserved_handles: set[str] | None = None,
+    ) -> None:
         self.config = config
         self.created_bots: list[CreateSyntheticTraderBotCommand] = []
         self.lookup_keys: list[str] = []
+        self.reserved_handles = reserved_handles or set()
+
+    def list_reserved_handles(self) -> set[str]:
+        return set(self.reserved_handles)
 
     def get_bot_config_by_key(self, config_key: str):
         self.lookup_keys.append(config_key)
@@ -240,6 +249,30 @@ class SyntheticTraderSpawnerTests(unittest.TestCase):
         self.assertNotIn("noise", first_names[0][0])
         self.assertNotIn("buyer", first_names[0][0])
         self.assertIn(" ", first_names[0][1])
+
+    def test_spawn_does_not_reuse_an_existing_account_handle(self) -> None:
+        from random import Random
+
+        from app.synthetic_traders.names import generate_persona_name
+
+        reserved = generate_persona_name(Random(987), set()).handle
+        repository = FakeSyntheticTraderRepository(
+            _config(uuid4()),
+            reserved_handles={reserved.upper()},
+        )
+
+        SyntheticTraderSpawner(
+            api_client=FakeApiClient(),
+            repository=repository,
+        ).spawn(
+            SpawnSyntheticTraderCommand(
+                config_key="NOISE_RETAIL_BUYER",
+                count=1,
+                random_seed=987,
+            )
+        )
+
+        self.assertNotEqual(repository.created_bots[0].bot_key.casefold(), reserved.casefold())
 
     def test_spawn_raises_when_config_key_is_missing(self) -> None:
         spawner = SyntheticTraderSpawner(

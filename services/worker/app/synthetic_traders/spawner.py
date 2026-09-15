@@ -54,7 +54,7 @@ class SyntheticTraderSpawner:
 
         random_source = Random(command.random_seed)
         spawned: list[SpawnedSyntheticTrader] = []
-        used_handles: set[str] = set()
+        used_handles = {handle.casefold() for handle in self.repository.list_reserved_handles()}
         for offset in range(command.count):
             index = command.start_index + offset
             name = _build_spawn_name(command, index, random_source, used_handles)

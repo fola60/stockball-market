@@ -34,10 +34,13 @@ test("keeps the page shell small and features independently modular", async () =
     "../features/ingestion/IngestionView.tsx",
     "../features/traders/TradersView.tsx",
     "../features/trades/TradesView.tsx",
+    "../lib/constants.ts",
   ];
   const sources = await Promise.all(
     files.map((path) => readFile(new URL(path, import.meta.url), "utf8")),
   );
   assert.ok(sources[0].split("\n").length < 250);
-  for (const source of sources.slice(1)) assert.match(source, /export function/);
+  for (const source of sources.slice(1, 6)) assert.match(source, /export function/);
+  assert.match(sources[6], /Social feeds/);
+  assert.match(sources[3], /Pipeline health/);
 });

@@ -18,6 +18,14 @@ from app.ingestion.fbref import FbrefAccessDeniedError, FbrefClient
 from app.ingestion.fixtures import FixtureIngestionService, PostgresFixtureRepository
 from app.ingestion.market_values import MarketValueImportService, PostgresMarketValueRepository
 from app.ingestion.players import PlayerSeedService, PostgresPlayerRepository
+from app.ingestion.social import (
+    BlueskyConnector,
+    MastodonConnector,
+    PostgresSocialRepository,
+    RssConnector,
+    SocialIngestionService,
+    SourceRegistry,
+)
 from app.ingestion.social.twitter import (
     PostgresTwitterInjuryRepository,
     TwitterIngestionError,
@@ -27,14 +35,18 @@ from app.ingestion.social.twitter import (
 )
 from app.ingestion.stats import PlayerStatsIngestionService, PostgresPlayerStatsRepository
 from app.jobs import (
+    AggregateSocialSignalsJobHandler,
     Bet365IngestionMode,
     FunctionJobHandler,
     IngestBet365OddsJobHandler,
     IngestFixturesJobHandler,
     IngestPlayersJobHandler,
     IngestPlayerStatsJobHandler,
+    IngestSocialFeedsJobHandler,
+    IngestSocialSourceJobHandler,
     IngestTwitterInjuriesJobHandler,
     JobType,
+    ProcessSocialDocumentsJobHandler,
     SyntheticTraderTickJobHandler,
     TopupJobHandler,
     WorkerJobRunner,
@@ -49,7 +61,7 @@ from app.jobs.dev_handlers import (
 )
 from app.process_state import RedisProcessState
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
-from app.scheduler import SchedulerProcess, SchedulerService
+from app.scheduler import DueSocialSubscriptionDispatcher, SchedulerProcess, SchedulerService
 from app.scheduler.models import default_scheduler_plans
 from app.synthetic_traders import (
     BootstrapAllocationError,
@@ -348,11 +360,12 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
         settings.redis_url,
         scheduler_heartbeat_ttl_seconds=max(30, settings.scheduler_poll_seconds * 3),
     )
+    run_repository = PostgresScheduledRunRepository(settings.database_url)
     scheduler = SchedulerService(
         queue=queue,
         claim_store=claim_store,
         control_store=process_state,
-        run_repository=PostgresScheduledRunRepository(settings.database_url),
+        run_repository=run_repository,
         plans=default_scheduler_plans(
             player_stats_enabled=settings.player_stats_schedule_enabled,
             player_stats_run_hour_utc=settings.player_stats_schedule_hour_utc,
@@ -377,7 +390,17 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
             twitter_query_key=settings.twitter_query_key,
         ),
     )
-    return SchedulerProcess(scheduler=scheduler, status_reporter=process_state)
+    return SchedulerProcess(
+        scheduler=scheduler,
+        status_reporter=process_state,
+        social_dispatcher=DueSocialSubscriptionDispatcher(
+            repository=PostgresSocialRepository(settings.database_url),
+            queue=queue,
+            claim_store=claim_store,
+            control_store=process_state,
+            run_repository=run_repository,
+        ),
+    )
 
 
 def _build_worker_process(settings: Settings) -> WorkerProcess:
@@ -401,7 +424,11 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
         settings.trading_engine_url,
         timeout_seconds=settings.trading_engine_timeout_seconds,
     )
-    synthetic_repository = PostgresSyntheticTraderRepository(settings.database_url)
+    synthetic_repository = PostgresSyntheticTraderRepository(
+        settings.database_url,
+        social_signals_enabled=settings.social_signals_enabled,
+        social_signal_max_age_seconds=settings.social_signal_max_age_seconds,
+    )
     handlers = {
         JobType.APPLY_TOPUPS: TopupJobHandler(
             topup_service=topup_service,
@@ -429,6 +456,25 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
     )
     handlers[JobType.INGEST_BET365_ODDS] = IngestBet365OddsJobHandler(
         betting_market_ingestion_service=_build_bet365_ingestion_service(settings)
+    )
+    social_repository = PostgresSocialRepository(settings.database_url)
+    social_source_handler = IngestSocialSourceJobHandler(
+        social_ingestion_service=SocialIngestionService(
+            social_repository,
+            SourceRegistry((BlueskyConnector(), RssConnector(), MastodonConnector())),
+        ),
+        repository=social_repository,
+    )
+    handlers[JobType.INGEST_SOCIAL_SOURCE] = social_source_handler
+    handlers[JobType.INGEST_SOCIAL_FEEDS] = IngestSocialFeedsJobHandler(
+        repository=social_repository,
+        source_handler=social_source_handler,
+    )
+    handlers[JobType.PROCESS_SOCIAL_DOCUMENTS] = ProcessSocialDocumentsJobHandler(
+        social_repository
+    )
+    handlers[JobType.AGGREGATE_SOCIAL_SIGNALS] = AggregateSocialSignalsJobHandler(
+        social_repository
     )
     handlers[JobType.IMPORT_MARKET_VALUES] = FunctionJobHandler(
         JobType.IMPORT_MARKET_VALUES,
@@ -562,7 +608,11 @@ def _build_twitter_injury_ingestion_service(settings: Settings) -> TwitterInjury
 
 def _build_synthetic_trader_service(settings: Settings) -> SyntheticTraderService:
     return SyntheticTraderService(
-        repository=PostgresSyntheticTraderRepository(settings.database_url),
+        repository=PostgresSyntheticTraderRepository(
+            settings.database_url,
+            social_signals_enabled=settings.social_signals_enabled,
+            social_signal_max_age_seconds=settings.social_signal_max_age_seconds,
+        ),
         trading_engine_client=HttpTradingEngineClient(
             settings.trading_engine_url,
             timeout_seconds=settings.trading_engine_timeout_seconds,

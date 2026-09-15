@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
+from uuid import UUID
 
 from app.jobs.models import (
     Bet365IngestionMode,
     IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
+    IngestSocialSourceJobPayload,
     IngestTwitterInjuriesJobPayload,
     JobType,
     SyntheticTraderTickJobPayload,
@@ -164,6 +166,32 @@ class TwitterInjuryIngestionPlan:
     def build_job(self, effective_at: datetime) -> WorkerJob:
         return WorkerJob.ingest_twitter_injuries(
             IngestTwitterInjuriesJobPayload(query_key=self.query_key)
+        )
+
+
+@dataclass(frozen=True)
+class SocialSubscriptionIngestionPlan:
+    subscription_id: UUID
+    interval_minutes: int
+    enabled: bool = True
+    supersede_pending: bool = True
+
+    @property
+    def name(self) -> str:
+        return f"social-source-{self.subscription_id}"
+
+    def __post_init__(self) -> None:
+        if self.interval_minutes <= 0:
+            raise ValueError("social subscription interval_minutes must be positive")
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        normalized = _normalize_tick_time(effective_at)
+        minute = normalized.minute - (normalized.minute % self.interval_minutes)
+        return normalized.replace(minute=minute).isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob.ingest_social_source(
+            IngestSocialSourceJobPayload(subscription_id=self.subscription_id)
         )
 
 

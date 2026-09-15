@@ -51,7 +51,8 @@ The command:
 - calls the API internal account endpoint to create each `SYNTHETIC_TRADER` account and portfolio
 - inserts one `synthetic_trader_bots` row per account using the selected `synthetic_trader_bot_configs.config_key`
 - stores per-bot randomized `config_overrides` for profile-specific scoring, sizing, and execution variation
-- uses seeded fictional persona names by default, such as `maren_cross_42` / `Maren Cross`
+- uses seeded persona names from culturally coherent name pools by default, with weighted user-like handle forms such as `maeve.kerr`, `maeve_kerr92`, `maeve-kerr`, or `maevek`
+- checks every existing account handle before generating a batch, preventing synthetic names from colliding with existing users or bots
 - leaves cash funding to the existing top-up or ledger command paths
 
 Useful options:
@@ -65,7 +66,7 @@ Useful options:
 - `--random-seed`: optional deterministic seed for reproducing per-bot config randomization
 - `--status`: initial bot status, default `ACTIVE`
 
-Spawned bots share the selected base config row, but each bot receives its own `config_overrides` JSON. Randomization varies profile-personality values such as `signal_weights`, engine-specific scoring weights, sizing multipliers, and `execution.trade_probability`. It does not randomize hard safety rails such as max daily trades, max order count, max cash amount, or position exposure caps. Public persona names do not include strategy or profile labels; internal records still carry `account_type = SYNTHETIC_TRADER` and the worker bot config relationship.
+Spawned bots share the selected base config row, but each bot receives its own `config_overrides` JSON. Randomization varies profile-personality values such as `signal_weights`, engine-specific scoring weights, sizing multipliers, and `execution.trade_probability`. It does not randomize hard safety rails such as max daily trades, max order count, max cash amount, or position exposure caps. Public persona names do not include strategy or profile labels; internal records still carry `account_type = SYNTHETIC_TRADER` and the worker bot config relationship. Persona handles probabilistically use dots, underscores, dashes, joined names, initials, reversed names, and occasional two-digit, year-like, or four-digit suffixes. The bundled corpus keeps seeded runs reproducible and avoids a runtime dependency on a third-party identity API.
 
 Default engine profiles:
 

@@ -10,11 +10,13 @@ from psycopg2.extras import RealDictCursor
 
 from app.common.decimal import format_decimal
 from app.database import connection as pooled_connection
-from app.portfolios.models import PortfolioRecord, PositionRecord
+from app.portfolios.models import PortfolioActivityRecord, PortfolioRecord, PositionRecord
 
 
 class PortfoliosRepository(Protocol):
     def get_portfolio(self, portfolio_id: UUID) -> PortfolioRecord | None: ...
+
+    def list_activity(self, portfolio_id: UUID, limit: int) -> list[PortfolioActivityRecord]: ...
 
 
 class PostgresPortfoliosRepository:
@@ -40,7 +42,7 @@ class PostgresPortfoliosRepository:
                     FROM portfolios
                     WHERE id = %(portfolio_id)s
                     """,
-                    {"portfolio_id": portfolio_id},
+                    {"portfolio_id": str(portfolio_id)},
                 )
                 portfolio_row = cursor.fetchone()
 
@@ -61,7 +63,7 @@ class PostgresPortfoliosRepository:
                       AND quantity > 0
                     ORDER BY updated_at DESC, id DESC
                     """,
-                    {"portfolio_id": portfolio_id},
+                    {"portfolio_id": str(portfolio_id)},
                 )
                 position_rows = cursor.fetchall()
 
@@ -73,6 +75,47 @@ class PostgresPortfoliosRepository:
             updated_at=portfolio_row["updated_at"],
             positions=[_build_position_record(row) for row in position_rows],
         )
+
+    def list_activity(self, portfolio_id: UUID, limit: int) -> list[PortfolioActivityRecord]:
+        with self._connection() as connection:
+            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        t.id,
+                        t.instrument_id,
+                        i.symbol,
+                        p.display_name AS player_name,
+                        t.side,
+                        t.shares,
+                        t.execution_price,
+                        t.gross_amount,
+                        t.executed_at
+                    FROM trades AS t
+                    JOIN instruments AS i ON i.id = t.instrument_id
+                    JOIN players AS p ON p.id = i.player_id
+                    WHERE t.portfolio_id = %(portfolio_id)s
+                    ORDER BY t.executed_at DESC, t.id DESC
+                    LIMIT %(limit)s
+                    """,
+                    {"portfolio_id": str(portfolio_id), "limit": limit},
+                )
+                rows = cursor.fetchall()
+
+        return [
+            PortfolioActivityRecord(
+                id=row["id"],
+                instrument_id=row["instrument_id"],
+                symbol=row["symbol"],
+                player_name=row["player_name"],
+                side=row["side"],
+                shares=format_decimal(_as_decimal(row["shares"])),
+                execution_price=format_decimal(_as_decimal(row["execution_price"])),
+                gross_amount=format_decimal(_as_decimal(row["gross_amount"])),
+                executed_at=row["executed_at"],
+            )
+            for row in rows
+        ]
 
 
 def _build_position_record(row: dict) -> PositionRecord:

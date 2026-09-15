@@ -51,6 +51,17 @@ class DevOperationsServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.enqueue("INGEST_SOCIAL_SENTIMENT", {})
 
+    def test_social_feed_ingestion_defaults_and_validates_scope(self) -> None:
+        run = self.service.enqueue("INGEST_SOCIAL_FEEDS", {})
+
+        self.assertEqual(run["parameters"], {"provider": "ALL", "limit": 100})
+        self.assertEqual(self.publisher.messages[0]["job_type"], "INGEST_SOCIAL_FEEDS")
+
+        with self.assertRaisesRegex(ValueError, "social provider"):
+            self.service.enqueue("INGEST_SOCIAL_FEEDS", {"provider": "TWITTER"})
+        with self.assertRaisesRegex(ValueError, "between 1 and 500"):
+            self.service.enqueue("INGEST_SOCIAL_FEEDS", {"limit": 501})
+
     def test_requires_bootstrap_target(self) -> None:
         with self.assertRaisesRegex(ValueError, "select all active bots"):
             self.service.enqueue("BOOTSTRAP_SYNTHETIC_PORTFOLIOS", {"dry_run": True})

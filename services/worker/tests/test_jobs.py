@@ -5,6 +5,9 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from app.jobs import (
+    IngestSocialFeedsJobHandler,
+    IngestSocialFeedsJobPayload,
+    JobExecutionResult,
     JobType,
     RetryableJobError,
     SyntheticTraderTickJobHandler,
@@ -60,6 +63,50 @@ class FakeSyntheticTopupPolicyProvisioner:
 
 
 class JobHandlerTests(unittest.TestCase):
+    def test_social_feed_batch_aggregates_due_source_results(self) -> None:
+        subscription_ids = [uuid4(), uuid4()]
+
+        class Repository:
+            call = None
+
+            def list_due_subscriptions(self, as_of, *, limit, provider):
+                self.call = (as_of, limit, provider)
+                return subscription_ids
+
+        class SourceHandler:
+            def handle(self, job):
+                return JobExecutionResult(
+                    job_type=job.job_type,
+                    handled_at=datetime(2026, 9, 12, tzinfo=UTC),
+                    successful_items=1,
+                    skipped_items=4,
+                    failed_items=0,
+                    metrics={
+                        "fetched_documents": 5,
+                        "immediate_articles_enriched": 1,
+                        "immediate_documents_processed": 1,
+                    },
+                )
+
+        repository = Repository()
+        handler = IngestSocialFeedsJobHandler(
+            repository=repository,  # type: ignore[arg-type]
+            source_handler=SourceHandler(),  # type: ignore[arg-type]
+            clock=lambda: datetime(2026, 9, 12, tzinfo=UTC),
+        )
+
+        result = handler.handle(
+            WorkerJob.ingest_social_feeds(
+                IngestSocialFeedsJobPayload(provider="RSS", limit=50)
+            )
+        )
+
+        self.assertEqual(result.successful_items, 2)
+        self.assertEqual(result.skipped_items, 8)
+        self.assertEqual(result.metrics["subscriptions_polled"], 2)
+        self.assertEqual(result.metrics["articles_enriched"], 2)
+        self.assertEqual(repository.call[1:], (50, "RSS"))
+
     def test_topup_job_handler_returns_job_counts(self) -> None:
         service = FakeTopupService(
             TopupBatchResult(
