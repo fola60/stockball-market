@@ -93,6 +93,8 @@ class SyntheticTraderConfigTests(unittest.TestCase):
 
         self.assertIsInstance(config, NoiseConfig)
         self.assertEqual(config.universe.favorite_player_ids, (favorite_player_id,))
+        self.assertEqual(config.randomness.activity_floor_minutes, 60)
+        self.assertEqual(config.randomness.activity_floor_weight, 0.0)
         self.assertFalse(config.explainability.enabled)
 
     def test_parse_market_momentum_config(self) -> None:

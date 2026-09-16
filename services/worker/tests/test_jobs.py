@@ -288,7 +288,7 @@ class JobHandlerTests(unittest.TestCase):
         self.assertEqual(result.skipped_items, 1)
         self.assertEqual(result.failed_items, 1)
         self.assertEqual(service.calls[0][0], datetime(2026, 4, 22, 12, 0, tzinfo=UTC))
-        self.assertEqual(service.calls[0][1]["limit"], 100)
+        self.assertEqual(service.calls[0][1]["limit"], 500)
         self.assertFalse(service.calls[0][1]["force_timing"])
         diagnostics = result.metrics["decision_diagnostics"]
         self.assertEqual(diagnostics["candidates_loaded"], 10)

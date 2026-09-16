@@ -8,7 +8,6 @@ from typing import Any, Mapping
 
 from .models import MarketValuePlayerProfile, MarketValueRow
 
-
 DEFAULT_SOURCE = "transfermarkt_csv"
 DEFAULT_CURRENCY = "EUR"
 
@@ -28,7 +27,7 @@ class TransfermarktCsvMarketValueReader:
             for row in reader:
                 source_player_id = _required(row, "player_id")
                 value = _decimal(row.get("market_value_in_eur"))
-                if value is None:
+                if value is None or value <= 0:
                     continue
                 observed_at = _datetime(row.get("date"))
                 profile = profiles.get(source_player_id)

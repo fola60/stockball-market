@@ -35,7 +35,7 @@ async fn execute_order_returns_success_response() {
     assert_eq!(body["request_id"], "req_123");
     assert_eq!(body["side"], "BUY");
     assert_eq!(body["quantity"], "10");
-    assert_eq!(body["gross_amount"], "1000.0000");
+    assert_eq!(body["gross_amount"], "1000.004581467652");
 }
 
 #[tokio::test]
@@ -304,12 +304,12 @@ fn sample_response() -> ExecuteOrderResult {
         instrument_id: Uuid::new_v4(),
         side: OrderSide::Buy,
         quantity: Decimal::new(10, 0),
-        execution_price: Decimal::new(100_0000, 4),
-        gross_amount: Decimal::new(1000_0000, 4),
-        cash_balance_after: Decimal::new(990_000_000, 4),
+        execution_price: "100.000458146765".parse().unwrap(),
+        gross_amount: "1000.004581467652".parse().unwrap(),
+        cash_balance_after: "98999.995418532348".parse().unwrap(),
         position_quantity_after: Decimal::new(10, 0),
-        old_price: Decimal::new(100_0000, 4),
-        new_price: Decimal::new(100_1000, 4),
+        old_price: "100.000000000000".parse().unwrap(),
+        new_price: "100.000916294930".parse().unwrap(),
         executed_at: chrono::Utc::now(),
     }
 }

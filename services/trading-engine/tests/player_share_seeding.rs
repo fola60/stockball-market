@@ -16,7 +16,7 @@ fn seeds_player_shares_and_is_rerunnable() {
 }
 
 async fn seeds_player_shares_and_is_rerunnable_inner() {
-    let Ok(database_url) = std::env::var("STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL") else {
+    let Some(database_url) = test_database_url() else {
         eprintln!(
             "skipping database smoke test; STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL is not set"
         );
@@ -136,4 +136,14 @@ async fn current_price_for_player(pool: &PgPool, player_id: Uuid) -> Decimal {
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+fn test_database_url() -> Option<String> {
+    match std::env::var("STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL") {
+        Ok(database_url) => Some(database_url),
+        Err(_) if std::env::var_os("CI").is_some() => {
+            panic!("STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL must be set in CI")
+        }
+        Err(_) => None,
+    }
 }

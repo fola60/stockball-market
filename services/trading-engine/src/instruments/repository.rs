@@ -16,8 +16,10 @@ struct InstrumentRow {
     symbol: String,
     display_name: String,
     current_price: Decimal,
+    reference_price: Decimal,
     shares_outstanding: Decimal,
-    price_impact_unit: Decimal,
+    net_shares_purchased: Decimal,
+    full_supply_price_multiplier: Decimal,
     trading_status: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -36,8 +38,10 @@ pub async fn get_instrument_by_id(
             symbol,
             display_name,
             current_price,
+            reference_price,
             shares_outstanding,
-            price_impact_unit,
+            net_shares_purchased,
+            full_supply_price_multiplier,
             trading_status,
             created_at,
             updated_at
@@ -98,23 +102,6 @@ pub async fn get_current_price(
     .ok_or(InstrumentError::NotFound(instrument_id))
 }
 
-pub async fn get_price_impact_unit(
-    executor: impl PgExecutor<'_>,
-    instrument_id: Uuid,
-) -> Result<Decimal, InstrumentError> {
-    sqlx::query_scalar::<_, Decimal>(
-        r#"
-        SELECT price_impact_unit
-        FROM instruments
-        WHERE id = $1
-        "#,
-    )
-    .bind(instrument_id)
-    .fetch_optional(executor)
-    .await?
-    .ok_or(InstrumentError::NotFound(instrument_id))
-}
-
 pub(crate) async fn lock_instrument_by_id(
     connection: &mut PgConnection,
     instrument_id: Uuid,
@@ -128,8 +115,10 @@ pub(crate) async fn lock_instrument_by_id(
             symbol,
             display_name,
             current_price,
+            reference_price,
             shares_outstanding,
-            price_impact_unit,
+            net_shares_purchased,
+            full_supply_price_multiplier,
             trading_status,
             created_at,
             updated_at
@@ -146,12 +135,13 @@ pub(crate) async fn lock_instrument_by_id(
     Instrument::try_from(row)
 }
 
-pub(crate) async fn update_current_price(
+pub(crate) async fn update_market_state(
     connection: &mut PgConnection,
     instrument_id: Uuid,
     new_price: Decimal,
+    net_shares_purchased: Decimal,
 ) -> Result<Instrument, InstrumentError> {
-    if new_price.is_sign_negative() {
+    if new_price <= Decimal::ZERO {
         return Err(InstrumentError::NegativePrice);
     }
 
@@ -160,6 +150,7 @@ pub(crate) async fn update_current_price(
         UPDATE instruments
         SET
             current_price = $2,
+            net_shares_purchased = $3,
             updated_at = now()
         WHERE id = $1
         RETURNING
@@ -169,8 +160,10 @@ pub(crate) async fn update_current_price(
             symbol,
             display_name,
             current_price,
+            reference_price,
             shares_outstanding,
-            price_impact_unit,
+            net_shares_purchased,
+            full_supply_price_multiplier,
             trading_status,
             created_at,
             updated_at
@@ -178,6 +171,7 @@ pub(crate) async fn update_current_price(
     )
     .bind(instrument_id)
     .bind(new_price)
+    .bind(net_shares_purchased)
     .fetch_optional(&mut *connection)
     .await?
     .ok_or(InstrumentError::NotFound(instrument_id))?;
@@ -205,8 +199,10 @@ impl TryFrom<InstrumentRow> for Instrument {
             symbol: row.symbol,
             display_name: row.display_name,
             current_price: row.current_price,
+            reference_price: row.reference_price,
             shares_outstanding: row.shares_outstanding,
-            price_impact_unit: row.price_impact_unit,
+            net_shares_purchased: row.net_shares_purchased,
+            full_supply_price_multiplier: row.full_supply_price_multiplier,
             status,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -226,8 +222,10 @@ mod tests {
             symbol: "TEST".to_owned(),
             display_name: "Test Player Share".to_owned(),
             current_price: Decimal::new(100_0000, 4),
+            reference_price: Decimal::new(100_0000, 4),
             shares_outstanding: Decimal::new(1_000_000_000_000, 6),
-            price_impact_unit: Decimal::new(1_0000, 6),
+            net_shares_purchased: Decimal::ZERO,
+            full_supply_price_multiplier: Decimal::new(25, 1),
             status,
             created_at: Utc::now(),
             updated_at: Utc::now(),

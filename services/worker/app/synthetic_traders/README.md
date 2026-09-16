@@ -22,6 +22,7 @@ Synthetic traders are tagged accounts that behave like users but are controlled 
 - `service.py`: bot tick orchestration, universal risk filtering, idempotent request-id generation, and trading-engine submission.
 - `spawner.py`: bulk bootstrap flow that asks the API to provision accounts and then attaches worker bot config rows.
 - `bootstrap.py`: deterministic one-off player-share issuance across bot portfolios and the internal reserve.
+- `startup.py`: target-activity fleet sizing, pre-market multi-signal valuation, funding, and idempotent development bootstrap orchestration.
 - `engines/`: reusable strategy engine implementations.
 
 ## Spawning Bots
@@ -118,7 +119,7 @@ Required services:
   - `SOCIAL_SENTIMENT`
   - `PORTFOLIO_REBALANCER`
   - `BETTING_MARKET_VALUE`
-- Social/news signal tables are not implemented yet in this repo, so `SOCIAL_SENTIMENT` degrades to empty-signal holds instead of failing.
+- `SOCIAL_SENTIMENT` reads current social-signal snapshots when social signals are enabled; absent or stale signals safely produce holds.
 - `BETTING_MARKET_VALUE` reads player-linked goalscorer, assist, score-or-assist, shots, and shots-on-target probabilities. Missing, stale, or insufficiently broad odds produce holds.
 
 To spawn betting bots, select the default conservative profile by engine or choose the
@@ -136,6 +137,9 @@ stockball-worker spawn-synthetic-traders --config-key BETTING_MARKET_AGGRESSIVE 
 - Does not mutate prices or cash directly.
 - The audited `bootstrap-synthetic-portfolios` issuance command is the sole narrow exception for
   direct initial position creation; it rejects prior ownership and never creates market activity.
+- The development bootstrap has one additional audited pre-market exception: it can adjust an
+  instrument only before any position, order, or trade exists, records the adjustment in both the
+  valuation audit and price history, and cannot apply twice.
 - Bot trades must go through the same trading-engine order endpoint as user trades.
 - Bot accounts receive top-ups through the same top-up flow as normal users.
 - Social-sentiment profiles and social inputs are excluded from bootstrap allocation for now.

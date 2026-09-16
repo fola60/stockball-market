@@ -111,7 +111,7 @@ Internal modules:
 
 - `orders`: validates order commands and creates order records
 - `execution`: fills orders against the platform quote
-- `price_impact`: applies the V1 linear price movement rule
+- `price_impact`: quotes trades from the net-demand price curve
 - `ledger`: records all cash balance changes, including trade debits/credits and scheduled top-ups
 - `portfolios`: coordinates portfolio summary and cash balance state
 - `positions`: mutates account exposure to instruments
@@ -338,10 +338,16 @@ Derivatives are explicitly not part of V1. V1 should not expose options, futures
 
 ## V1 Price Ownership
 
-The V1 price rule is intentionally simple:
+The price rule is a deterministic curve:
 
-- buy orders increase price by `shares_bought * price_impact_unit`
-- sell orders decrease price by `shares_sold * price_impact_unit`
+- buys increase net shares purchased and sells decrease it
+- the curve position is net shares purchased divided by shares outstanding
+- the quoted price is the reference price multiplied by the full-supply multiplier raised to that
+  curve position
+- the full-supply price multiplier is configurable per instrument and defaults to `2.5`
+- execution cost is calculated across the complete curve interval rather than from a rounded
+  midpoint
+- market prices and money retain twelve decimal places internally; clients may display four
 
 This rule belongs inside the trading engine. It is subject to change after the core modules are fleshed out.
 

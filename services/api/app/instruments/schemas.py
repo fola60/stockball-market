@@ -25,8 +25,10 @@ class InstrumentResponse(BaseModel):
     symbol: str
     display_name: str
     current_price: str
+    reference_price: str
     quantity_outstanding: str
-    price_impact_unit: str
+    net_shares_purchased: str
+    full_supply_price_multiplier: str
     status: InstrumentStatus
     created_at: datetime
     updated_at: datetime

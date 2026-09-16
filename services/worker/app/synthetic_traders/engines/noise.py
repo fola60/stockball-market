@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from random import Random
+from typing import Sequence
+from uuid import UUID
 
 from app.synthetic_traders.config import NoiseConfig
 from app.synthetic_traders.models import (
     BotTickContext,
+    CandidateInstrumentContext,
     DecisionSide,
     StrategyDecision,
     StrategyEngine,
@@ -45,6 +48,11 @@ class NoiseStrategyEngine:
         popularity_ranks = rank_percentiles(popularity_inputs)
         price_ranks = rank_percentiles(price_inputs)
         recent_window_start = context.as_of - timedelta(days=7)
+        activity_floor = hourly_activity_floor_scores(
+            candidates,
+            context.as_of,
+            config.randomness.activity_floor_minutes,
+        )
 
         decisions: list[StrategyDecision] = []
         for candidate in candidates:
@@ -81,6 +89,8 @@ class NoiseStrategyEngine:
                 + config.signal_weights.get("holding_bias", 0.0) * holding_bias
                 + config.signal_weights.get("cash_pressure", 0.0) * cash_pressure
                 + config.signal_weights.get("volatility_risk", 0.0) * abs(recent_mover_bias)
+                + config.randomness.activity_floor_weight
+                * activity_floor[candidate.instrument_id]
                 + config.randomness.buy_bias
                 - (config.randomness.sell_bias if candidate.current_holding_quantity > 0 else 0.0)
             )
@@ -119,8 +129,30 @@ class NoiseStrategyEngine:
                         "favorite_bias": favorite_bias,
                         "holding_bias": holding_bias,
                         "cash_pressure": cash_pressure,
+                        "activity_floor": activity_floor[candidate.instrument_id],
                     },
                 )
             )
 
         return sorted_decisions(decisions)
+
+
+def hourly_activity_floor_scores(
+    candidates: Sequence[CandidateInstrumentContext],
+    as_of: datetime,
+    window_minutes: int,
+) -> dict[UUID, float]:
+    window_start = as_of - timedelta(minutes=window_minutes)
+    counts = {
+        candidate.instrument_id: sum(
+            1 for trade in candidate.recent_trades if trade.executed_at >= window_start
+        )
+        for candidate in candidates
+    }
+    maximum = max(counts.values(), default=0)
+    if maximum == 0:
+        return {instrument_id: 1.0 for instrument_id in counts}
+    return {
+        instrument_id: 1.0 - count / maximum
+        for instrument_id, count in counts.items()
+    }

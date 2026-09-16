@@ -64,16 +64,21 @@ This keeps setup simple while preserving relative differences between players.
 
 For V1, share prices are affected solely by trading activity.
 
-Use a simple linear price-impact rule:
+Use a direct curved price rule driven by net trading pressure:
 
-- every buy increases the price by `shares_bought * price_impact_unit`
-- every sell decreases the price by `shares_sold * price_impact_unit`
+- net shares purchased equals shares bought through the engine minus shares sold through it
+- divide net shares purchased by shares outstanding to locate the current point on the curve
+- every buy moves forward on the curve and every sell moves backward
+- a configurable full-supply multiplier controls the total movement and defaults to `2.5`
 
 Example:
 
-- if `price_impact_unit = 0.02`
-- buying 10 shares increases price by `0.20`
-- selling 10 shares decreases price by `0.20`
+- at zero net shares purchased, the quote equals the reference price
+- at net purchases equal to all shares outstanding, the quote is 2.5 times the reference price
+- at the matching net-selling limit, the quote is 0.4 times the reference price
+- calculate price by raising the full-supply multiplier to the current curve position
+- calculate trade cost as the difference between the curve's ending and starting cumulative cost,
+  so splitting an order does not alter its price movement or stored cost
 
 This means:
 
@@ -86,8 +91,8 @@ This means:
 V1 should use a platform-quoted market instead of a true matching engine.
 
 - users place buy and sell orders against the platform
-- the platform fills orders at the current quoted price
-- after execution, the instrument price is updated using the share-impact rule
+- the platform calculates the new quoted price using the curve
+- the order fills at the exact average price across the curved interval
 
 This avoids the complexity of maintaining an order book and matching user orders against each other.
 

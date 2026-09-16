@@ -63,8 +63,16 @@ pub async fn execute_order(
         portfolios::lock_portfolio_by_id(&mut transaction, command.portfolio_id).await?;
     portfolios::assert_portfolio_belongs_to_account(&portfolio, command.account_id)?;
 
-    let execution_price = instrument.current_price;
-    let gross_amount = (command.quantity * execution_price).round_dp(4);
+    let quote = price_impact::quote_trade(
+        instrument.reference_price,
+        instrument.shares_outstanding,
+        instrument.net_shares_purchased,
+        instrument.full_supply_price_multiplier,
+        command.quantity,
+        PriceImpactDirection::from(command.side),
+    )?;
+    let execution_price = quote.execution_price;
+    let gross_amount = quote.gross_amount;
 
     if command.side == OrderSide::Buy {
         portfolios::assert_has_cash(&portfolio, gross_amount)?;
@@ -136,19 +144,19 @@ pub async fn execute_order(
         }
     };
 
-    let new_price = price_impact::calculate_next_price(
-        instrument.current_price,
-        command.quantity,
-        instrument.price_impact_unit,
-        PriceImpactDirection::from(command.side),
-    )?;
-    instruments::update_current_price(&mut transaction, command.instrument_id, new_price).await?;
+    instruments::update_market_state(
+        &mut transaction,
+        command.instrument_id,
+        quote.new_price,
+        quote.net_shares_purchased_after,
+    )
+    .await?;
 
     snapshots::record_price_snapshot(
         &mut transaction,
         command.instrument_id,
-        instrument.current_price,
-        new_price,
+        quote.old_price,
+        quote.new_price,
         PriceSnapshotReason::from(command.side),
         Some(trade.id),
     )
@@ -169,8 +177,8 @@ pub async fn execute_order(
         gross_amount,
         cash_balance_after: cash_ledger_entry.balance_after,
         position_quantity_after: position.quantity,
-        old_price: instrument.current_price,
-        new_price,
+        old_price: quote.old_price,
+        new_price: quote.new_price,
         executed_at: trade.executed_at,
     };
 
@@ -272,5 +280,26 @@ impl TryFrom<TradeRow> for Trade {
             executed_at: row.executed_at,
             created_at: row.created_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trade_storage_preserves_fractional_execution_precision() {
+        let quote = price_impact::quote_trade(
+            Decimal::from(100),
+            Decimal::from(1_000_000),
+            Decimal::ZERO,
+            price_impact::DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::new(133_001, 3),
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+
+        assert!(quote.execution_price.scale() > 4);
+        assert!(quote.gross_amount.scale() > 4);
     }
 }

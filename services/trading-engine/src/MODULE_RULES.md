@@ -147,7 +147,8 @@ Allowed:
 - Check instrument type and trading status.
 - Provide current price to execution.
 - Persist current price updates only inside execution-approved trade flows.
-- Store V1 `PLAYER_SHARE` terms such as `price_impact_unit` until those terms are split out.
+- Store player-share curve state: reference price, net shares purchased, shares outstanding, and
+  the full-supply price multiplier.
 
 Not allowed:
 
@@ -164,9 +165,9 @@ Owns price movement calculation.
 
 Allowed:
 
-- Calculate old price to new price changes.
-- Apply the V1 formula: buys increase price by `quantity * price_impact_unit`; sells decrease price by `quantity * price_impact_unit`.
-- Enforce future price movement guardrails when added.
+- Calculate the old price, new price, exact average execution price, and trade cost.
+- Apply the net-demand curve using the instrument's configurable full-supply multiplier.
+- Enforce the curve's positive and negative net-trading limits.
 
 Not allowed:
 

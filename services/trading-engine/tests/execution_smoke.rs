@@ -25,7 +25,7 @@ fn executes_buy_sell_and_idempotent_duplicate() {
 }
 
 async fn executes_buy_sell_and_idempotent_duplicate_inner() {
-    let Ok(database_url) = std::env::var("STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL") else {
+    let Some(database_url) = test_database_url() else {
         eprintln!(
             "skipping database smoke test; STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL is not set"
         );
@@ -47,12 +47,12 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
 
     let buy = execute_order(&pool, buy_command.clone()).await.unwrap();
 
-    assert_eq!(buy.execution_price, Decimal::new(100_0000, 4));
-    assert_eq!(buy.gross_amount, Decimal::new(1000_0000, 4));
-    assert_eq!(buy.cash_balance_after, Decimal::new(990_000_000, 4));
+    assert_eq!(buy.execution_price, decimal("100.000458146765"));
+    assert_eq!(buy.gross_amount, decimal("1000.004581467652"));
+    assert_eq!(buy.cash_balance_after, decimal("98999.995418532348"));
     assert_eq!(buy.position_quantity_after, Decimal::new(10, 0));
-    assert_eq!(buy.old_price, Decimal::new(100_0000, 4));
-    assert_eq!(buy.new_price, Decimal::new(100_1000, 4));
+    assert_eq!(buy.old_price, decimal("100.000000000000"));
+    assert_eq!(buy.new_price, decimal("100.000916294930"));
 
     let duplicate_buy = execute_order(&pool, buy_command).await.unwrap();
     assert_eq!(duplicate_buy, buy);
@@ -84,12 +84,53 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
     .await
     .unwrap();
 
-    assert_eq!(sell.execution_price, Decimal::new(100_1000, 4));
-    assert_eq!(sell.gross_amount, Decimal::new(400_4000, 4));
-    assert_eq!(sell.cash_balance_after, Decimal::new(994_004_000, 4));
+    assert_eq!(sell.execution_price, decimal("100.000733035328"));
+    assert_eq!(sell.gross_amount, decimal("400.002932141312"));
+    assert_eq!(sell.cash_balance_after, decimal("99399.998350673660"));
     assert_eq!(sell.position_quantity_after, Decimal::new(6, 0));
-    assert_eq!(sell.old_price, Decimal::new(100_1000, 4));
-    assert_eq!(sell.new_price, Decimal::new(100_0600, 4));
+    assert_eq!(sell.old_price, decimal("100.000916294930"));
+    assert_eq!(sell.new_price, decimal("100.000549775950"));
+
+    let unsafe_price_update = sqlx::query(
+        r#"
+        UPDATE instruments
+        SET current_price = 110
+        WHERE id = $1
+        "#,
+    )
+    .bind(fixture.instrument_id)
+    .execute(&pool)
+    .await;
+    assert!(unsafe_price_update.is_err());
+
+    sqlx::query(
+        r#"
+        UPDATE instruments
+        SET
+            current_price = 110,
+            reference_price = 110,
+            net_shares_purchased = 0,
+            full_supply_price_multiplier = 3
+        WHERE id = $1
+        "#,
+    )
+    .bind(fixture.instrument_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rebase_count = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM instrument_price_curve_rebases
+        WHERE instrument_id = $1
+        "#,
+    )
+    .bind(fixture.instrument_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rebase_count, 1);
 }
 
 async fn insert_fixture(pool: &PgPool) -> Fixture {
@@ -172,8 +213,10 @@ async fn insert_fixture(pool: &PgPool) -> Fixture {
             symbol,
             display_name,
             current_price,
+            reference_price,
             shares_outstanding,
-            price_impact_unit,
+            net_shares_purchased,
+            full_supply_price_multiplier,
             trading_status
         ) VALUES (
             $1,
@@ -184,6 +227,8 @@ async fn insert_fixture(pool: &PgPool) -> Fixture {
             $4,
             $5,
             $6,
+            0,
+            2.500000,
             'ACTIVE'
         )
         "#,
@@ -192,8 +237,8 @@ async fn insert_fixture(pool: &PgPool) -> Fixture {
     .bind(player_id)
     .bind(format!("SMOKE-{suffix}"))
     .bind(Decimal::new(100_0000, 4))
+    .bind(Decimal::new(100_0000, 4))
     .bind(Decimal::new(1_000_000_000_000, 6))
-    .bind(Decimal::new(10000, 6))
     .execute(pool)
     .await
     .unwrap();
@@ -202,5 +247,19 @@ async fn insert_fixture(pool: &PgPool) -> Fixture {
         account_id,
         portfolio_id,
         instrument_id,
+    }
+}
+
+fn decimal(value: &str) -> Decimal {
+    value.parse().unwrap()
+}
+
+fn test_database_url() -> Option<String> {
+    match std::env::var("STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL") {
+        Ok(database_url) => Some(database_url),
+        Err(_) if std::env::var_os("CI").is_some() => {
+            panic!("STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL must be set in CI")
+        }
+        Err(_) => None,
     }
 }

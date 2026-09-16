@@ -282,7 +282,7 @@ fn instrument_error(error: InstrumentError) -> ApiError {
         ),
         InstrumentError::NegativePrice => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "negative_price",
+            "non_positive_price",
             "order would result in an invalid instrument price.",
             None,
         ),
@@ -549,21 +549,54 @@ fn price_impact_error(error: PriceImpactError) -> ApiError {
             "quantity must be greater than zero.",
             Some(json!({ "quantity": quantity })),
         ),
-        PriceImpactError::NegativeResultingPrice(price) => ApiError::new(
+        PriceImpactError::BuyExceedsCurveLimit {
+            available,
+            requested,
+        } => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "invalid_resulting_price",
-            "order would result in an invalid instrument price.",
-            Some(json!({ "new_price": price })),
+            "buy_exceeds_price_curve_limit",
+            "order would exceed the positive limit of the price curve.",
+            Some(json!({ "available": available, "requested": requested })),
         ),
-        PriceImpactError::NegativeCurrentPrice(current_price) => internal_error(
-            "negative_current_price",
-            "instrument current price is invalid.",
-            Some(json!({ "current_price": current_price })),
+        PriceImpactError::SellExceedsCurveLimit {
+            available,
+            requested,
+        } => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "sell_exceeds_price_curve_limit",
+            "order would exceed the negative limit of the price curve.",
+            Some(json!({ "available": available, "requested": requested })),
         ),
-        PriceImpactError::NegativePriceImpactUnit(price_impact_unit) => internal_error(
-            "negative_price_impact_unit",
-            "instrument price impact unit is invalid.",
-            Some(json!({ "price_impact_unit": price_impact_unit })),
+        PriceImpactError::NonPositiveReferencePrice(reference_price) => internal_error(
+            "non_positive_reference_price",
+            "instrument reference price is invalid.",
+            Some(json!({ "reference_price": reference_price })),
+        ),
+        PriceImpactError::NonPositiveSharesOutstanding(shares_outstanding) => internal_error(
+            "non_positive_shares_outstanding",
+            "instrument shares outstanding is invalid.",
+            Some(json!({ "shares_outstanding": shares_outstanding })),
+        ),
+        PriceImpactError::InvalidNetSharesPurchased {
+            net_shares_purchased,
+            shares_outstanding,
+        } => internal_error(
+            "invalid_net_shares_purchased",
+            "instrument net shares purchased is invalid.",
+            Some(json!({
+                "net_shares_purchased": net_shares_purchased,
+                "shares_outstanding": shares_outstanding
+            })),
+        ),
+        PriceImpactError::InvalidFullSupplyPriceMultiplier(multiplier) => internal_error(
+            "invalid_full_supply_price_multiplier",
+            "instrument full-supply price multiplier is invalid.",
+            Some(json!({ "full_supply_price_multiplier": multiplier })),
+        ),
+        PriceImpactError::CalculationOverflow => internal_error(
+            "price_curve_calculation_overflow",
+            "Price curve calculation exceeded supported precision.",
+            None,
         ),
     }
 }
@@ -576,7 +609,7 @@ fn snapshot_error(error: SnapshotError) -> ApiError {
             Some(json!({ "snapshot_id": snapshot_id })),
         ),
         SnapshotError::NegativePrice(price) => internal_error(
-            "negative_snapshot_price",
+            "non_positive_snapshot_price",
             "price snapshot contains an invalid price.",
             Some(json!({ "price": price })),
         ),

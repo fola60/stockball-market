@@ -10,7 +10,7 @@ path = "src/lib.rs"
 async-trait = "0.1"
 axum = { version = "0.7", features = ["json"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-rust_decimal = { version = "1", features = ["serde", "serde-with-str"] }
+rust_decimal = { version = "1", features = ["maths", "serde", "serde-with-str"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["chrono", "macros", "postgres", "runtime-tokio-rustls", "rust_decimal", "uuid"] }

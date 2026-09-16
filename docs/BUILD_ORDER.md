@@ -51,13 +51,15 @@ Modules involved:
 Deliverables:
 
 - `POST /internal/v1/orders/execute`
-- buy execution at current instrument price
-- sell execution at current instrument price
+- buy execution at the exact average price across the resulting curved price movement
+- sell execution at the exact average price across the resulting curved price movement
 - cash debit/credit through the ledger module
 - position updates
 - trade records
 - price snapshots
-- V1 price rule: buys increase price by `shares * price_impact_unit`, sells decrease price by `shares * price_impact_unit`
+- price curve driven by net shares purchased relative to shares outstanding
+- configurable full-supply price multiplier, defaulting to `2.5`
+- twelve-decimal internal price and cash precision, with display rounding left to clients
 - idempotency key support for retry-safe commands
 
 Definition of done:

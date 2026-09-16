@@ -5,14 +5,13 @@ use uuid::Uuid;
 
 use crate::{
     instruments::InstrumentError,
+    price_impact::DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
     snapshots::{self, PriceSnapshotReason},
 };
 
 const MARKET_VALUE_SCALE_FACTOR: i64 = 1_000_000;
 const MIN_INITIAL_PRICE: Decimal = Decimal::ONE;
 const MAX_INITIAL_PRICE: Decimal = Decimal::from_parts(250, 0, 0, false, 0);
-const PRICE_IMPACT_RATE: Decimal = Decimal::from_parts(100, 0, 0, false, 6);
-const MIN_PRICE_IMPACT_UNIT: Decimal = Decimal::from_parts(100, 0, 0, false, 6);
 const SHARES_OUTSTANDING: Decimal = Decimal::from_parts(1_000_000, 0, 0, false, 0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,14 +51,12 @@ pub async fn seed_player_shares(pool: &PgPool) -> Result<SeedPlayerSharesResult,
         }
 
         let (initial_price, used_market_value) = initial_price_for_candidate(&candidate)?;
-        let price_impact_unit = calculate_price_impact_unit(initial_price);
         let instrument_id = insert_player_share_instrument(
             &mut transaction,
             candidate.player_id,
             &symbol_for_player(&candidate.display_name, candidate.player_id),
             &format!("{} Share", candidate.display_name),
             initial_price,
-            price_impact_unit,
         )
         .await?;
 
@@ -169,15 +166,6 @@ pub fn fallback_price_for_position(position: Option<&str>) -> Decimal {
     Decimal::new(5_0000, 4)
 }
 
-pub fn calculate_price_impact_unit(initial_price: Decimal) -> Decimal {
-    let impact = (initial_price * PRICE_IMPACT_RATE).round_dp(6);
-    if impact < MIN_PRICE_IMPACT_UNIT {
-        MIN_PRICE_IMPACT_UNIT
-    } else {
-        impact
-    }
-}
-
 fn clamp_initial_price(price: Decimal) -> Decimal {
     if price < MIN_INITIAL_PRICE {
         MIN_INITIAL_PRICE
@@ -194,7 +182,6 @@ async fn insert_player_share_instrument(
     symbol: &str,
     display_name: &str,
     current_price: Decimal,
-    price_impact_unit: Decimal,
 ) -> Result<Uuid, InstrumentError> {
     let instrument_id = sqlx::query_scalar::<_, Uuid>(
         r#"
@@ -204,8 +191,10 @@ async fn insert_player_share_instrument(
             symbol,
             display_name,
             current_price,
+            reference_price,
             shares_outstanding,
-            price_impact_unit,
+            net_shares_purchased,
+            full_supply_price_multiplier,
             trading_status
         ) VALUES (
             'PLAYER_SHARE',
@@ -215,6 +204,8 @@ async fn insert_player_share_instrument(
             $4,
             $5,
             $6,
+            0,
+            $7,
             'ACTIVE'
         )
         RETURNING id
@@ -224,8 +215,9 @@ async fn insert_player_share_instrument(
     .bind(symbol)
     .bind(display_name)
     .bind(current_price)
+    .bind(current_price)
     .bind(SHARES_OUTSTANDING.round_dp(6))
-    .bind(price_impact_unit)
+    .bind(DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER)
     .fetch_one(&mut *connection)
     .await?;
 
@@ -302,18 +294,6 @@ mod tests {
             Decimal::new(12_5000, 4)
         );
         assert_eq!(fallback_price_for_position(None), Decimal::new(5_0000, 4));
-    }
-
-    #[test]
-    fn price_impact_is_proportional_to_initial_price() {
-        assert_eq!(
-            calculate_price_impact_unit(Decimal::new(100_0000, 4)),
-            Decimal::new(10000, 6)
-        );
-        assert_eq!(
-            calculate_price_impact_unit(Decimal::new(1_0000, 4)),
-            Decimal::new(100, 6)
-        );
     }
 
     #[test]

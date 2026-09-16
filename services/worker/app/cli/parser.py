@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
@@ -229,12 +230,105 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_portfolios.add_argument("--dry-run", action="store_true")
     bootstrap_portfolios.add_argument("--log-level", default="INFO")
+    bootstrap_market = subcommands.add_parser(
+        "bootstrap-dev-market",
+        help="seed and size a complete synthetic development market",
+    )
+    bootstrap_market.add_argument(
+        "--target-trades-per-hour-per-instrument",
+        type=_positive_float,
+        required=True,
+        help="minimum projected hourly trade activity for every active instrument",
+    )
+    bootstrap_market.add_argument(
+        "--max-bots",
+        type=_positive_int_or_unlimited,
+        default=5000,
+        help="fleet safety cap; use 'unlimited' or 'none' to disable it, default: 5000",
+    )
+    bootstrap_market.add_argument(
+        "--popularity-headroom",
+        type=_non_negative_float,
+        default=0.25,
+        help="extra fleet capacity distributed toward popular instruments, default: 0.25",
+    )
+    bootstrap_market.add_argument("--market-value-weight", type=_non_negative_float, default=0.45)
+    bootstrap_market.add_argument("--stats-weight", type=_non_negative_float, default=0.45)
+    bootstrap_market.add_argument("--social-weight", type=_non_negative_float, default=0.10)
+    bootstrap_market.add_argument("--minimum-instrument-price", type=_positive_decimal, default=Decimal("1"))
+    bootstrap_market.add_argument("--maximum-instrument-price", type=_positive_decimal, default=Decimal("250"))
+    bootstrap_market.add_argument("--funding-amount", type=_positive_decimal, default=Decimal("100000"))
+    bootstrap_market.add_argument("--min-holders-per-instrument", type=_positive_int, default=5)
+    bootstrap_market.add_argument("--max-positions-per-bot", type=_positive_int, default=500)
+    bootstrap_market.add_argument("--random-seed", type=int, default=20260915)
+    bootstrap_market.add_argument(
+        "--ingest-data",
+        action="store_true",
+        help=(
+            "ingest players, stats, social feeds, and the supplied market-value CSVs "
+            "before bootstrap"
+        ),
+    )
+    bootstrap_market.add_argument(
+        "--social-source-limit",
+        type=_positive_int,
+        default=100,
+        help="maximum due social subscriptions to poll during ingestion, default: 100",
+    )
+    bootstrap_market.add_argument(
+        "--social-lookback-hours",
+        type=_positive_int,
+        default=168,
+        help="lookback used to aggregate bootstrap social signals, default: 168 (7 days)",
+    )
+    bootstrap_market.add_argument("--league", type=int, default=9)
+    bootstrap_market.add_argument("--season", type=int, default=2025)
+    bootstrap_market.add_argument(
+        "--market-values-dir",
+        help="directory containing player_valuations.csv and players.csv for --ingest-data",
+    )
+    bootstrap_market.add_argument(
+        "--commit",
+        action="store_true",
+        help="apply changes; without this flag the command is a read-only dry-run",
+    )
+    bootstrap_market.add_argument("--log-level", default="INFO")
     return parser
 
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("value must be positive")
+    return parsed
+
+
+def _positive_int_or_unlimited(value: str) -> int | None:
+    if value.strip().casefold() in {"none", "unlimited"}:
+        return None
+    return _positive_int(value)
+
+
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive finite number")
+    return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("value must be a non-negative finite number")
+    return parsed
+
+
+def _positive_decimal(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise argparse.ArgumentTypeError("value must be a decimal") from error
+    if not parsed.is_finite() or parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive finite decimal")
     return parsed
 
 

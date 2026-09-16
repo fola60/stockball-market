@@ -2,18 +2,31 @@
 
 ## Purpose
 
-Owns the V1 price movement calculation.
+Owns the player-share price curve and trade quoting calculation.
 
-## V1 Rule
+## Curve Rule
 
-- Buy orders increase price by `shares_bought * price_impact_unit`.
-- Sell orders decrease price by `shares_sold * price_impact_unit`.
+- Each instrument stores its reference price, net shares purchased, shares outstanding, and a
+  configurable full-supply price multiplier.
+- Net shares purchased means shares bought through the trading engine minus shares sold through
+  it. It starts at zero and is independent of the initial allocation of shares to portfolios.
+- The default full-supply multiplier is `2.5`. At net purchases equal to shares outstanding, the
+  quote is 2.5 times the reference price. At the equivalent net-selling limit, it is 0.4 times the
+  reference price.
+- The quoted-price multiplier is the full-supply multiplier raised to the demand ratio. For
+  example, the default curve uses `2.5 ^ demand_ratio`.
+- Trade cost comes from one cumulative cost function for the curve. Each order subtracts its
+  starting cumulative cost from its ending cumulative cost. This makes a combined order and
+  equivalent consecutive orders produce the same price and stored cost.
 
 ## Responsibilities
 
-- Calculate the next instrument price after a trade.
+- Calculate the old price, new price, average execution price, trade cost, and next curve state.
 - Keep price math isolated and testable.
-- Enforce future guardrails such as minimum price or maximum movement if added.
+- Enforce the positive and negative curve limits.
+- Preserve twelve decimal places at storage boundaries. Cumulative cost is rounded before taking
+  the difference so consecutive trades telescope without accumulating per-order rounding drift.
+  Four-decimal formatting belongs to the presentation layer.
 
 ## Boundaries
 
@@ -22,4 +35,4 @@ Owns the V1 price movement calculation.
 - Synthetic traders place trades.
 - Trades cause price impact.
 
-This keeps the V1 rule simple: prices move only through executed buy and sell activity.
+Prices move only through executed buy and sell activity.

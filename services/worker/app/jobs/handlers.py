@@ -56,6 +56,9 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+SYNTHETIC_TRADER_TICK_BATCH_SIZE = 500
+
+
 class JobHandler(Protocol):
     def handle(self, job: WorkerJob) -> JobExecutionResult: ...
 
@@ -151,7 +154,7 @@ class SyntheticTraderTickJobHandler:
         results = [
             self.synthetic_trader_service.tick_due_bots(
                 payload.effective_at + timedelta(microseconds=iteration),
-                limit=500 if payload.force_timing else 100,
+                limit=SYNTHETIC_TRADER_TICK_BATCH_SIZE,
                 force_timing=payload.force_timing,
                 bot_ids=payload.bot_ids,
             )

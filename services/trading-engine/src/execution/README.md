@@ -7,7 +7,8 @@ Orchestrates the complete execution of buy and sell orders.
 ## Responsibilities
 
 - Coordinate order validation, freeze checks, portfolio checks, ledger updates, position updates, trade creation, price impact, and snapshots.
-- Fill V1 orders against the platform's current quoted instrument price.
+- Quote orders from the price curve and charge the exact average price across the curved movement.
+- Preserve twelve-decimal monetary precision through execution and ledger storage.
 - Ensure buy and sell flows happen transactionally.
 - Return a complete execution result to the caller.
 
@@ -20,7 +21,7 @@ Orchestrates the complete execution of buy and sell orders.
 - Debit cash through `ledger`.
 - Increase positions through `positions`.
 - Record trade.
-- Increase price through `price_impact`.
+- Advance net buying pressure and price through `price_impact`.
 - Record price snapshot through `snapshots`.
 
 ## Sell Flow
@@ -32,7 +33,7 @@ Orchestrates the complete execution of buy and sell orders.
 - Reduce positions through `positions`.
 - Credit cash through `ledger`.
 - Record trade.
-- Decrease price through `price_impact`.
+- Reduce net buying pressure and price through `price_impact`.
 - Record price snapshot through `snapshots`.
 
 ## Boundaries

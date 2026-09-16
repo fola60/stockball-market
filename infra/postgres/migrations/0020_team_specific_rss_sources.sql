@@ -12,7 +12,7 @@ CREATE TEMP TABLE team_rss_seed (
     source_category text NOT NULL,
     trust_weight numeric(5, 4) NOT NULL,
     terms_url text NOT NULL
-) ON COMMIT DROP;
+);
 
 INSERT INTO team_rss_seed VALUES
     -- BBC team feeds (all supported clubs).
@@ -169,3 +169,5 @@ FROM social_sources source
 WHERE subscription.source_id = source.id
   AND source.provider = 'RSS'
   AND source.external_source_id IN ('bbc-football', 'guardian-football');
+
+DROP TABLE team_rss_seed;

@@ -27,8 +27,8 @@ pub async fn record_price_snapshot(
     reason: PriceSnapshotReason,
     trade_id: Option<Uuid>,
 ) -> Result<PriceSnapshot, SnapshotError> {
-    ensure_non_negative_price(old_price)?;
-    ensure_non_negative_price(new_price)?;
+    ensure_positive_price(old_price)?;
+    ensure_positive_price(new_price)?;
 
     let row = sqlx::query_as::<_, PriceSnapshotRow>(
         r#"
@@ -66,8 +66,8 @@ pub async fn record_price_snapshot(
     PriceSnapshot::try_from(row)
 }
 
-fn ensure_non_negative_price(price: Decimal) -> Result<(), SnapshotError> {
-    if price.is_sign_negative() {
+fn ensure_positive_price(price: Decimal) -> Result<(), SnapshotError> {
+    if price <= Decimal::ZERO {
         return Err(SnapshotError::NegativePrice(price));
     }
 
@@ -78,8 +78,8 @@ impl TryFrom<PriceSnapshotRow> for PriceSnapshot {
     type Error = SnapshotError;
 
     fn try_from(row: PriceSnapshotRow) -> Result<Self, Self::Error> {
-        ensure_non_negative_price(row.old_price)?;
-        ensure_non_negative_price(row.new_price)?;
+        ensure_positive_price(row.old_price)?;
+        ensure_positive_price(row.new_price)?;
 
         Ok(Self {
             id: row.id,

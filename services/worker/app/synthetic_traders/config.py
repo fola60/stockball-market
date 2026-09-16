@@ -132,6 +132,14 @@ def _parse_noise_randomness(payload: Mapping[str, Any]) -> NoiseRandomnessConfig
             "randomness.recent_mover_bias",
         ),
         holding_bias=_float(randomness.get("holding_bias"), "randomness.holding_bias"),
+        activity_floor_minutes=_positive_int(
+            randomness.get("activity_floor_minutes", 60),
+            "randomness.activity_floor_minutes",
+        ),
+        activity_floor_weight=_ratio(
+            randomness.get("activity_floor_weight", 0.0),
+            "randomness.activity_floor_weight",
+        ),
     )
 
 

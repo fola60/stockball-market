@@ -274,6 +274,29 @@ class SyntheticTraderSpawnerTests(unittest.TestCase):
 
         self.assertNotEqual(repository.created_bots[0].bot_key.casefold(), reserved.casefold())
 
+    def test_spawn_fixed_activity_overrides_win_over_random_variation(self) -> None:
+        repository = FakeSyntheticTraderRepository(_config(uuid4()))
+
+        SyntheticTraderSpawner(
+            api_client=FakeApiClient(),
+            repository=repository,
+        ).spawn(
+            SpawnSyntheticTraderCommand(
+                config_key="NOISE_RETAIL_BUYER",
+                count=1,
+                random_seed=123,
+                config_overrides={
+                    "execution": {"tick_cadence_minutes": 10, "trade_probability": 0.75},
+                    "universe": {"max_candidates": 500},
+                },
+            )
+        )
+
+        overrides = repository.created_bots[0].config_overrides
+        self.assertEqual(overrides["execution"]["tick_cadence_minutes"], 10)
+        self.assertEqual(overrides["execution"]["trade_probability"], 0.75)
+        self.assertEqual(overrides["universe"]["max_candidates"], 500)
+
     def test_spawn_raises_when_config_key_is_missing(self) -> None:
         spawner = SyntheticTraderSpawner(
             api_client=FakeApiClient(),

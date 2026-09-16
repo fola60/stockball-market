@@ -123,12 +123,12 @@ paths:
                     instrument_id: 00000000-0000-0000-0000-000000000004
                     side: BUY
                     quantity: "10"
-                    execution_price: "100.0000"
-                    gross_amount: "1000.0000"
-                    cash_balance_after: "99000.0000"
+                    execution_price: "100.000458146765"
+                    gross_amount: "1000.004581467652"
+                    cash_balance_after: "98999.995418532348"
                     position_quantity_after: "10"
-                    old_price: "100.0000"
-                    new_price: "100.1000"
+                    old_price: "100.000000000000"
+                    new_price: "100.000916294930"
                     executed_at: "2026-04-15T12:00:00Z"
         "400":
           description: Malformed request or invalid command shape.

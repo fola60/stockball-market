@@ -30,6 +30,7 @@ from app.synthetic_traders.engines import (
     StatsValueStrategyEngine,
 )
 from app.synthetic_traders.engines.base import canonical_position_codes, filter_candidates
+from app.synthetic_traders.engines.noise import hourly_activity_floor_scores
 from tests.test_synthetic_trader_configs import (
     _betting_market_payload,
     _market_momentum_payload,
@@ -157,6 +158,19 @@ class SyntheticTraderEngineTests(unittest.TestCase):
         ).evaluate(context, config)
 
         self.assertEqual(decisions[0].side.value, "BUY")
+
+    def test_noise_activity_floor_prioritizes_hourly_undertraded_instruments(self) -> None:
+        quiet = _candidate(recent_trade_sides=())
+        active = _candidate(recent_trade_sides=(OrderSide.BUY,))
+
+        scores = hourly_activity_floor_scores(
+            (quiet, active),
+            self.as_of,
+            60,
+        )
+
+        self.assertEqual(scores[quiet.instrument_id], 1.0)
+        self.assertEqual(scores[active.instrument_id], 0.0)
 
     def test_candidate_filter_normalizes_provider_position_codes(self) -> None:
         config = parse_strategy_config(StrategyEngine.STATS_VALUE, _stats_value_payload())

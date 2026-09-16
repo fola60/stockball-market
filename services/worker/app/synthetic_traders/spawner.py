@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from random import Random
+from typing import Mapping
 
 from app.clients import ApiClient, CreateSyntheticTraderAccountCommand
 
@@ -63,6 +64,10 @@ class SyntheticTraderSpawner:
                 strategy_engine=config.strategy_engine,
                 base_config=config.config,
                 random_source=random_source,
+            )
+            config_overrides = _merge_mappings(
+                config_overrides,
+                command.config_overrides or {},
             )
             account = self.api_client.create_synthetic_trader_account(
                 CreateSyntheticTraderAccountCommand(
@@ -135,3 +140,17 @@ def _numbered_name(prefix: str, index: int) -> str:
         raise ValueError("prefix must not be empty")
     separator = "-" if " " not in normalized else " "
     return f"{normalized}{separator}{index:03d}"
+
+
+def _merge_mappings(
+    base: Mapping[str, object],
+    overrides: Mapping[str, object],
+) -> dict[str, object]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = _merge_mappings(existing, value)
+        else:
+            merged[key] = value
+    return merged

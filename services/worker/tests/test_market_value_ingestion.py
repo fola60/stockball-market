@@ -94,6 +94,25 @@ class MarketValueCsvReaderTests(unittest.TestCase):
         self.assertEqual(rows[0].value, Decimal("150000000"))
         self.assertEqual(rows[0].observed_at, datetime(2025, 6, 1, tzinfo=UTC))
 
+    def test_reader_ignores_zero_and_negative_market_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            valuations_csv = Path(directory) / "player_valuations.csv"
+            valuations_csv.write_text(
+                "\n".join(
+                    [
+                        "player_id,date,market_value_in_eur",
+                        "one,2025-01-01,-100",
+                        "two,2025-01-01,0",
+                        "three,2025-01-01,1000000",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            rows = TransfermarktCsvMarketValueReader().read(valuations_csv)
+
+        self.assertEqual([row.source_player_id for row in rows], ["three"])
+
 
 class MarketValueMatchingTests(unittest.TestCase):
     def test_matches_by_name_and_date_of_birth(self) -> None:
@@ -116,15 +135,81 @@ class MarketValueMatchingTests(unittest.TestCase):
         self.assertEqual(match.player_id, player_id)
         self.assertEqual(match.reason, "name_and_date_of_birth")
 
-    def test_name_only_match_is_ambiguous(self) -> None:
+    def test_unique_name_in_source_is_matched(self) -> None:
         player_id = uuid4()
         row = _market_value_row(name="Bukayo Saka", club=None, date_of_birth=None)
         candidate = _candidate(player_id=player_id, name="Bukayo Saka", club="Arsenal")
 
-        match = match_market_value_row(row, None, [candidate])
+        match = match_market_value_row(
+            row,
+            None,
+            [candidate],
+            source_name_occurrences=1,
+        )
+
+        self.assertEqual(match.status, MarketValueMatchStatus.MATCHED)
+        self.assertEqual(match.player_id, player_id)
+        self.assertEqual(match.reason, "unique_normalized_name")
+
+    def test_duplicate_name_in_source_remains_ambiguous_without_club(self) -> None:
+        player_id = uuid4()
+        row = _market_value_row(name="João Pedro", club=None, date_of_birth=None)
+        candidate = _candidate(player_id=player_id, name="João Pedro", club="Chelsea")
+
+        match = match_market_value_row(
+            row,
+            None,
+            [candidate],
+            source_name_occurrences=10,
+        )
 
         self.assertEqual(match.status, MarketValueMatchStatus.AMBIGUOUS)
         self.assertIsNone(match.player_id)
+
+    def test_legal_club_name_narrows_duplicate_source_name(self) -> None:
+        player_id = uuid4()
+        row = _market_value_row(
+            name="João Pedro",
+            club="Chelsea Football Club",
+            date_of_birth=None,
+        )
+        candidate = _candidate(player_id=player_id, name="João Pedro", club="Chelsea")
+
+        match = match_market_value_row(
+            row,
+            None,
+            [candidate],
+            source_name_occurrences=10,
+        )
+
+        self.assertEqual(match.status, MarketValueMatchStatus.MATCHED)
+        self.assertEqual(match.player_id, player_id)
+        self.assertEqual(match.reason, "name_and_club")
+
+    def test_common_fbref_and_legal_club_aliases_match(self) -> None:
+        cases = [
+            ("Manchester Utd", "Manchester United Football Club"),
+            ("Bournemouth", "Association Football Club Bournemouth"),
+            ("Wolves", "Wolverhampton Wanderers Football Club"),
+            ("Tottenham", "Tottenham Hotspur Football Club"),
+        ]
+
+        for fbref_club, source_club in cases:
+            with self.subTest(fbref_club=fbref_club):
+                player_id = uuid4()
+                match = match_market_value_row(
+                    _market_value_row(
+                        name="Example Player",
+                        club=source_club,
+                        date_of_birth=None,
+                    ),
+                    None,
+                    [_candidate(player_id, "Example Player", fbref_club)],
+                    source_name_occurrences=2,
+                )
+
+                self.assertEqual(match.status, MarketValueMatchStatus.MATCHED)
+                self.assertEqual(match.player_id, player_id)
 
 
 class MarketValueImportServiceTests(unittest.TestCase):

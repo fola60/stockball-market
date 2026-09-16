@@ -87,6 +87,8 @@ class NoiseRandomnessConfig:
     recognizable_player_bias: float
     recent_mover_bias: float
     holding_bias: float
+    activity_floor_minutes: int = 60
+    activity_floor_weight: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -370,4 +372,3 @@ DEFAULT_EXPLAINABILITY = ExplainabilityConfig(
     record_top_signal_count=0,
     include_raw_component_scores=False,
 )
-

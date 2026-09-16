@@ -247,7 +247,7 @@ apply_migrations() {
     fi
 
     echo "applying $migration_name"
-    psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+    psql "$STOCKBALL_WORKER_DATABASE_URL" -1 -v ON_ERROR_STOP=1 -f "$migration"
     psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 \
       -v "migration_name=$migration_name" \
       -c "INSERT INTO stockball_schema_migrations(filename) VALUES (:'migration_name')"

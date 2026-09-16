@@ -10,7 +10,8 @@ An instrument is anything Stockball can trade. In V1, the only implemented instr
 
 - Read instrument records needed for execution.
 - Store and update current instrument price.
-- Store shares outstanding and `price_impact_unit`.
+- Store shares outstanding, the reference price, net shares purchased, and the configurable
+  full-supply price multiplier used by the curve.
 - Store tradability status.
 - Link `PLAYER_SHARE` instruments to player records.
 - Provide instrument state to `execution`, `price_impact`, and `freezes`.
@@ -29,7 +30,7 @@ An instrument is anything Stockball can trade. In V1, the only implemented instr
 
 ## Boundaries
 
-- May update current instrument price only as part of trading-engine flows.
+- May update current price and net shares purchased only as part of trading-engine flows.
 - Must not ingest player data from external providers.
 - Must not decide bot behavior.
 - Must not expose public instrument APIs directly; the API service does that.

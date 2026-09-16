@@ -13,7 +13,7 @@ It is the only service allowed to execute trades or mutate prices, balances, pos
 - Check cash and share availability.
 - Mutate portfolio cash and positions.
 - Record orders and trades.
-- Apply the V1 price-impact rule.
+- Quote and apply the net-demand price curve.
 - Record price snapshots.
 - Apply ledger credits for scheduled top-ups.
 - Protect retry-sensitive commands with idempotency.

@@ -31,6 +31,9 @@ Stores database migration files.
   original feed summary, fetch provenance, bounded retry state, and retention controls.
 - Store general player/team observations with topic and positive, negative, neutral, or mixed
   sentiment; retain injury observations as a specialized extension of that evidence.
+- Audit one-off development-market valuations and enforce positive live instrument prices.
+- Store high-precision price-curve state with a configurable 2.5 default full-supply multiplier,
+  remove the superseded per-share increment, and audit guarded curve resets.
 
 ## Boundaries
 

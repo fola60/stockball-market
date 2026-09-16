@@ -296,6 +296,7 @@ class SpawnSyntheticTraderCommand:
     random_seed: int | None = None
     start_index: int = 1
     status: BotStatus = BotStatus.ACTIVE
+    config_overrides: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)

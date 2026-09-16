@@ -57,7 +57,6 @@ class PostgresTopupRepository:
                     JOIN synthetic_trader_bot_configs c ON c.id = b.config_id
                     JOIN portfolios p ON p.account_id = b.account_id
                     WHERE b.status = 'ACTIVE'
-                      AND c.strategy_engine <> 'SOCIAL_SENTIMENT'
                     ON CONFLICT (account_id, portfolio_id, cadence) DO UPDATE
                     SET amount = EXCLUDED.amount,
                         enabled = true,

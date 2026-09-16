@@ -129,7 +129,7 @@ services:
       STOCKBALL_TWITTER_BROWSER_ENABLED: ${STOCKBALL_TWITTER_BROWSER_ENABLED:-false}
       STOCKBALL_TWITTER_BROWSER_USER_DATA_DIR: ${STOCKBALL_TWITTER_BROWSER_USER_DATA_DIR:-}
       STOCKBALL_TWITTER_BROWSER_PROFILE_DIRECTORY: ${STOCKBALL_TWITTER_BROWSER_PROFILE_DIRECTORY:-}
-      STOCKBALL_SOCIAL_SIGNALS_ENABLED: ${STOCKBALL_SOCIAL_SIGNALS_ENABLED:-false}
+      STOCKBALL_SOCIAL_SIGNALS_ENABLED: ${STOCKBALL_SOCIAL_SIGNALS_ENABLED:-true}
       STOCKBALL_SOCIAL_SIGNAL_MAX_AGE_SECONDS: ${STOCKBALL_SOCIAL_SIGNAL_MAX_AGE_SECONDS:-3600}
     volumes:
       - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
@@ -193,6 +193,51 @@ services:
       redis:
         condition: service_healthy
       trading-engine:
+        condition: service_started
+
+  bootstrap-dev-market:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    init: true
+    platform: linux/amd64
+    command:
+      - xvfb-run
+      - -a
+      - -s
+      - -screen 0 1920x1080x24
+      - stockball-worker
+      - bootstrap-dev-market
+      - --target-trades-per-hour-per-instrument
+      - ${STOCKBALL_BOOTSTRAP_TARGET_TRADES_PER_HOUR:-2}
+      - --max-bots
+      - ${STOCKBALL_BOOTSTRAP_MAX_BOTS:-5000}
+      - --random-seed
+      - ${STOCKBALL_BOOTSTRAP_RANDOM_SEED:-20260915}
+      - --market-values-dir
+      - /data/market-values
+      - --ingest-data
+      - --commit
+    profiles: ["bootstrap"]
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
+      STOCKBALL_WORKER_REDIS_URL: ${STOCKBALL_WORKER_REDIS_URL:-redis://redis:6379/0}
+      STOCKBALL_WORKER_TRADING_ENGINE_URL: ${STOCKBALL_WORKER_TRADING_ENGINE_URL:-http://trading-engine:3000}
+      STOCKBALL_WORKER_API_URL: ${STOCKBALL_WORKER_API_URL:-http://api:8000}
+      STOCKBALL_FBREF_BASE_URL: ${STOCKBALL_FBREF_BASE_URL:-https://fbref.com}
+      STOCKBALL_FBREF_USER_AGENT: ${STOCKBALL_FBREF_USER_AGENT:-StockballMarketWorker/0.1;contact=engineering@stockball.local;provider=FBREF}
+      STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS: ${STOCKBALL_FBREF_REQUEST_INTERVAL_SECONDS:-7.5}
+      STOCKBALL_FBREF_CACHE_TTL_SECONDS: ${STOCKBALL_FBREF_CACHE_TTL_SECONDS:-86400}
+    volumes:
+      - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      trading-engine:
+        condition: service_started
+      api:
         condition: service_started
 
 volumes:

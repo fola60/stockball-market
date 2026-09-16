@@ -55,7 +55,6 @@ RUN apt-get update \
 COPY services/worker/pyproject.toml ./
 COPY services/worker/app ./app
 
-RUN echo "BUILD MARKER: services/worker/Dockerfile fbref-no-cache interval-7.5"
 RUN pip install --no-cache-dir .
 
 RUN if [ "$TARGETARCH" = "amd64" ]; then seleniumbase install chromedriver; fi

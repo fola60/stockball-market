@@ -30,7 +30,7 @@ pub enum InstrumentError {
     #[error("invalid instrument record {instrument_id}: {reason}")]
     InvalidRecord { instrument_id: Uuid, reason: String },
 
-    #[error("instrument price cannot be negative")]
+    #[error("instrument price must be positive")]
     NegativePrice,
 
     #[error("player-share seed value is invalid: {reason}")]

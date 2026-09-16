@@ -133,6 +133,60 @@ Use `--config-key STATS_VALUE_AGGRESSIVE` instead of `--strategy-engine` when yo
 
 This command provisions accounts through the API and writes only the worker-owned `synthetic_trader_bots` attachment rows, including per-bot randomized `config_overrides`. Omit `--random-seed` for non-deterministic variation. It does not grant cash or write trades, positions, ledger entries, or prices.
 
+### Complete Development Market Bootstrap
+
+Use the declarative bootstrap when you want instruments, a funded and diversified bot fleet,
+and initial player-share ownership from a single command. It is a read-only preview unless
+`--commit` is present:
+
+```bash
+cd services/worker
+python3 -m scripts.bootstrap_dev_market \
+  --target-trades-per-hour-per-instrument 2 \
+  --max-bots unlimited \
+  --random-seed 20260915
+
+python3 -m scripts.bootstrap_dev_market \
+  --target-trades-per-hour-per-instrument 2 \
+  --max-bots 5000 \
+  --random-seed 20260915 \
+  --commit
+```
+
+To refresh players, stats, approved social feeds, and Transfermarkt CSV data first, add
+`--ingest-data`, `--season`, and `--market-values-dir /path/to/csv-directory` to the committed
+command. The worker aggregates a seven-day social signal after polling (configurable with
+`--social-lookback-hours`). External ingestion is never attempted by a dry-run.
+
+Docker Compose uses the existing worker image rather than a separate image per job:
+
+```bash
+STOCKBALL_BOOTSTRAP_TARGET_TRADES_PER_HOUR=2 \
+docker compose --profile bootstrap run --rm bootstrap-dev-market
+```
+
+The fleet planner estimates successful hourly trades from effective tick cadence, decision yield,
+trade probability, cooldown, per-tick order limits, and daily trade caps. It keeps all ten seeded
+profiles represented, increases candidate coverage to the complete instrument universe, and adds
+25% capacity by default for popularity-weighted activity above the per-instrument floor. Existing
+active bots are reused and receive the same activity overrides; only profile deficits are spawned.
+Use `--popularity-headroom` to change the extra capacity. The default `--max-bots 5000` is a
+safety limit; pass `--max-bots unlimited` (or `none`) to remove it.
+The noise profiles additionally rank hourly undertraded instruments and bias their next eligible
+orders toward that gap, while signal-led profiles continue concentrating extra volume on popular
+players.
+
+Pre-market player prices use a market-value anchor adjusted by percentile signals. Defaults are
+45% latest market value, 45% player stats, and 10% social sentiment. Missing signals are neutral,
+prices are clamped to `£1–£250`, and only instruments with no positions, orders, or trades can be
+adjusted. Every adjustment is stored in `dev_market_bootstrap_instrument_valuations` and a price
+snapshot. Applied valuations, top-ups, bot counts, and portfolio issuance are idempotent on reruns.
+The report distinguishes projected activity from observed trades; the recurring synthetic-trader
+job must be running for the projection to become market activity.
+The recurring job processes up to 500 due bots each minute, providing 30,000 scheduled bot ticks
+per hour of runtime capacity; the bootstrap report's projected tick demand should remain below
+that ceiling for this single-worker development topology.
+
 ### Synthetic Portfolio Bootstrap
 
 Run the market bootstrap in this order:

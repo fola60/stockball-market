@@ -14,8 +14,10 @@
         "symbol",
         "display_name",
         "current_price",
+        "reference_price",
         "quantity_outstanding",
-        "price_impact_unit",
+        "net_shares_purchased",
+        "full_supply_price_multiplier",
         "status",
         "created_at",
         "updated_at"
@@ -40,11 +42,20 @@
         "current_price": {
           "$ref": "./common.schema.json#/$defs/DecimalString"
         },
+        "reference_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString",
+          "description": "Price quoted when cumulative net buying pressure is zero."
+        },
         "quantity_outstanding": {
           "$ref": "./common.schema.json#/$defs/DecimalString"
         },
-        "price_impact_unit": {
-          "$ref": "./common.schema.json#/$defs/DecimalString"
+        "net_shares_purchased": {
+          "$ref": "./common.schema.json#/$defs/DecimalString",
+          "description": "Shares bought through the engine minus shares sold through it."
+        },
+        "full_supply_price_multiplier": {
+          "$ref": "./common.schema.json#/$defs/DecimalString",
+          "description": "Price multiplier reached when net buying equals shares outstanding."
         },
         "status": {
           "$ref": "./common.schema.json#/$defs/InstrumentStatus"

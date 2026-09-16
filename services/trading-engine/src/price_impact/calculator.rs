@@ -1,79 +1,371 @@
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
 
 use super::{error::PriceImpactError, model::PriceImpactDirection};
 
-pub fn calculate_next_price(
-    current_price: Decimal,
+pub const DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER: Decimal = Decimal::from_parts(25, 0, 0, false, 1);
+
+const STORED_PRICE_DECIMAL_PLACES: u32 = 12;
+const STORED_MONEY_DECIMAL_PLACES: u32 = 12;
+const CALCULATION_TOLERANCE: Decimal = Decimal::from_parts(1, 0, 0, false, 18);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PriceImpactQuote {
+    pub old_price: Decimal,
+    pub new_price: Decimal,
+    pub execution_price: Decimal,
+    pub gross_amount: Decimal,
+    pub net_shares_purchased_after: Decimal,
+}
+
+pub fn quote_trade(
+    reference_price: Decimal,
+    shares_outstanding: Decimal,
+    net_shares_purchased: Decimal,
+    full_supply_price_multiplier: Decimal,
     quantity: Decimal,
-    price_impact_unit: Decimal,
     direction: PriceImpactDirection,
-) -> Result<Decimal, PriceImpactError> {
-    if current_price.is_sign_negative() {
-        return Err(PriceImpactError::NegativeCurrentPrice(current_price));
-    }
+) -> Result<PriceImpactQuote, PriceImpactError> {
+    validate_curve_state(
+        reference_price,
+        shares_outstanding,
+        net_shares_purchased,
+        full_supply_price_multiplier,
+    )?;
 
     if quantity <= Decimal::ZERO {
         return Err(PriceImpactError::NonPositiveQuantity(quantity));
     }
 
-    if price_impact_unit.is_sign_negative() {
-        return Err(PriceImpactError::NegativePriceImpactUnit(price_impact_unit));
-    }
+    let net_shares_purchased_after = match direction {
+        PriceImpactDirection::Buy => {
+            let available = checked_sub(shares_outstanding, net_shares_purchased)?;
+            if quantity > available {
+                return Err(PriceImpactError::BuyExceedsCurveLimit {
+                    available,
+                    requested: quantity,
+                });
+            }
+            checked_add(net_shares_purchased, quantity)?
+        }
+        PriceImpactDirection::Sell => {
+            let available = checked_add(shares_outstanding, net_shares_purchased)?;
+            if quantity > available {
+                return Err(PriceImpactError::SellExceedsCurveLimit {
+                    available,
+                    requested: quantity,
+                });
+            }
+            checked_sub(net_shares_purchased, quantity)?
+        }
+    };
 
-    let price_delta = quantity * price_impact_unit;
-    let next_price = match direction {
-        PriceImpactDirection::Buy => current_price + price_delta,
-        PriceImpactDirection::Sell => current_price - price_delta,
-    }
-    .round_dp(4);
+    let old_price = price_at(
+        reference_price,
+        shares_outstanding,
+        net_shares_purchased,
+        full_supply_price_multiplier,
+    )?;
+    let new_price = price_at(
+        reference_price,
+        shares_outstanding,
+        net_shares_purchased_after,
+        full_supply_price_multiplier,
+    )?;
+    // Quantize the cumulative endpoints, not each order's independently calculated cost.
+    // Adjacent trades then share the same endpoint and their stored costs telescope exactly.
+    let old_cost = cumulative_cost(
+        reference_price,
+        shares_outstanding,
+        net_shares_purchased,
+        full_supply_price_multiplier,
+    )?
+    .round_dp(STORED_MONEY_DECIMAL_PLACES);
+    let new_cost = cumulative_cost(
+        reference_price,
+        shares_outstanding,
+        net_shares_purchased_after,
+        full_supply_price_multiplier,
+    )?
+    .round_dp(STORED_MONEY_DECIMAL_PLACES);
+    let exact_gross_amount = match direction {
+        PriceImpactDirection::Buy => checked_sub(new_cost, old_cost)?,
+        PriceImpactDirection::Sell => checked_sub(old_cost, new_cost)?,
+    };
+    let execution_price = checked_div(exact_gross_amount, quantity)?;
 
-    if next_price.is_sign_negative() {
-        return Err(PriceImpactError::NegativeResultingPrice(next_price));
-    }
+    Ok(PriceImpactQuote {
+        old_price: old_price.round_dp(STORED_PRICE_DECIMAL_PLACES),
+        new_price: new_price.round_dp(STORED_PRICE_DECIMAL_PLACES),
+        execution_price: execution_price.round_dp(STORED_PRICE_DECIMAL_PLACES),
+        gross_amount: exact_gross_amount,
+        net_shares_purchased_after,
+    })
+}
 
-    Ok(next_price)
+fn validate_curve_state(
+    reference_price: Decimal,
+    shares_outstanding: Decimal,
+    net_shares_purchased: Decimal,
+    full_supply_price_multiplier: Decimal,
+) -> Result<(), PriceImpactError> {
+    if reference_price <= Decimal::ZERO {
+        return Err(PriceImpactError::NonPositiveReferencePrice(reference_price));
+    }
+    if shares_outstanding <= Decimal::ZERO {
+        return Err(PriceImpactError::NonPositiveSharesOutstanding(
+            shares_outstanding,
+        ));
+    }
+    if net_shares_purchased < -shares_outstanding || net_shares_purchased > shares_outstanding {
+        return Err(PriceImpactError::InvalidNetSharesPurchased {
+            net_shares_purchased,
+            shares_outstanding,
+        });
+    }
+    if full_supply_price_multiplier <= Decimal::ONE {
+        return Err(PriceImpactError::InvalidFullSupplyPriceMultiplier(
+            full_supply_price_multiplier,
+        ));
+    }
+    Ok(())
+}
+
+fn price_at(
+    reference_price: Decimal,
+    shares_outstanding: Decimal,
+    net_shares_purchased: Decimal,
+    full_supply_price_multiplier: Decimal,
+) -> Result<Decimal, PriceImpactError> {
+    let position = checked_div(net_shares_purchased, shares_outstanding)?;
+    let multiplier = curve_growth(full_supply_price_multiplier, position)?;
+
+    checked_mul(reference_price, multiplier)
+}
+
+fn cumulative_cost(
+    reference_price: Decimal,
+    shares_outstanding: Decimal,
+    net_shares_purchased: Decimal,
+    full_supply_price_multiplier: Decimal,
+) -> Result<Decimal, PriceImpactError> {
+    let position = checked_div(net_shares_purchased, shares_outstanding)?;
+    let growth = curve_growth(full_supply_price_multiplier, position)?;
+    let logarithm = full_supply_price_multiplier
+        .checked_ln()
+        .ok_or(PriceImpactError::CalculationOverflow)?;
+    let reference_market_value = checked_mul(reference_price, shares_outstanding)?;
+
+    checked_div(checked_mul(reference_market_value, growth)?, logarithm)
+}
+
+fn curve_growth(
+    full_supply_price_multiplier: Decimal,
+    position: Decimal,
+) -> Result<Decimal, PriceImpactError> {
+    let logarithm = full_supply_price_multiplier
+        .checked_ln()
+        .ok_or(PriceImpactError::CalculationOverflow)?;
+    let exponent = checked_mul(position, logarithm)?;
+    exponent
+        .checked_exp_with_tolerance(CALCULATION_TOLERANCE)
+        .ok_or(PriceImpactError::CalculationOverflow)
+}
+
+fn checked_add(left: Decimal, right: Decimal) -> Result<Decimal, PriceImpactError> {
+    left.checked_add(right)
+        .ok_or(PriceImpactError::CalculationOverflow)
+}
+
+fn checked_sub(left: Decimal, right: Decimal) -> Result<Decimal, PriceImpactError> {
+    left.checked_sub(right)
+        .ok_or(PriceImpactError::CalculationOverflow)
+}
+
+fn checked_mul(left: Decimal, right: Decimal) -> Result<Decimal, PriceImpactError> {
+    left.checked_mul(right)
+        .ok_or(PriceImpactError::CalculationOverflow)
+}
+
+fn checked_div(left: Decimal, right: Decimal) -> Result<Decimal, PriceImpactError> {
+    left.checked_div(right)
+        .ok_or(PriceImpactError::CalculationOverflow)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const REFERENCE_PRICE: Decimal = Decimal::from_parts(100, 0, 0, false, 0);
+    const TOTAL_SHARES: Decimal = Decimal::from_parts(1_000_000, 0, 0, false, 0);
+
     #[test]
-    fn buy_increases_price_by_quantity_times_impact_unit() {
-        let next_price = calculate_next_price(
-            Decimal::new(100_0000, 4),
-            Decimal::new(10_000000, 6),
-            Decimal::new(10000, 6),
+    fn buying_the_full_supply_reaches_the_configured_multiplier() {
+        let quote = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            TOTAL_SHARES,
             PriceImpactDirection::Buy,
         )
         .unwrap();
 
-        assert_eq!(next_price, Decimal::new(100_1000, 4));
+        assert_eq!(quote.old_price, Decimal::from(100));
+        assert_eq!(quote.new_price, Decimal::from(250));
+        assert_eq!(quote.net_shares_purchased_after, TOTAL_SHARES);
     }
 
     #[test]
-    fn sell_decreases_price_by_quantity_times_impact_unit() {
-        let next_price = calculate_next_price(
-            Decimal::new(100_0000, 4),
-            Decimal::new(10_000000, 6),
-            Decimal::new(10000, 6),
+    fn multiplier_is_configurable_per_curve() {
+        let quote = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            Decimal::TWO,
+            TOTAL_SHARES,
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+
+        assert_eq!(quote.new_price, Decimal::from(200));
+    }
+
+    #[test]
+    fn selling_the_full_scale_reaches_the_reciprocal_multiplier() {
+        let quote = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            TOTAL_SHARES,
             PriceImpactDirection::Sell,
         )
         .unwrap();
 
-        assert_eq!(next_price, Decimal::new(99_9000, 4));
+        assert_eq!(quote.new_price, Decimal::from(40));
+        assert_eq!(quote.net_shares_purchased_after, -TOTAL_SHARES);
     }
 
     #[test]
-    fn sell_rejects_negative_resulting_price() {
-        let error = calculate_next_price(
-            Decimal::new(1_0000, 4),
-            Decimal::new(2_000000, 6),
-            Decimal::new(1_000000, 6),
+    fn price_rises_more_in_the_second_half_of_the_curve() {
+        let first_half = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::from(500_000),
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+        let second_half = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::from(500_000),
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::from(500_000),
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+
+        assert!(
+            second_half.new_price - second_half.old_price
+                > first_half.new_price - first_half.old_price
+        );
+    }
+
+    #[test]
+    fn combined_and_separate_orders_have_the_same_cost_and_end_price() {
+        let combined_quantity = Decimal::new(133_001, 3);
+        let combined = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            combined_quantity,
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+
+        let mut net_shares_purchased = Decimal::ZERO;
+        let mut separate_cost = Decimal::ZERO;
+        let mut separate_end_price = REFERENCE_PRICE;
+        for quantity in [Decimal::from(100), Decimal::from(33), Decimal::new(1, 3)] {
+            let quote = quote_trade(
+                REFERENCE_PRICE,
+                TOTAL_SHARES,
+                net_shares_purchased,
+                DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+                quantity,
+                PriceImpactDirection::Buy,
+            )
+            .unwrap();
+            net_shares_purchased = quote.net_shares_purchased_after;
+            separate_cost += quote.gross_amount;
+            separate_end_price = quote.new_price;
+        }
+
+        assert_eq!(separate_end_price, combined.new_price);
+        assert_eq!(separate_cost, combined.gross_amount);
+    }
+
+    #[test]
+    fn a_buy_followed_by_the_same_sell_reverses_at_the_same_cost() {
+        let buy = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::new(133_001, 3),
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+        let sell = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            buy.net_shares_purchased_after,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::new(133_001, 3),
             PriceImpactDirection::Sell,
+        )
+        .unwrap();
+
+        assert_eq!(sell.new_price, REFERENCE_PRICE);
+        assert_eq!(sell.net_shares_purchased_after, Decimal::ZERO);
+        assert_eq!(sell.gross_amount, buy.gross_amount);
+        assert_eq!(sell.execution_price, buy.execution_price);
+    }
+
+    #[test]
+    fn fractional_orders_retain_sub_four_decimal_price_movement() {
+        let quote = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::new(1, 6),
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+
+        assert!(quote.new_price > quote.old_price);
+        assert!(quote.gross_amount > Decimal::ZERO);
+    }
+
+    #[test]
+    fn buy_cannot_exceed_the_remaining_supply() {
+        let error = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::from(999_999),
+            DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+            Decimal::from(2),
+            PriceImpactDirection::Buy,
         )
         .unwrap_err();
 
-        assert!(matches!(error, PriceImpactError::NegativeResultingPrice(_)));
+        assert!(matches!(
+            error,
+            PriceImpactError::BuyExceedsCurveLimit { .. }
+        ));
     }
 }

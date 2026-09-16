@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Protocol
 
 from .csv_importer import DEFAULT_CURRENCY, DEFAULT_SOURCE, TransfermarktCsvMarketValueReader
-from .matching import PlayerCandidate, match_market_value_row
+from .matching import PlayerCandidate, match_market_value_row, normalize_name
 from .models import MarketValueImportResult, MarketValueImportRow, MarketValueRow
 
 
@@ -46,8 +47,13 @@ class MarketValueImportService:
         )
         candidates = self._repository.list_player_candidates()
         provider_refs = self._repository.list_provider_refs(source)
+        source_name_counts = Counter(
+            normalize_name(row.source_player_name)
+            for row in rows
+            if normalize_name(row.source_player_name)
+        )
         import_rows = [
-            self._match_row(row, candidates, provider_refs)
+            self._match_row(row, candidates, provider_refs, source_name_counts)
             for row in rows
         ]
         return self._repository.save_import(
@@ -62,9 +68,18 @@ class MarketValueImportService:
         row: MarketValueRow,
         candidates: list[PlayerCandidate],
         provider_refs,
+        source_name_counts: Counter[str],
     ) -> MarketValueImportRow:
         existing_ref = provider_refs.get(row.source_player_id)
         return MarketValueImportRow(
             market_value=row,
-            match=match_market_value_row(row, existing_ref, candidates),
+            match=match_market_value_row(
+                row,
+                existing_ref,
+                candidates,
+                source_name_occurrences=source_name_counts.get(
+                    normalize_name(row.source_player_name),
+                    0,
+                ),
+            ),
         )

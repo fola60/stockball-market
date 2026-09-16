@@ -92,8 +92,10 @@ class MarketApiTests(unittest.TestCase):
             symbol="SEED-PLAYER",
             display_name="Seed Player Share",
             current_price="100.0000",
+            reference_price="100.0000",
             quantity_outstanding="1000000.000000",
-            price_impact_unit="0.010000",
+            net_shares_purchased="0.000000",
+            full_supply_price_multiplier="2.500000",
             status=InstrumentStatus.ACTIVE,
             created_at=_timestamp(),
             updated_at=_timestamp(),
@@ -196,6 +198,10 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(len(body), 1)
         self.assertEqual(body[0]["id"], str(self.instrument_id))
         self.assertEqual(body[0]["instrument_type"], "PLAYER_SHARE")
+        self.assertEqual(body[0]["reference_price"], "100.0000")
+        self.assertEqual(body[0]["net_shares_purchased"], "0.000000")
+        self.assertEqual(body[0]["full_supply_price_multiplier"], "2.500000")
+        self.assertNotIn("price_impact_unit", body[0])
 
     def test_get_instrument_returns_404_when_missing(self) -> None:
         response = self.client.get(f"/v1/instruments/{uuid4()}")
