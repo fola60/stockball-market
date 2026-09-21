@@ -34,6 +34,7 @@ Stores database migration files.
 - Audit one-off development-market valuations and enforce positive live instrument prices.
 - Store high-precision price-curve state with a configurable 2.5 default full-supply multiplier,
   remove the superseded per-share increment, and audit guarded curve resets.
+- Index global price-snapshot and trade timelines for incremental worker cache refreshes.
 
 ## Boundaries
 

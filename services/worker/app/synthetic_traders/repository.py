@@ -5,15 +5,16 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from statistics import fmean
+from threading import Lock
 from typing import Any, Iterator, Mapping, Protocol
 from uuid import UUID
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from app.clients.trading_engine import OrderSide
 from app.database import connection as pooled_connection
 
+from .market_history import RollingMarketHistoryCache
 from .models import (
     BettingMarketContext,
     BettingMarketQuote,
@@ -97,6 +98,8 @@ class PostgresSyntheticTraderRepository:
         self._database_url = database_url
         self._social_signals_enabled = social_signals_enabled
         self._social_signal_max_age_seconds = max(social_signal_max_age_seconds, 1)
+        self._market_history = RollingMarketHistoryCache()
+        self._market_history_refresh_lock = Lock()
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
@@ -445,8 +448,12 @@ class PostgresSyntheticTraderRepository:
                     for row in instrument_rows
                     if row["player_id"] is not None
                 ]
-                prices_by_instrument = self._load_prices(cursor, instrument_ids, market_since)
-                trades_by_instrument = self._load_trades(cursor, instrument_ids, market_since)
+                prices_by_instrument = self._load_prices(
+                    cursor, instrument_ids, market_since, as_of
+                )
+                trades_by_instrument = self._load_trades(
+                    cursor, instrument_ids, market_since, as_of
+                )
                 market_values_by_player = self._load_market_values(cursor, player_ids)
                 stats_by_player = self._load_stats(cursor, player_ids, stats_since)
                 betting_by_player = (
@@ -550,71 +557,89 @@ class PostgresSyntheticTraderRepository:
         cursor,
         instrument_ids: list[str],
         market_since: datetime,
+        as_of: datetime,
     ) -> dict[str, list[PricePoint]]:
         if not instrument_ids:
             return {}
-        cursor.execute(
-            """
-            SELECT
-                instrument_id::text AS instrument_id,
-                new_price,
-                captured_at
-            FROM price_snapshots
-            WHERE instrument_id = ANY(%(instrument_ids)s::uuid[])
-              AND captured_at >= %(market_since)s
-            ORDER BY instrument_id, captured_at ASC, id ASC
-            """,
-            {"instrument_ids": instrument_ids, "market_since": market_since},
-        )
-        rows = cursor.fetchall()
-        prices: dict[str, list[PricePoint]] = {}
-        for row in rows:
-            prices.setdefault(str(row["instrument_id"]), []).append(
-                PricePoint(
-                    price=_decimal(row["new_price"]),
-                    captured_at=row["captured_at"],
+        instrument_uuids = [UUID(instrument_id) for instrument_id in instrument_ids]
+        with self._market_history_refresh_lock:
+            query_since = self._market_history.next_price_since(market_since, as_of)
+            if query_since is not None:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        instrument_id,
+                        new_price,
+                        captured_at
+                    FROM price_snapshots
+                    WHERE instrument_id = ANY(%(instrument_ids)s::uuid[])
+                      AND captured_at >= %(query_since)s
+                      AND captured_at <= %(as_of)s
+                    ORDER BY captured_at ASC, id ASC
+                    """,
+                    {
+                        "instrument_ids": instrument_ids,
+                        "query_since": query_since,
+                        "as_of": as_of,
+                    },
                 )
+                self._market_history.record_prices(
+                    cursor.fetchall(),
+                    window_start=market_since,
+                    scanned_through=as_of,
+                )
+            return self._market_history.prices(
+                instrument_uuids,
+                window_start=market_since,
+                through=as_of,
             )
-        return prices
 
     def _load_trades(
         self,
         cursor,
         instrument_ids: list[str],
         market_since: datetime,
+        as_of: datetime,
     ) -> dict[str, list[MarketTradeSample]]:
         if not instrument_ids:
             return {}
-        cursor.execute(
-            """
-            SELECT
-                instrument_id::text AS instrument_id,
-                side,
-                shares,
-                gross_amount,
-                account_id,
-                executed_at
-            FROM trades
-            WHERE instrument_id = ANY(%(instrument_ids)s::uuid[])
-              AND executed_at >= %(market_since)s
-            ORDER BY instrument_id, executed_at ASC, id ASC
-            """,
-            {"instrument_ids": instrument_ids, "market_since": market_since},
-        )
-        rows = cursor.fetchall()
-        trades: dict[str, list[MarketTradeSample]] = {}
-        for row in rows:
-            trades.setdefault(str(row["instrument_id"]), []).append(
-                MarketTradeSample(
-                    instrument_id=UUID(str(row["instrument_id"])),
-                    side=OrderSide(str(row["side"])),
-                    quantity=_decimal(row["shares"]),
-                    gross_amount=_decimal(row["gross_amount"]),
-                    account_id=UUID(str(row["account_id"])),
-                    executed_at=row["executed_at"],
+        instrument_uuids = [UUID(instrument_id) for instrument_id in instrument_ids]
+        with self._market_history_refresh_lock:
+            query_since = self._market_history.next_trade_since(market_since, as_of)
+            if query_since is not None:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        instrument_id,
+                        side,
+                        shares,
+                        gross_amount,
+                        account_id,
+                        executed_at
+                    FROM trades
+                    WHERE instrument_id = ANY(%(instrument_ids)s::uuid[])
+                      AND executed_at >= %(query_since)s
+                      AND executed_at <= %(as_of)s
+                    ORDER BY executed_at ASC, id ASC
+                    """,
+                    {
+                        "instrument_ids": instrument_ids,
+                        "query_since": query_since,
+                        "as_of": as_of,
+                    },
                 )
+                self._market_history.record_trades(
+                    cursor.fetchall(),
+                    window_start=market_since,
+                    scanned_through=as_of,
+                )
+            return self._market_history.trades(
+                instrument_uuids,
+                window_start=market_since,
+                through=as_of,
             )
-        return trades
 
     def _load_market_values(
         self,

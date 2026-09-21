@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Request, status
@@ -55,11 +56,13 @@ def get_instrument(
     responses={404: {"model": ErrorResponse}},
 )
 def list_price_history(
-    instrument_id: UUID, request: Request
+    instrument_id: UUID,
+    request: Request,
+    range: Literal["1D", "1W", "1M", "3M", "1Y", "ALL"] = "ALL",
 ) -> list[PriceSnapshotResponse] | JSONResponse:
     service = get_instruments_service(request)
     try:
-        history = service.list_price_history(instrument_id)
+        history = service.list_price_history(instrument_id, range)
     except InstrumentNotFoundError as exc:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,

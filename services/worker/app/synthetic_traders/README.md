@@ -87,7 +87,7 @@ Required services:
 
 1. Scheduler enqueues `SYNTHETIC_TRADER_TICK` jobs on a recurring minute window.
 2. The job handler asks this module for due active bots.
-3. The repository loads the bot account portfolio, positions, recent market history, and available stat context.
+3. The repository loads the bot account portfolio, positions, recent market history, and available stat context. Market price and trade history is hydrated into a process-local rolling 30-day cache on first use; later batches query only a small overlapping delta and deduplicate rows by ID.
 4. The assigned engine produces raw buy, sell, or hold decisions.
 5. The service applies universal execution rules before any order is submitted:
    - available cash

@@ -13,6 +13,7 @@ from app.instruments.models import (
     PriceSnapshotReason,
     PriceSnapshotRecord,
     RadarAxisRecord,
+    RadarMetricRecord,
 )
 
 
@@ -59,12 +60,21 @@ class PriceSnapshotResponse(BaseModel):
         return cls.model_validate(snapshot)
 
 
+class RadarMetricResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    label: str
+    score: int
+    value: str
+
+
 class RadarAxisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     label: str
     score: int
     value: str
+    components: list[RadarMetricResponse]
 
     @classmethod
     def from_record(cls, axis: RadarAxisRecord) -> "RadarAxisResponse":

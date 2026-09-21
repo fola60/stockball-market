@@ -57,10 +57,18 @@ class PriceSnapshotRecord:
 
 
 @dataclass(frozen=True)
+class RadarMetricRecord:
+    label: str
+    score: int
+    value: str
+
+
+@dataclass(frozen=True)
 class RadarAxisRecord:
     label: str
     score: int
     value: str
+    components: list[RadarMetricRecord]
 
 
 @dataclass(frozen=True)

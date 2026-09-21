@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from app.instruments.models import InstrumentRecord, PlayerStatsRecord, PriceSnapshotRecord
@@ -25,9 +27,22 @@ class InstrumentsService:
             raise InstrumentNotFoundError(instrument_id)
         return instrument
 
-    def list_price_history(self, instrument_id: UUID) -> list[PriceSnapshotRecord]:
+    def list_price_history(
+        self,
+        instrument_id: UUID,
+        history_range: Literal["1D", "1W", "1M", "3M", "1Y", "ALL"] = "ALL",
+    ) -> list[PriceSnapshotRecord]:
         self.get_instrument(instrument_id)
-        return self._repository.list_price_history(instrument_id)
+        durations = {
+            "1D": timedelta(days=1),
+            "1W": timedelta(weeks=1),
+            "1M": timedelta(days=30),
+            "3M": timedelta(days=90),
+            "1Y": timedelta(days=365),
+        }
+        duration = durations.get(history_range)
+        since = datetime.now(UTC) - duration if duration is not None else None
+        return self._repository.list_price_history(instrument_id, since)
 
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
         self.get_instrument(instrument_id)

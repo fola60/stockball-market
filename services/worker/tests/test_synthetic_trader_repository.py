@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
@@ -201,6 +201,135 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
         self.assertEqual(candidates[0].instrument_id, instrument_id)
         self.assertEqual(candidates[0].player_id, player_id)
         self.assertEqual(candidates[0].current_holding_quantity, Decimal("2"))
+
+    def test_candidate_market_history_is_hydrated_once_then_refreshed_with_deltas(self) -> None:
+        instrument_id = uuid4()
+        player_id = uuid4()
+        account_id = uuid4()
+        initial_as_of = datetime(2026, 5, 22, 12, 0, tzinfo=UTC)
+        next_as_of = initial_as_of + timedelta(minutes=10)
+        initial_market_at = initial_as_of - timedelta(minutes=1)
+        delta_market_at = initial_as_of + timedelta(minutes=5)
+        initial_snapshot_id = uuid4()
+        initial_trade_id = uuid4()
+
+        def instrument_row(price: str) -> dict[str, object]:
+            return {
+                "id": str(instrument_id),
+                "player_id": str(player_id),
+                "symbol": "PLAYER-1",
+                "display_name": "Player One",
+                "current_price": Decimal(price),
+                "trading_status": "ACTIVE",
+                "club": "Arsenal",
+                "position": "FWD",
+            }
+
+        initial_cursor = SequencedCursor(
+            [
+                [instrument_row("20")],
+                [
+                    {
+                        "id": initial_snapshot_id,
+                        "instrument_id": instrument_id,
+                        "new_price": Decimal("20"),
+                        "captured_at": initial_market_at,
+                    }
+                ],
+                [
+                    {
+                        "id": initial_trade_id,
+                        "instrument_id": instrument_id,
+                        "side": "BUY",
+                        "shares": Decimal("1"),
+                        "gross_amount": Decimal("20"),
+                        "account_id": account_id,
+                        "executed_at": initial_market_at,
+                    }
+                ],
+                [],
+                [],
+            ]
+        )
+        delta_cursor = SequencedCursor(
+            [
+                [instrument_row("21")],
+                [
+                    {
+                        "id": initial_snapshot_id,
+                        "instrument_id": instrument_id,
+                        "new_price": Decimal("20"),
+                        "captured_at": initial_market_at,
+                    },
+                    {
+                        "id": uuid4(),
+                        "instrument_id": instrument_id,
+                        "new_price": Decimal("21"),
+                        "captured_at": delta_market_at,
+                    }
+                ],
+                [
+                    {
+                        "id": initial_trade_id,
+                        "instrument_id": instrument_id,
+                        "side": "BUY",
+                        "shares": Decimal("1"),
+                        "gross_amount": Decimal("20"),
+                        "account_id": account_id,
+                        "executed_at": initial_market_at,
+                    },
+                    {
+                        "id": uuid4(),
+                        "instrument_id": instrument_id,
+                        "side": "BUY",
+                        "shares": Decimal("1"),
+                        "gross_amount": Decimal("21"),
+                        "account_id": account_id,
+                        "executed_at": delta_market_at,
+                    }
+                ],
+                [],
+                [],
+            ]
+        )
+        portfolio = BotPortfolioContext(
+            account_id=account_id,
+            portfolio_id=uuid4(),
+            cash_balance=Decimal("1000"),
+            total_position_value=Decimal("0"),
+            total_equity=Decimal("1000"),
+            positions=(),
+        )
+        repository = PostgresSyntheticTraderRepository("postgres://example")
+
+        with patch(
+            "app.synthetic_traders.repository.pooled_connection",
+            side_effect=[FakeConnection(initial_cursor), FakeConnection(delta_cursor)],
+        ):
+            initial = repository.load_candidate_instruments(portfolio, initial_as_of)
+            refreshed = repository.load_candidate_instruments(portfolio, next_as_of)
+
+        initial_price_query = initial_cursor.executed[1]
+        delta_price_query = delta_cursor.executed[1]
+        delta_trade_query = delta_cursor.executed[2]
+        self.assertEqual(
+            initial_price_query[1]["query_since"],
+            initial_as_of - timedelta(days=30),
+        )
+        self.assertEqual(
+            delta_price_query[1]["query_since"],
+            initial_as_of - timedelta(minutes=5),
+        )
+        self.assertEqual(
+            delta_trade_query[1]["query_since"],
+            initial_as_of - timedelta(minutes=5),
+        )
+        self.assertEqual([point.price for point in initial[0].recent_prices], [Decimal("20")])
+        self.assertEqual(
+            [point.price for point in refreshed[0].recent_prices],
+            [Decimal("20"), Decimal("21")],
+        )
+        self.assertEqual(len(refreshed[0].recent_trades), 2)
 
 
 if __name__ == "__main__":

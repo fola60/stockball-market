@@ -15,6 +15,7 @@ from app.instruments.models import (
     PriceSnapshotReason,
     PriceSnapshotRecord,
     RadarAxisRecord,
+    RadarMetricRecord,
 )
 from app.instruments.service import InstrumentsService
 from app.main import create_app
@@ -34,6 +35,7 @@ class FakeInstrumentsRepository:
         self._instruments = {instrument.id: instrument for instrument in instruments}
         self._price_history = price_history
         self._player_stats = player_stats or {}
+        self.last_price_history_since: datetime | None = None
 
     def list_instruments(self) -> list[InstrumentRecord]:
         return list(self._instruments.values())
@@ -41,8 +43,14 @@ class FakeInstrumentsRepository:
     def get_instrument(self, instrument_id: UUID) -> InstrumentRecord | None:
         return self._instruments.get(instrument_id)
 
-    def list_price_history(self, instrument_id: UUID) -> list[PriceSnapshotRecord]:
-        return list(self._price_history.get(instrument_id, []))
+    def list_price_history(
+        self, instrument_id: UUID, since: datetime | None = None
+    ) -> list[PriceSnapshotRecord]:
+        self.last_price_history_since = since
+        history = self._price_history.get(instrument_id, [])
+        if since is not None:
+            history = [snapshot for snapshot in history if snapshot.captured_at >= since]
+        return list(history)
 
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
         return self._player_stats.get(instrument_id)
@@ -174,7 +182,20 @@ class MarketApiTests(unittest.TestCase):
                     red_cards=0,
                     comparison_group="FW",
                     comparison_size=96,
-                    radar_axes=[RadarAxisRecord(label="Goal threat", score=91, value="0.71 /90")],
+                    radar_axes=[
+                        RadarAxisRecord(
+                            label="Shooting",
+                            score=91,
+                            value="3 metrics",
+                            components=[
+                                RadarMetricRecord(
+                                    label="Goals",
+                                    score=94,
+                                    value="0.71 /90",
+                                )
+                            ],
+                        )
+                    ],
                 )
             },
         )
@@ -218,6 +239,29 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(body[0]["reason"], "TRADE_BUY")
         self.assertEqual(body[1]["reason"], "SEED")
 
+    def test_list_price_history_filters_to_requested_range(self) -> None:
+        response = self.client.get(
+            f"/v1/instruments/{self.instrument_id}/price-history?range=1W"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 2)
+        since = self.instruments_repository.last_price_history_since
+        self.assertIsNotNone(since)
+        assert since is not None
+        self.assertAlmostEqual(
+            (datetime.now(UTC) - since).total_seconds(),
+            7 * 24 * 60 * 60,
+            delta=1,
+        )
+
+    def test_list_price_history_rejects_unknown_range(self) -> None:
+        response = self.client.get(
+            f"/v1/instruments/{self.instrument_id}/price-history?range=2W"
+        )
+
+        self.assertEqual(response.status_code, 422)
+
     def test_get_player_stats_returns_percentile_profile(self) -> None:
         response = self.client.get(f"/v1/instruments/{self.instrument_id}/player-stats")
 
@@ -225,7 +269,17 @@ class MarketApiTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["season"], 2025)
         self.assertEqual(body["comparison_group"], "FW")
-        self.assertEqual(body["radar_axes"][0], {"label": "Goal threat", "score": 91, "value": "0.71 /90"})
+        self.assertEqual(
+            body["radar_axes"][0],
+            {
+                "label": "Shooting",
+                "score": 91,
+                "value": "3 metrics",
+                "components": [
+                    {"label": "Goals", "score": 94, "value": "0.71 /90"}
+                ],
+            },
+        )
 
     def test_get_portfolio_returns_cash_and_positions(self) -> None:
         response = self.client.get(f"/v1/portfolios/{self.portfolio_id}")

@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16-alpine
+    cpu_shares: 2048
+    mem_limit: 1536m
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-stockball}
       POSTGRES_USER: ${POSTGRES_USER:-stockball}
@@ -18,6 +20,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    cpu_shares: 1024
+    mem_limit: 256m
     ports:
       - "${REDIS_PORT:-6379}:6379"
     healthcheck:
@@ -30,6 +34,8 @@ services:
     build:
       context: .
       dockerfile: services/trading-engine/Dockerfile
+    cpu_shares: 2048
+    mem_limit: 384m
     environment:
       STOCKBALL_TRADING_ENGINE_DATABASE_URL: ${STOCKBALL_TRADING_ENGINE_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
       STOCKBALL_TRADING_ENGINE_BIND_ADDR: ${STOCKBALL_TRADING_ENGINE_BIND_ADDR:-0.0.0.0:3000}
@@ -43,6 +49,8 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+    cpu_shares: 2048
+    mem_limit: 768m
     environment:
       STOCKBALL_API_DATABASE_URL: ${STOCKBALL_API_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
       STOCKBALL_API_TRADING_ENGINE_URL: ${STOCKBALL_API_TRADING_ENGINE_URL:-http://trading-engine:3000}
@@ -69,6 +77,8 @@ services:
     build:
       context: .
       dockerfile: services/admin-ui/Dockerfile
+    cpu_shares: 128
+    mem_limit: 256m
     environment:
       NEXT_PUBLIC_STOCKBALL_API_URL: ${NEXT_PUBLIC_STOCKBALL_API_URL:-http://localhost:8000}
     ports:
@@ -77,10 +87,27 @@ services:
       api:
         condition: service_started
 
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    cpu_shares: 1024
+    mem_limit: 512m
+    environment:
+      STOCKBALL_API_URL: ${STOCKBALL_WEB_API_URL:-http://api:8000}
+      STOCKBALL_ACCOUNT_ID: ${STOCKBALL_ACCOUNT_ID:-00000000-0000-0000-0000-000000000001}
+    ports:
+      - "${WEB_PORT:-3002}:3002"
+    depends_on:
+      api:
+        condition: service_started
+
   worker:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
+    cpu_shares: 256
+    mem_limit: 3g
     command:
       ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24", "stockball-worker", "worker"]
     init: true
@@ -145,6 +172,8 @@ services:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
+    cpu_shares: 512
+    mem_limit: 256m
     command: ["stockball-worker", "scheduler"]
     profiles: ["worker"]
     environment:
@@ -199,6 +228,8 @@ services:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
+    cpu_shares: 256
+    mem_limit: 3g
     init: true
     platform: linux/amd64
     command:
