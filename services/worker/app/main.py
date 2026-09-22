@@ -81,6 +81,7 @@ from app.process_state import RedisProcessState
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.scheduler import DueSocialSubscriptionDispatcher, SchedulerProcess, SchedulerService
 from app.scheduler.models import default_scheduler_plans
+from app.runtime_settings import PostgresRuntimeSettings
 from app.synthetic_traders import (
     BootstrapAllocationError,
     BotStatus,
@@ -541,34 +542,35 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
         scheduler_heartbeat_ttl_seconds=max(30, settings.scheduler_poll_seconds * 3),
     )
     run_repository = PostgresScheduledRunRepository(settings.database_url)
-    scheduler = SchedulerService(
-        queue=queue,
-        claim_store=claim_store,
-        control_store=process_state,
-        run_repository=run_repository,
-        plans=default_scheduler_plans(
+    runtime_settings = PostgresRuntimeSettings(settings.database_url)
+
+    def scheduler_plans():
+        values = runtime_settings.values()
+        return default_scheduler_plans(
             player_stats_enabled=settings.player_stats_schedule_enabled,
-            player_stats_run_hour_utc=settings.player_stats_schedule_hour_utc,
-            player_stats_league=settings.player_stats_schedule_league,
-            player_stats_season=settings.player_stats_schedule_season,
-            bet365_enabled=(
-                settings.bet365_schedule_enabled
-                and settings.bet365_browser_enabled
-            ),
-            bet365_live_enabled=(
-                settings.bet365_live_schedule_enabled
-                and settings.bet365_browser_enabled
-            ),
-            bet365_live_interval_minutes=settings.bet365_live_schedule_interval_minutes,
+            player_stats_run_hour_utc=int(values.get("player_stats_schedule_hour_utc", settings.player_stats_schedule_hour_utc)),
+            player_stats_league=int(values.get("player_stats_schedule_league", settings.player_stats_schedule_league)),
+            player_stats_season=int(values.get("player_stats_schedule_season", settings.player_stats_schedule_season)),
+            bet365_enabled=(settings.bet365_schedule_enabled and settings.bet365_browser_enabled),
+            bet365_interval_minutes=int(values.get("bet365_schedule_interval_minutes", 15)),
+            bet365_live_enabled=(settings.bet365_live_schedule_enabled and settings.bet365_browser_enabled),
+            bet365_live_interval_minutes=int(values.get("bet365_live_schedule_interval_minutes", settings.bet365_live_schedule_interval_minutes)),
             twitter_injury_enabled=(
                 settings.twitter_injury_schedule_enabled
                 and settings.twitter_policy_acknowledged
                 and bool(settings.twitter_bearer_token)
                 and bool(settings.twitter_search_query)
             ),
-            twitter_injury_interval_minutes=settings.twitter_injury_schedule_interval_minutes,
+            twitter_injury_interval_minutes=int(values.get("twitter_injury_schedule_interval_minutes", settings.twitter_injury_schedule_interval_minutes)),
             twitter_query_key=settings.twitter_query_key,
-        ),
+        )
+
+    scheduler = SchedulerService(
+        queue=queue,
+        claim_store=claim_store,
+        control_store=process_state,
+        run_repository=run_repository,
+        plan_provider=scheduler_plans,
     )
     return SchedulerProcess(
         scheduler=scheduler,

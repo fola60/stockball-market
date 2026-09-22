@@ -15,6 +15,8 @@ from app.accounts.models import (
 )
 from app.accounts.repository import AccountAlreadyExistsError
 from app.accounts.service import AccountsService
+from app.auth.dependencies import get_current_principal
+from app.auth.models import CurrentPrincipal
 from app.main import create_app
 
 
@@ -68,7 +70,14 @@ class FakeAccountsRepository:
 class AccountsApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repository = FakeAccountsRepository()
-        self.client = TestClient(create_app(AccountsService(self.repository)))
+        app = create_app(AccountsService(self.repository))
+        app.dependency_overrides[get_current_principal] = lambda: CurrentPrincipal(
+            account_id=uuid4(),
+            portfolio_id=uuid4(),
+            account_type=AccountType.ADMIN,
+            session_id=uuid4(),
+        )
+        self.client = TestClient(app)
 
     def test_create_synthetic_trader_creates_portfolio_and_returns_201(self) -> None:
         response = self.client.post(

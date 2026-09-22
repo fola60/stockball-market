@@ -5,11 +5,12 @@ from typing import Any, Protocol
 
 import httpx
 
-from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord
+from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord, OrderQuoteRecord
 
 
 class TradingEngineClient(Protocol):
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
+    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord: ...
 
 
 class TradingEngineClientError(Exception):
@@ -40,16 +41,22 @@ class HttpTradingEngineClient:
             self._client.close()
 
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
+        return self._post_order("/internal/v1/orders/execute", command, OrderExecutionRecord)
+
+    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord:
+        return self._post_order("/internal/v1/orders/quote", command, OrderQuoteRecord)
+
+    def _post_order(self, path: str, command: ExecuteOrderCommand, record_type):
         try:
             response = self._client.post(
-                f"{self._base_url}/internal/v1/orders/execute",
+                f"{self._base_url}{path}",
                 json=command.to_payload(),
             )
         except httpx.HTTPError as exc:
             raise TradingEngineUnavailableError("trading engine request failed") from exc
 
         if response.is_success:
-            return OrderExecutionRecord.from_payload(response.json())
+            return record_type.from_payload(response.json())
 
         raise TradingEngineClientError(response.status_code, _parse_error_body(response))
 

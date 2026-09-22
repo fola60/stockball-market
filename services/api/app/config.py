@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from decimal import Decimal
 
 DATABASE_URL_ENV = "STOCKBALL_API_DATABASE_URL"
 DATABASE_URL_FALLBACK_ENV = "DATABASE_URL"
@@ -20,6 +21,7 @@ class Settings:
     redis_url: str = "redis://redis:6379/0"
     queue_name: str = "stockball:worker:jobs"
     dev_portal_enabled: bool = False
+    user_opening_balance: Decimal = Decimal("100000.0000")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -46,4 +48,7 @@ class Settings:
             queue_name=os.getenv("STOCKBALL_API_QUEUE_NAME", "stockball:worker:jobs"),
             dev_portal_enabled=os.getenv(DEV_PORTAL_ENABLED_ENV, "false").lower()
             in {"1", "true", "yes", "on"},
+            user_opening_balance=Decimal(
+                os.getenv("STOCKBALL_USER_OPENING_BALANCE", "100000.0000")
+            ),
         )

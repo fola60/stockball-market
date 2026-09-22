@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import redis
 
@@ -22,12 +22,16 @@ class ProcessDefinition:
     payload_mode: str | None = None
 
 
-def configured_processes() -> tuple[ProcessDefinition, ...]:
-    player_hour = int(os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_HOUR_UTC", "3"))
-    player_league = os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_LEAGUE", "9")
-    player_season = os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_SEASON", "2025")
-    bet_interval = int(os.getenv("STOCKBALL_BET365_SCHEDULE_INTERVAL_MINUTES", "15"))
-    live_interval = int(os.getenv("STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES", "1"))
+def configured_processes(
+    runtime_values: Mapping[str, Any] | None = None,
+) -> tuple[ProcessDefinition, ...]:
+    values = runtime_values or {}
+    player_hour = int(values.get("player_stats_schedule_hour_utc", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_HOUR_UTC", "3")))
+    player_league = str(values.get("player_stats_schedule_league", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_LEAGUE", "9")))
+    player_season = str(values.get("player_stats_schedule_season", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_SEASON", "2025")))
+    bet_interval = int(values.get("bet365_schedule_interval_minutes", os.getenv("STOCKBALL_BET365_SCHEDULE_INTERVAL_MINUTES", "15")))
+    live_interval = int(values.get("bet365_live_schedule_interval_minutes", os.getenv("STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES", "1")))
+    twitter_interval = int(values.get("twitter_injury_schedule_interval_minutes", os.getenv("STOCKBALL_TWITTER_INJURY_SCHEDULE_INTERVAL_MINUTES", "5")))
     return (
         ProcessDefinition(
             "social-feed-ingestion",
@@ -67,6 +71,13 @@ def configured_processes() -> tuple[ProcessDefinition, ...]:
             True,
         ),
         ProcessDefinition(
+            "twitter-injury-intelligence",
+            "Injury intelligence",
+            "INGEST_TWITTER_INJURIES",
+            f"Every {twitter_interval} minutes",
+            _bool_env("STOCKBALL_TWITTER_INJURY_SCHEDULE_ENABLED", False),
+        ),
+        ProcessDefinition(
             "weekly-topups",
             "Weekly account top-ups",
             "APPLY_TOPUPS",
@@ -91,15 +102,22 @@ class RedisProcessRegistry:
         redis_url: str,
         queue_name: str,
         executable_run_ids: Callable[[list[str]], set[str]] | None = None,
+        runtime_values: Callable[[], Mapping[str, Any]] | None = None,
     ) -> None:
         # redis-py's sync and async overloads are indistinguishable to static
         # analyzers; this registry deliberately owns the synchronous client.
         self._client: Any = redis.Redis.from_url(redis_url, decode_responses=True)
         self._queue_name = queue_name
         self._executable_run_ids = executable_run_ids
+        self._runtime_values = runtime_values
         self._definitions = {item.name: item for item in configured_processes()}
 
     def snapshot(self) -> dict[str, Any]:
+        runtime_values = getattr(self, "_runtime_values", None)
+        if runtime_values is not None:
+            self._definitions = {
+                item.name: item for item in configured_processes(runtime_values())
+            }
         overrides = self._client.hgetall(SCHEDULE_OVERRIDES_KEY)
         heartbeat = _json_value(self._client.get(SCHEDULER_HEARTBEAT_KEY))
         active_job = _json_value(self._client.get(WORKER_ACTIVE_JOB_KEY))

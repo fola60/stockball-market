@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
 
+from app.auth.dependencies import get_current_principal
+from app.auth.models import CurrentPrincipal
 from app.common.schemas import ErrorResponse
 from app.portfolios.schemas import PortfolioActivityResponse, PortfolioResponse
 from app.portfolios.service import PortfolioNotFoundError, PortfoliosService
@@ -25,8 +27,15 @@ def get_portfolios_service(request: Request) -> PortfoliosService:
     responses={404: {"model": ErrorResponse}},
 )
 def get_portfolio(
-    portfolio_id: UUID, request: Request
+    portfolio_id: UUID,
+    request: Request,
+    principal: CurrentPrincipal = Depends(get_current_principal),
 ) -> PortfolioResponse | JSONResponse:
+    if portfolio_id != principal.portfolio_id:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"code": "portfolio_forbidden", "message": "You cannot access this portfolio."},
+        )
     service = get_portfolios_service(request)
     try:
         portfolio = service.get_portfolio(portfolio_id)
@@ -51,7 +60,13 @@ def list_portfolio_activity(
     portfolio_id: UUID,
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
+    principal: CurrentPrincipal = Depends(get_current_principal),
 ) -> list[PortfolioActivityResponse] | JSONResponse:
+    if portfolio_id != principal.portfolio_id:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"code": "portfolio_forbidden", "message": "You cannot access this portfolio."},
+        )
     service = get_portfolios_service(request)
     try:
         activity = service.list_activity(portfolio_id, limit)

@@ -35,6 +35,9 @@ Stores database migration files.
 - Store high-precision price-curve state with a configurable 2.5 default full-supply multiplier,
   remove the superseded per-share increment, and audit guarded curve resets.
 - Index global price-snapshot and trade timelines for incremental worker cache refreshes.
+- Store password credentials, revocable opaque sessions, and auditable opening balances for
+  registered users.
+- Store allowlisted runtime settings and an append-only audit trail for admin changes.
 
 ## Boundaries
 

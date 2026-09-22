@@ -113,6 +113,10 @@ class Bet365OddsIngestionPlan:
     enabled: bool = False
     supersede_pending: bool = True
 
+    def __post_init__(self) -> None:
+        if not 1 <= self.interval_minutes <= 60:
+            raise ValueError("Bet365 interval_minutes must be between 1 and 60")
+
     def window_key_for(self, effective_at: datetime) -> str:
         normalized = _normalize_tick_time(effective_at)
         minute = normalized.minute - (normalized.minute % self.interval_minutes)
@@ -209,6 +213,7 @@ def default_scheduler_plans(
     player_stats_league: int = 9,
     player_stats_season: int = 2025,
     bet365_enabled: bool = False,
+    bet365_interval_minutes: int = 15,
     bet365_live_enabled: bool = False,
     bet365_live_interval_minutes: int = 1,
     twitter_injury_enabled: bool = False,
@@ -225,7 +230,10 @@ def default_scheduler_plans(
             league=player_stats_league,
             season=player_stats_season,
         ),
-        Bet365OddsIngestionPlan(enabled=bet365_enabled),
+        Bet365OddsIngestionPlan(
+            enabled=bet365_enabled,
+            interval_minutes=bet365_interval_minutes,
+        ),
         Bet365LiveOddsIngestionPlan(
             enabled=bet365_live_enabled,
             interval_minutes=bet365_live_interval_minutes,

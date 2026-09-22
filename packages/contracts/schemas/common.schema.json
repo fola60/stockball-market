@@ -42,6 +42,7 @@
         "TRADE_SELL_CREDIT",
         "WEEKLY_TOPUP",
         "MONTHLY_TOPUP",
+        "OPENING_BALANCE",
         "ADMIN_ADJUSTMENT",
         "REVERSAL"
       ]

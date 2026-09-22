@@ -160,6 +160,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/orders/quote:
+    post:
+      operationId: quoteOrder
+      summary: Quote a buy or sell without mutating market state
+      tags:
+        - Orders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteOrderRequest"
+      responses:
+        "200":
+          description: Current executable estimate and resulting account state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderQuoteResponse"
+        "404":
+          description: Account, portfolio, or instrument was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The order cannot currently be executed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The quote command violates trading validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     ApplyTopupRequest:
@@ -170,6 +207,8 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderRequest"
     ExecuteOrderResponse:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderResponse"
+    OrderQuoteResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/OrderQuoteResponse"
     SeedPlayerSharesResponse:
       $ref: "../schemas/trading.schema.json#/$defs/SeedPlayerSharesResponse"
     ErrorResponse:

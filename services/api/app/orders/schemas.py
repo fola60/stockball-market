@@ -7,15 +7,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.orders.models import OrderExecutionRecord, OrderSide
+from app.orders.models import OrderExecutionRecord, OrderQuoteRecord, OrderSide
 
 POSITIVE_DECIMAL_PATTERN = re.compile(r"^(?!(?:0(?:\.0+)?)$)(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
 
 class CreateOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     request_id: str | None = Field(default=None, max_length=255)
-    account_id: UUID
-    portfolio_id: UUID
     instrument_id: UUID
     side: OrderSide
     quantity: str
@@ -66,4 +66,25 @@ class OrderExecutionResponse(BaseModel):
 
     @classmethod
     def from_record(cls, record: OrderExecutionRecord) -> "OrderExecutionResponse":
+        return cls.model_validate(record)
+
+
+class OrderQuoteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: UUID
+    portfolio_id: UUID
+    instrument_id: UUID
+    side: OrderSide
+    quantity: str
+    execution_price: str
+    gross_amount: str
+    cash_balance_after: str
+    position_quantity_after: str
+    old_price: str
+    new_price: str
+    quoted_at: datetime
+
+    @classmethod
+    def from_record(cls, record: OrderQuoteRecord) -> "OrderQuoteResponse":
         return cls.model_validate(record)

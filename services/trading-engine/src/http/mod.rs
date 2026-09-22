@@ -5,7 +5,7 @@ mod router;
 
 pub use dto::{
     ApplyTopupRequest, ApplyTopupResponse, ErrorResponse, ExecuteOrderRequest,
-    ExecuteOrderResponse, SeedPlayerSharesResponse,
+    ExecuteOrderResponse, QuoteOrderRequest, QuoteOrderResponse, SeedPlayerSharesResponse,
 };
 pub use error::ApiError;
 pub use executor::{OrderExecutor, SqlOrderExecutor};

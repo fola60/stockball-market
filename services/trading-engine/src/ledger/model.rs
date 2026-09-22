@@ -23,6 +23,7 @@ pub struct CashLedgerEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LedgerReason {
+    OpeningBalance,
     TradeBuyDebit,
     TradeSellCredit,
     WeeklyTopup,
@@ -34,6 +35,7 @@ pub enum LedgerReason {
 impl LedgerReason {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::OpeningBalance => "OPENING_BALANCE",
             Self::TradeBuyDebit => "TRADE_BUY_DEBIT",
             Self::TradeSellCredit => "TRADE_SELL_CREDIT",
             Self::WeeklyTopup => "WEEKLY_TOPUP",
@@ -55,6 +57,7 @@ impl FromStr for LedgerReason {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
+            "OPENING_BALANCE" => Ok(Self::OpeningBalance),
             "TRADE_BUY_DEBIT" => Ok(Self::TradeBuyDebit),
             "TRADE_SELL_CREDIT" => Ok(Self::TradeSellCredit),
             "WEEKLY_TOPUP" => Ok(Self::WeeklyTopup),

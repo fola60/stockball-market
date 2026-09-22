@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use stockball_trading_engine::{
-    execution::execute_order,
+    execution::{execute_order, quote_order},
     orders::{ExecuteOrderCommand, OrderSide},
 };
 use uuid::Uuid;
@@ -44,6 +44,19 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
         side: OrderSide::Buy,
         quantity: Decimal::new(10, 0),
     };
+
+    let quote = quote_order(&pool, buy_command.clone()).await.unwrap();
+    assert_eq!(quote.execution_price, decimal("100.000458146765"));
+    assert_eq!(quote.gross_amount, decimal("1000.004581467652"));
+    assert_eq!(quote.position_quantity_after, Decimal::new(10, 0));
+
+    let pre_execution_order_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM orders WHERE request_id = $1")
+            .bind(&buy_request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pre_execution_order_count, 0);
 
     let buy = execute_order(&pool, buy_command.clone()).await.unwrap();
 

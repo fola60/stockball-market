@@ -79,3 +79,36 @@ class OrderExecutionRecord:
             new_price=str(payload["new_price"]),
             executed_at=datetime.fromisoformat(str(payload["executed_at"])),
         )
+
+
+@dataclass(frozen=True)
+class OrderQuoteRecord:
+    account_id: UUID
+    portfolio_id: UUID
+    instrument_id: UUID
+    side: OrderSide
+    quantity: str
+    execution_price: str
+    gross_amount: str
+    cash_balance_after: str
+    position_quantity_after: str
+    old_price: str
+    new_price: str
+    quoted_at: datetime
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "OrderQuoteRecord":
+        return cls(
+            account_id=UUID(str(payload["account_id"])),
+            portfolio_id=UUID(str(payload["portfolio_id"])),
+            instrument_id=UUID(str(payload["instrument_id"])),
+            side=OrderSide(str(payload["side"])),
+            quantity=str(payload["quantity"]),
+            execution_price=str(payload["execution_price"]),
+            gross_amount=str(payload["gross_amount"]),
+            cash_balance_after=str(payload["cash_balance_after"]),
+            position_quantity_after=str(payload["position_quantity_after"]),
+            old_price=str(payload["old_price"]),
+            new_price=str(payload["new_price"]),
+            quoted_at=datetime.fromisoformat(str(payload["quoted_at"])),
+        )

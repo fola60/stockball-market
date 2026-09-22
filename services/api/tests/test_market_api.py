@@ -6,6 +6,9 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
+from app.accounts.models import AccountType
+from app.auth.dependencies import get_current_principal
+from app.auth.models import CurrentPrincipal
 from app.clients.trading_engine import TradingEngineClientError, TradingEngineUnavailableError
 from app.instruments.models import (
     InstrumentRecord,
@@ -19,7 +22,7 @@ from app.instruments.models import (
 )
 from app.instruments.service import InstrumentsService
 from app.main import create_app
-from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord, OrderSide
+from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord, OrderQuoteRecord, OrderSide
 from app.orders.service import OrdersService
 from app.portfolios.models import PortfolioRecord, PositionRecord
 from app.portfolios.service import PortfoliosService
@@ -83,6 +86,26 @@ class FakeTradingEngineClient:
             raise self._error
         assert self._response is not None
         return self._response
+
+    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord:
+        self.last_command = command
+        if self._error is not None:
+            raise self._error
+        assert self._response is not None
+        return OrderQuoteRecord(
+            account_id=self._response.account_id,
+            portfolio_id=self._response.portfolio_id,
+            instrument_id=self._response.instrument_id,
+            side=self._response.side,
+            quantity=self._response.quantity,
+            execution_price=self._response.execution_price,
+            gross_amount=self._response.gross_amount,
+            cash_balance_after=self._response.cash_balance_after,
+            position_quantity_after=self._response.position_quantity_after,
+            old_price=self._response.old_price,
+            new_price=self._response.new_price,
+            quoted_at=self._response.executed_at,
+        )
 
 
 class MarketApiTests(unittest.TestCase):
@@ -201,15 +224,23 @@ class MarketApiTests(unittest.TestCase):
         )
         self.portfolios_repository = FakePortfoliosRepository([portfolio])
         self.trading_engine_client = FakeTradingEngineClient(response=execution)
-        self.client = TestClient(
-            create_app(
-                instruments_service=InstrumentsService(self.instruments_repository),
-                portfolios_service=PortfoliosService(self.portfolios_repository),
-                orders_service=OrdersService(
-                    self.trading_engine_client, request_id_factory=lambda: "generated-request-id"
-                ),
-            )
+        app = create_app(
+            instruments_service=InstrumentsService(self.instruments_repository),
+            portfolios_service=PortfoliosService(self.portfolios_repository),
+            orders_service=OrdersService(
+                self.trading_engine_client, request_id_factory=lambda: "generated-request-id"
+            ),
         )
+        self.client = self.authenticated_client(app)
+
+    def authenticated_client(self, app) -> TestClient:
+        app.dependency_overrides[get_current_principal] = lambda: CurrentPrincipal(
+            account_id=self.account_id,
+            portfolio_id=self.portfolio_id,
+            account_type=AccountType.USER,
+            session_id=uuid4(),
+        )
+        return TestClient(app)
 
     def test_list_instruments_returns_seeded_instruments(self) -> None:
         response = self.client.get("/v1/instruments")
@@ -290,11 +321,11 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(body["cash_balance"], "99000.0000")
         self.assertEqual(body["positions"][0]["instrument_id"], str(self.instrument_id))
 
-    def test_get_portfolio_returns_404_when_missing(self) -> None:
+    def test_get_portfolio_rejects_access_to_another_portfolio(self) -> None:
         response = self.client.get(f"/v1/portfolios/{uuid4()}")
 
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["code"], "portfolio_not_found")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "portfolio_forbidden")
 
     def test_get_portfolio_activity_returns_recent_trades(self) -> None:
         response = self.client.get(f"/v1/portfolios/{self.portfolio_id}/activity")
@@ -306,8 +337,6 @@ class MarketApiTests(unittest.TestCase):
         response = self.client.post(
             "/v1/orders",
             json={
-                "account_id": str(self.account_id),
-                "portfolio_id": str(self.portfolio_id),
                 "instrument_id": str(self.instrument_id),
                 "side": "BUY",
                 "quantity": "10.000000",
@@ -321,8 +350,36 @@ class MarketApiTests(unittest.TestCase):
         )
         self.assertEqual(response.json()["request_id"], "req_123")
 
-    def test_create_order_passes_through_trading_engine_error(self) -> None:
+    def test_create_order_requires_authentication(self) -> None:
         client = TestClient(
+            create_app(orders_service=OrdersService(self.trading_engine_client))
+        )
+        response = client.post(
+            "/v1/orders",
+            json={
+                "instrument_id": str(self.instrument_id),
+                "side": "BUY",
+                "quantity": "1",
+            },
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_quote_uses_authenticated_account_and_portfolio(self) -> None:
+        response = self.client.post(
+            "/v1/orders/quote",
+            json={
+                "request_id": "quote-123",
+                "instrument_id": str(self.instrument_id),
+                "side": "BUY",
+                "quantity": "2",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["account_id"], str(self.account_id))
+        self.assertEqual(self.trading_engine_client.last_command.account_id, self.account_id)
+
+    def test_create_order_passes_through_trading_engine_error(self) -> None:
+        client = self.authenticated_client(
             create_app(
                 orders_service=OrdersService(
                     FakeTradingEngineClient(
@@ -342,8 +399,6 @@ class MarketApiTests(unittest.TestCase):
             "/v1/orders",
             json={
                 "request_id": "req_456",
-                "account_id": str(self.account_id),
-                "portfolio_id": str(self.portfolio_id),
                 "instrument_id": str(self.instrument_id),
                 "side": "BUY",
                 "quantity": "10",
@@ -354,7 +409,7 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(response.json()["code"], "insufficient_cash")
 
     def test_create_order_returns_502_when_trading_engine_is_unavailable(self) -> None:
-        client = TestClient(
+        client = self.authenticated_client(
             create_app(
                 orders_service=OrdersService(
                     FakeTradingEngineClient(error=TradingEngineUnavailableError("dial timeout"))
@@ -366,8 +421,6 @@ class MarketApiTests(unittest.TestCase):
             "/v1/orders",
             json={
                 "request_id": "req_789",
-                "account_id": str(self.account_id),
-                "portfolio_id": str(self.portfolio_id),
                 "instrument_id": str(self.instrument_id),
                 "side": "SELL",
                 "quantity": "1.5",
@@ -381,8 +434,6 @@ class MarketApiTests(unittest.TestCase):
         response = self.client.post(
             "/v1/orders",
             json={
-                "account_id": str(self.account_id),
-                "portfolio_id": str(self.portfolio_id),
                 "instrument_id": str(self.instrument_id),
                 "side": "BUY",
                 "quantity": "1.0000001",

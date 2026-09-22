@@ -1,4 +1,4 @@
-export type View = "runs" | "processes" | "ingestion" | "traders" | "trades";
+export type View = "runs" | "processes" | "telemetry" | "settings" | "ingestion" | "traders" | "trades";
 export type Run = {
   id: string;
   operation_type: string;
@@ -201,4 +201,102 @@ export type OperationCapability = {
   operation_type: string;
   job_type: string;
   label: string;
+};
+
+export type TelemetryActivity = {
+  bucket: string;
+  trades: number;
+  gross_volume: string;
+  orders: number;
+  rejected_orders: number;
+  job_runs: number;
+  failed_runs: number;
+};
+
+export type TelemetrySnapshot = {
+  window_hours: number;
+  generated_at: string;
+  overview: {
+    trades: number;
+    gross_volume: string;
+    orders: number;
+    filled_orders: number;
+    rejected_orders: number;
+    job_runs: number;
+    failed_runs: number;
+    active_traders: number;
+    frozen_instruments: number;
+    order_success_rate: number;
+  };
+  activity: TelemetryActivity[];
+  rejection_reasons: Array<{ reason: string; count: number }>;
+  operations: Array<{
+    operation_type: string;
+    latest_success_at?: string;
+    latest_failure_at?: string;
+    failures: number;
+  }>;
+  service_health?: {
+    scheduler: { online: boolean; last_seen_at?: string; last_scheduled: string[] };
+    queue_depth: number;
+    active_job?: ProcessJob;
+  };
+  endpoint_metrics: EndpointMetric[];
+};
+
+export type EndpointMetric = {
+  method: string;
+  route: string;
+  request_count: number;
+  error_count: number;
+  error_rate: number;
+  requests_per_minute: number;
+  min_ms?: number;
+  average_ms?: number;
+  p50_ms?: number;
+  p90_ms?: number;
+  p95_ms?: number;
+  p99_ms?: number;
+  max_ms?: number;
+  last_seen_at?: string;
+};
+
+export type EnvironmentVariable = {
+  name: string;
+  value?: string;
+  configured: boolean;
+  has_value: boolean;
+  default_value?: string;
+  sensitive: boolean;
+  category: string;
+  services: string[];
+  value_type: "string" | "integer" | "number" | "boolean";
+  apply_mode: "next_scheduler_cycle" | "service_recreation";
+};
+
+export type RuntimeSetting = {
+  key: string;
+  label: string;
+  description: string;
+  category: string;
+  value_type: "integer";
+  default_value: number;
+  value: number;
+  source: "runtime" | "environment";
+  minimum: number;
+  maximum: number;
+  unit?: string;
+  apply_mode: "next_scheduler_cycle";
+};
+
+export type AuditEvent = {
+  id: string;
+  actor: string;
+  action: string;
+  target_type: string;
+  target_key: string;
+  before_value?: number;
+  after_value?: number;
+  reason: string;
+  created_at: string;
 };

@@ -16,8 +16,78 @@ use crate::{
 
 use super::{
     error::ExecutionError,
-    model::{ExecuteOrderResult, Trade},
+    model::{ExecuteOrderResult, OrderQuote, Trade},
 };
+
+pub async fn quote_order(
+    pool: &PgPool,
+    command: ExecuteOrderCommand,
+) -> Result<OrderQuote, ExecutionError> {
+    command.validate()?;
+    let mut transaction = pool.begin().await?;
+    let instrument =
+        instruments::lock_instrument_by_id(&mut transaction, command.instrument_id).await?;
+    freezes::assert_not_frozen(&instrument)?;
+    instruments::assert_tradable(&instrument)?;
+    let portfolio =
+        portfolios::lock_portfolio_by_id(&mut transaction, command.portfolio_id).await?;
+    portfolios::assert_portfolio_belongs_to_account(&portfolio, command.account_id)?;
+
+    let quote = price_impact::quote_trade(
+        instrument.reference_price,
+        instrument.shares_outstanding,
+        instrument.net_shares_purchased,
+        instrument.full_supply_price_multiplier,
+        command.quantity,
+        PriceImpactDirection::from(command.side),
+    )?;
+    let current_position = positions::get_position(
+        &mut *transaction,
+        command.portfolio_id,
+        command.instrument_id,
+    )
+    .await?
+    .map(|position| position.quantity)
+    .unwrap_or(Decimal::ZERO);
+
+    let (cash_balance_after, position_quantity_after) = match command.side {
+        OrderSide::Buy => {
+            portfolios::assert_has_cash(&portfolio, quote.gross_amount)?;
+            (
+                portfolio.cash_balance - quote.gross_amount,
+                current_position + command.quantity,
+            )
+        }
+        OrderSide::Sell => {
+            positions::assert_has_quantity(
+                command.portfolio_id,
+                command.instrument_id,
+                current_position,
+                command.quantity,
+            )?;
+            (
+                portfolio.cash_balance + quote.gross_amount,
+                current_position - command.quantity,
+            )
+        }
+    };
+
+    transaction.commit().await?;
+    Ok(OrderQuote {
+        account_id: command.account_id,
+        portfolio_id: command.portfolio_id,
+        instrument_id: command.instrument_id,
+        side: command.side,
+        quantity: command.quantity,
+        execution_price: quote.execution_price,
+        gross_amount: quote.gross_amount,
+        cash_balance_after,
+        position_quantity_after,
+        old_price: quote.old_price,
+        new_price: quote.new_price,
+        quoted_at: Utc::now(),
+    })
+}
 
 #[derive(Debug, FromRow)]
 struct TradeRow {

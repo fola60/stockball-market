@@ -161,6 +161,25 @@ class SchedulerServiceTests(unittest.TestCase):
         self.assertEqual(duplicate, ())
         self.assertEqual(len(queue.jobs), 2)
 
+    def test_plan_provider_is_read_for_each_scheduler_cycle(self) -> None:
+        hour = 3
+
+        def plans():
+            return (DailyPlayerStatsIngestionPlan(run_hour_utc=hour),)
+
+        scheduler = SchedulerService(
+            queue=InMemoryJobQueue(),
+            claim_store=InMemoryScheduleClaimStore(),
+            plan_provider=plans,
+        )
+
+        first = scheduler.schedule_due_jobs(datetime(2026, 4, 22, 2, 0, tzinfo=UTC))
+        hour = 1
+        second = scheduler.schedule_due_jobs(datetime(2026, 4, 22, 2, 1, tzinfo=UTC))
+
+        self.assertEqual(first[0].window_key, "2026-04-21")
+        self.assertEqual(second[0].window_key, "2026-04-22")
+
 
 if __name__ == "__main__":
     unittest.main()

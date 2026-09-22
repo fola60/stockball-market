@@ -13,7 +13,6 @@ from app.instruments.models import (
     PriceSnapshotReason,
     PriceSnapshotRecord,
     RadarAxisRecord,
-    RadarMetricRecord,
 )
 
 

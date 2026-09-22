@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 from uuid import UUID, uuid4
 
 from app.jobs.models import JobType, WorkerJob
@@ -62,10 +62,12 @@ class SchedulerService:
     plans: tuple[SchedulePlan, ...] = default_scheduler_plans()
     control_store: ScheduleControlStore | None = None
     run_repository: ScheduledRunRepository | None = None
+    plan_provider: Callable[[], tuple[SchedulePlan, ...]] | None = None
 
     def schedule_due_jobs(self, effective_at: datetime) -> tuple[ScheduledJobDecision, ...]:
         decisions: list[ScheduledJobDecision] = []
-        for plan in self.plans:
+        plans = self.plans if self.plan_provider is None else self.plan_provider()
+        for plan in plans:
             enabled = (
                 plan.enabled
                 if self.control_store is None

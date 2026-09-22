@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import redis
 
 from .operations import OPERATION_DEFINITIONS, operation_definition
+from .runtime_settings import RuntimeSettingsRegistry
 
 
 class DevOperationsRepository(Protocol):
@@ -43,6 +44,8 @@ class DevOperationsRepository(Protocol):
         side: str | None = None,
     ) -> dict[str, Any]: ...
     def get_trade_details(self, trade_id: UUID) -> dict[str, Any] | None: ...
+    def telemetry(self, hours: int) -> dict[str, Any]: ...
+    def list_admin_audit_events(self, limit: int = 50) -> list[dict[str, Any]]: ...
 
 
 class JobPublisher(Protocol):
@@ -71,6 +74,7 @@ class DevOperationsService:
     repository: DevOperationsRepository
     publisher: JobPublisher
     process_registry: ProcessRegistry | None = None
+    runtime_settings: RuntimeSettingsRegistry | None = None
 
     @staticmethod
     def capabilities() -> list[dict[str, str]]:
@@ -99,3 +103,14 @@ class DevOperationsService:
             self.repository.mark_enqueue_failed(run_id, f"failed to enqueue operation: {error}")
             raise
         return run
+
+    def telemetry(self, hours: int) -> dict[str, Any]:
+        result = self.repository.telemetry(hours)
+        if self.process_registry is not None:
+            snapshot = self.process_registry.snapshot()
+            result["service_health"] = {
+                "scheduler": snapshot["scheduler"],
+                "queue_depth": len(snapshot["queued_jobs"]),
+                "active_job": snapshot["active_job"],
+            }
+        return result

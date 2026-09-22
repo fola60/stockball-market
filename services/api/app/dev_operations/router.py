@@ -6,6 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from app.request_telemetry import known_http_routes
+
 router = APIRouter(prefix="/internal/v1/dev", tags=["dev operations"])
 
 
@@ -16,6 +18,16 @@ class EnqueueOperationRequest(BaseModel):
 
 class SetProcessStateRequest(BaseModel):
     enabled: bool
+
+
+class UpdateRuntimeSettingRequest(BaseModel):
+    value: int | None
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class UpdateEnvironmentRequest(BaseModel):
+    value: str = Field(max_length=4000)
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class OperationCapabilityResponse(BaseModel):
@@ -90,6 +102,71 @@ def get_summary(request: Request) -> dict[str, Any]:
 @router.get("/social-ingestion")
 def get_social_ingestion_summary(request: Request) -> dict[str, Any]:
     return _service(request).repository.social_ingestion_summary()
+
+
+@router.get("/telemetry")
+def get_telemetry(
+    request: Request, hours: int = Query(default=24, ge=1, le=168)
+) -> dict[str, Any]:
+    result = _service(request).telemetry(hours)
+    request_telemetry = request.app.state.request_telemetry
+    result["endpoint_metrics"] = request_telemetry.snapshot(
+        hours, known_http_routes(request.app)
+    )
+    return result
+
+
+@router.get("/runtime-settings")
+def list_runtime_settings(request: Request) -> list[dict[str, Any]]:
+    registry = _service(request).runtime_settings
+    if registry is None:
+        raise HTTPException(status_code=404, detail="runtime settings are unavailable")
+    return registry.list()
+
+
+@router.patch("/runtime-settings/{setting_key}")
+def update_runtime_setting(
+    setting_key: str, command: UpdateRuntimeSettingRequest, request: Request
+) -> dict[str, Any]:
+    registry = _service(request).runtime_settings
+    if registry is None:
+        raise HTTPException(status_code=404, detail="runtime settings are unavailable")
+    actor = request.headers.get("x-admin-actor", "admin-ui")[:100]
+    try:
+        return registry.update(
+            setting_key, command.value, actor=actor, reason=command.reason
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/audit-events")
+def list_audit_events(
+    request: Request, limit: int = Query(default=50, ge=1, le=200)
+) -> list[dict[str, Any]]:
+    return _service(request).repository.list_admin_audit_events(limit)
+
+
+@router.get("/environment")
+def list_environment(request: Request) -> list[dict[str, Any]]:
+    service = getattr(request.app.state, "environment_service", None)
+    if service is None:
+        raise HTTPException(status_code=404, detail="environment editing is unavailable")
+    return service.list()
+
+
+@router.patch("/environment/{name}")
+def update_environment(
+    name: str, command: UpdateEnvironmentRequest, request: Request
+) -> dict[str, Any]:
+    service = getattr(request.app.state, "environment_service", None)
+    if service is None:
+        raise HTTPException(status_code=404, detail="environment editing is unavailable")
+    actor = request.headers.get("x-admin-actor", "admin-ui")[:100]
+    try:
+        return service.update(name, command.value, actor=actor, reason=command.reason)
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get("/processes")

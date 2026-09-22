@@ -4,7 +4,12 @@ from collections.abc import Callable
 from uuid import uuid4
 
 from app.clients.trading_engine import TradingEngineClient
-from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord, SubmitOrderCommand
+from app.orders.models import (
+    ExecuteOrderCommand,
+    OrderExecutionRecord,
+    OrderQuoteRecord,
+    SubmitOrderCommand,
+)
 
 
 class OrdersService:
@@ -26,6 +31,17 @@ class OrdersService:
             quantity=command.quantity,
         )
         return self._trading_engine_client.execute_order(execute_command)
+
+    def quote_order(self, command: SubmitOrderCommand) -> OrderQuoteRecord:
+        execute_command = ExecuteOrderCommand(
+            request_id=command.request_id or self._request_id_factory(),
+            account_id=command.account_id,
+            portfolio_id=command.portfolio_id,
+            instrument_id=command.instrument_id,
+            side=command.side,
+            quantity=command.quantity,
+        )
+        return self._trading_engine_client.quote_order(execute_command)
 
 
 def _default_request_id() -> str:

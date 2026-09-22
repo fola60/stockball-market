@@ -6,7 +6,7 @@ use axum::{
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use stockball_trading_engine::{
-    execution::{ExecuteOrderResult, ExecutionError},
+    execution::{ExecuteOrderResult, ExecutionError, OrderQuote},
     freezes::FreezeError,
     http::{build_router, AppState, OrderExecutor},
     instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
@@ -233,6 +233,13 @@ impl StubExecutor {
 
 #[async_trait]
 impl OrderExecutor for StubExecutor {
+    async fn quote_order(
+        &self,
+        _command: ExecuteOrderCommand,
+    ) -> Result<OrderQuote, ExecutionError> {
+        panic!("quote endpoint is not used by this stub")
+    }
+
     async fn execute_order(
         &self,
         _command: ExecuteOrderCommand,

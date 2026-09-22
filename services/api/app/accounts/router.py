@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from app.accounts.models import AccountType, CreateAccountCommand
 from app.accounts.repository import AccountAlreadyExistsError
 from app.accounts.schemas import AccountResponse, CreateAccountRequest
 from app.accounts.service import AccountNotFoundError, AccountsService
+from app.auth.dependencies import get_current_principal
+from app.auth.models import CurrentPrincipal
 from app.common.schemas import ErrorResponse
 
 router = APIRouter()
@@ -20,13 +22,23 @@ def get_accounts_service(request: Request) -> AccountsService:
     return request.app.state.accounts_service
 
 
+def require_admin(principal: CurrentPrincipal = Depends(get_current_principal)) -> CurrentPrincipal:
+    if principal.account_type is not AccountType.ADMIN:
+        raise HTTPException(status_code=403, detail="administrator access required")
+    return principal
+
+
 @public_router.post(
     "/users",
     response_model=AccountResponse,
     status_code=status.HTTP_201_CREATED,
     responses={409: {"model": ErrorResponse}},
 )
-def create_user(payload: CreateAccountRequest, request: Request) -> AccountResponse | JSONResponse:
+def create_user(
+    payload: CreateAccountRequest,
+    request: Request,
+    _: CurrentPrincipal = Depends(require_admin),
+) -> AccountResponse | JSONResponse:
     return _create_account(payload, request, AccountType.USER)
 
 
@@ -37,7 +49,9 @@ def create_user(payload: CreateAccountRequest, request: Request) -> AccountRespo
     responses={409: {"model": ErrorResponse}},
 )
 def create_admin(
-    payload: CreateAccountRequest, request: Request
+    payload: CreateAccountRequest,
+    request: Request,
+    _: CurrentPrincipal = Depends(require_admin),
 ) -> AccountResponse | JSONResponse:
     return _create_account(payload, request, AccountType.ADMIN)
 
@@ -85,6 +99,7 @@ def _create_account(
 def list_accounts(
     request: Request,
     account_type: AccountType | None = Query(default=None),
+    _: CurrentPrincipal = Depends(require_admin),
 ) -> list[AccountResponse]:
     service = get_accounts_service(request)
     accounts = service.list_accounts(account_type)
@@ -96,7 +111,16 @@ def list_accounts(
     response_model=AccountResponse,
     responses={404: {"model": ErrorResponse}},
 )
-def get_account(account_id: UUID, request: Request) -> AccountResponse | JSONResponse:
+def get_account(
+    account_id: UUID,
+    request: Request,
+    principal: CurrentPrincipal = Depends(get_current_principal),
+) -> AccountResponse | JSONResponse:
+    if account_id != principal.account_id and principal.account_type is not AccountType.ADMIN:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"code": "account_forbidden", "message": "You cannot access this account."},
+        )
     service = get_accounts_service(request)
     try:
         account = service.get_account(account_id)

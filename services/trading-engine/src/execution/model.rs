@@ -31,6 +31,29 @@ pub struct ExecuteOrderResult {
     pub executed_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrderQuote {
+    pub account_id: Uuid,
+    pub portfolio_id: Uuid,
+    pub instrument_id: Uuid,
+    pub side: OrderSide,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub quantity: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub execution_price: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub gross_amount: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub cash_balance_after: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub position_quantity_after: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub old_price: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub new_price: Decimal,
+    pub quoted_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Trade {
     pub id: Uuid,

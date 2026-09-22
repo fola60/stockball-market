@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 
 use crate::{
-    execution::{self, ExecuteOrderResult, ExecutionError},
+    execution::{self, ExecuteOrderResult, ExecutionError, OrderQuote},
     instruments::{self, InstrumentError, SeedPlayerSharesResult},
     ledger::CashLedgerEntry,
     orders::ExecuteOrderCommand,
@@ -15,6 +15,9 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
         &self,
         command: ExecuteOrderCommand,
     ) -> Result<ExecuteOrderResult, ExecutionError>;
+
+    async fn quote_order(&self, command: ExecuteOrderCommand)
+        -> Result<OrderQuote, ExecutionError>;
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError>;
 
@@ -34,6 +37,13 @@ impl SqlOrderExecutor {
 
 #[async_trait]
 impl OrderExecutor for SqlOrderExecutor {
+    async fn quote_order(
+        &self,
+        command: ExecuteOrderCommand,
+    ) -> Result<OrderQuote, ExecutionError> {
+        execution::quote_order(&self.pool, command).await
+    }
+
     async fn execute_order(
         &self,
         command: ExecuteOrderCommand,

@@ -7,12 +7,16 @@ import {
   ArrowRightLeft,
   Bot,
   Database,
+  Gauge,
   RefreshCw,
+  Settings2,
   Timer,
 } from "lucide-react";
 
 import { IngestionView } from "../features/ingestion/IngestionView";
 import { ProcessesView } from "../features/processes/ProcessesView";
+import { EnvironmentSettingsView } from "../features/settings/EnvironmentSettingsView";
+import { TelemetryView } from "../features/telemetry/TelemetryView";
 import { RunsView } from "../features/runs/RunsView";
 import { TradersView } from "../features/traders/TradersView";
 import { TradesView } from "../features/trades/TradesView";
@@ -25,10 +29,13 @@ import {
 } from "../lib/constants";
 import type {
   ProcessSnapshot,
+  AuditEvent,
+  EnvironmentVariable,
   OperationCapability,
   Profile,
   Run,
   Summary,
+  TelemetrySnapshot,
   Trader,
   View,
 } from "../lib/types";
@@ -37,6 +44,8 @@ import { usePolling } from "../lib/usePolling";
 const VIEW_COPY: Record<View, [string, string]> = {
   runs: ["Operation runs", "Worker execution history and batch outcomes"],
   processes: ["Recurring processes", "Schedules, queue state, and active worker execution"],
+  telemetry: ["Telemetry", "Trading activity, job health, and operational failures"],
+  settings: ["Environment", "Edit every application variable with masked secrets and an audit trail"],
   ingestion: ["Data ingestion", "Run typed data import and seeding commands"],
   traders: ["Synthetic traders", "Manage bot fleet, ticks, funding, and portfolios"],
   trades: ["Trades", "Executed orders across users and synthetic traders"],
@@ -53,6 +62,9 @@ export default function Home() {
   const [traders, setTraders] = useState<Trader[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [processes, setProcesses] = useState<ProcessSnapshot>(EMPTY_PROCESSES);
+  const [telemetry, setTelemetry] = useState<TelemetrySnapshot>();
+  const [environment, setEnvironment] = useState<EnvironmentVariable[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -85,6 +97,15 @@ export default function Home() {
         setSummary(nextSummary);
       } else if (view === "processes") {
         setProcesses(await getJson<ProcessSnapshot>("/internal/v1/dev/processes"));
+      } else if (view === "telemetry") {
+        setTelemetry(await getJson<TelemetrySnapshot>("/internal/v1/dev/telemetry?hours=24"));
+      } else if (view === "settings") {
+        const [nextSettings, nextAudit] = await Promise.all([
+          getJson<EnvironmentVariable[]>("/internal/v1/dev/environment"),
+          getJson<AuditEvent[]>("/internal/v1/dev/audit-events?limit=50"),
+        ]);
+        setEnvironment(nextSettings);
+        setAuditEvents(nextAudit);
       } else if (view === "traders") {
         const [nextTraders, nextProfiles, nextSummary] = await Promise.all([
           getJson<Trader[]>("/internal/v1/dev/synthetic-traders"),
@@ -133,6 +154,25 @@ export default function Home() {
     }
   }
 
+  async function updateEnvironment(name: string, value: string, reason: string) {
+    setBusy(true);
+    try {
+      await patchJson(`/internal/v1/dev/environment/${name}`, { value, reason });
+      const [nextSettings, nextAudit] = await Promise.all([
+        getJson<EnvironmentVariable[]>("/internal/v1/dev/environment"),
+        getJson<AuditEvent[]>("/internal/v1/dev/audit-events?limit=50"),
+      ]);
+      setEnvironment(nextSettings);
+      setAuditEvents(nextAudit);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Setting update failed");
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const completed = summary.succeeded_24h + summary.failed_24h;
   const successRate = completed
     ? Math.round((summary.succeeded_24h / completed) * 100)
@@ -149,6 +189,8 @@ export default function Home() {
         <nav>
           <Nav active={view === "runs"} icon={<Activity />} label="Runs" onClick={() => setView("runs")} />
           <Nav active={view === "processes"} icon={<Timer />} label="Processes" onClick={() => setView("processes")} />
+          <Nav active={view === "telemetry"} icon={<Gauge />} label="Telemetry" onClick={() => setView("telemetry")} />
+          <Nav active={view === "settings"} icon={<Settings2 />} label="Environment" onClick={() => setView("settings")} />
           <Nav active={view === "ingestion"} icon={<Database />} label="Ingestion" onClick={() => setView("ingestion")} />
           <Nav active={view === "traders"} icon={<Bot />} label="Synthetic traders" onClick={() => setView("traders")} />
           <Nav active={view === "trades"} icon={<ArrowRightLeft />} label="Trades" onClick={() => setView("trades")} />
@@ -177,6 +219,8 @@ export default function Home() {
           />
         )}
         {view === "processes" && <ProcessesView snapshot={processes} busy={busy} setEnabled={setProcessEnabled} />}
+        {view === "telemetry" && <TelemetryView snapshot={telemetry} />}
+        {view === "settings" && <EnvironmentSettingsView variables={environment} audit={auditEvents} busy={busy} update={updateEnvironment} />}
         {view === "ingestion" && <IngestionView enqueue={enqueue} busy={busy} />}
         {view === "traders" && (
           <TradersView

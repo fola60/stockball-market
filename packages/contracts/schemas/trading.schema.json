@@ -454,6 +454,38 @@
         }
       }
     },
+    "OrderQuoteResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "account_id",
+        "portfolio_id",
+        "instrument_id",
+        "side",
+        "quantity",
+        "execution_price",
+        "gross_amount",
+        "cash_balance_after",
+        "position_quantity_after",
+        "old_price",
+        "new_price",
+        "quoted_at"
+      ],
+      "properties": {
+        "account_id": { "$ref": "./common.schema.json#/$defs/Uuid" },
+        "portfolio_id": { "$ref": "./common.schema.json#/$defs/Uuid" },
+        "instrument_id": { "$ref": "./common.schema.json#/$defs/Uuid" },
+        "side": { "$ref": "./common.schema.json#/$defs/OrderSide" },
+        "quantity": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "execution_price": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "gross_amount": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "cash_balance_after": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "position_quantity_after": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "old_price": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "new_price": { "$ref": "./common.schema.json#/$defs/DecimalString" },
+        "quoted_at": { "$ref": "./common.schema.json#/$defs/Timestamp" }
+      }
+    },
     "SeedPlayerSharesResponse": {
       "type": "object",
       "additionalProperties": false,

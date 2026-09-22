@@ -122,6 +122,227 @@ class PostgresDevOperationsRepository:
             bot_statuses = {row["status"]: int(row["count"]) for row in cursor.fetchall()}
         return {**{key: int(value) for key, value in run_stats.items()}, "bot_statuses": bot_statuses}
 
+    def runtime_setting_values(self) -> dict[str, Any]:
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT setting_key, value FROM runtime_settings")
+            return {str(key): value for key, value in cursor.fetchall()}
+
+    def set_runtime_setting(
+        self, key: str, value: Any, *, actor: str, reason: str
+    ) -> None:
+        encoded = json.dumps(value)
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT value FROM runtime_settings WHERE setting_key = %(key)s FOR UPDATE",
+                {"key": key},
+            )
+            row = cursor.fetchone()
+            before = None if row is None else row[0]
+            cursor.execute(
+                """
+                INSERT INTO runtime_settings (setting_key, value, updated_by, reason)
+                VALUES (%(key)s, %(value)s::jsonb, %(actor)s, %(reason)s)
+                ON CONFLICT (setting_key) DO UPDATE
+                SET value = EXCLUDED.value, updated_at = now(),
+                    updated_by = EXCLUDED.updated_by, reason = EXCLUDED.reason
+                """,
+                {"key": key, "value": encoded, "actor": actor, "reason": reason},
+            )
+            cursor.execute(
+                """
+                INSERT INTO admin_audit_events (
+                    actor, action, target_type, target_key,
+                    before_value, after_value, reason
+                ) VALUES (
+                    %(actor)s, 'SETTING_UPDATED', 'RUNTIME_SETTING', %(key)s,
+                    %(before)s::jsonb, %(after)s::jsonb, %(reason)s
+                )
+                """,
+                {
+                    "actor": actor,
+                    "key": key,
+                    "before": json.dumps(before),
+                    "after": encoded,
+                    "reason": reason,
+                },
+            )
+
+    def reset_runtime_setting(self, key: str, *, actor: str, reason: str) -> None:
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM runtime_settings WHERE setting_key = %(key)s RETURNING value",
+                {"key": key},
+            )
+            row = cursor.fetchone()
+            before = None if row is None else row[0]
+            cursor.execute(
+                """
+                INSERT INTO admin_audit_events (
+                    actor, action, target_type, target_key,
+                    before_value, after_value, reason
+                ) VALUES (
+                    %(actor)s, 'SETTING_RESET', 'RUNTIME_SETTING', %(key)s,
+                    %(before)s::jsonb, NULL, %(reason)s
+                )
+                """,
+                {
+                    "actor": actor,
+                    "key": key,
+                    "before": json.dumps(before),
+                    "reason": reason,
+                },
+            )
+
+    def list_admin_audit_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connection() as connection, connection.cursor(
+            cursor_factory=RealDictCursor
+        ) as cursor:
+            cursor.execute(
+                """
+                SELECT id, actor, action, target_type, target_key,
+                       before_value, after_value, reason, created_at
+                FROM admin_audit_events
+                ORDER BY created_at DESC
+                LIMIT %(limit)s
+                """,
+                {"limit": limit},
+            )
+            return [_serialize(row) for row in cursor.fetchall()]
+
+    def record_admin_audit_event(
+        self,
+        *,
+        actor: str,
+        action: str,
+        target_type: str,
+        target_key: str,
+        before_value: Any,
+        after_value: Any,
+        reason: str,
+    ) -> None:
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO admin_audit_events (
+                    actor, action, target_type, target_key,
+                    before_value, after_value, reason
+                ) VALUES (
+                    %(actor)s, %(action)s, %(target_type)s, %(target_key)s,
+                    %(before)s::jsonb, %(after)s::jsonb, %(reason)s
+                )
+                """,
+                {
+                    "actor": actor,
+                    "action": action,
+                    "target_type": target_type,
+                    "target_key": target_key,
+                    "before": json.dumps(before_value),
+                    "after": json.dumps(after_value),
+                    "reason": reason,
+                },
+            )
+
+    def telemetry(self, hours: int) -> dict[str, Any]:
+        parameters = {"hours": hours}
+        with self._connection() as connection, connection.cursor(
+            cursor_factory=RealDictCursor
+        ) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM trades WHERE executed_at >= now() - %(hours)s * interval '1 hour') AS trades,
+                    (SELECT COALESCE(SUM(gross_amount), 0) FROM trades WHERE executed_at >= now() - %(hours)s * interval '1 hour') AS gross_volume,
+                    (SELECT COUNT(*) FROM orders WHERE submitted_at >= now() - %(hours)s * interval '1 hour') AS orders,
+                    (SELECT COUNT(*) FROM orders WHERE status = 'FILLED' AND submitted_at >= now() - %(hours)s * interval '1 hour') AS filled_orders,
+                    (SELECT COUNT(*) FROM orders WHERE status = 'REJECTED' AND submitted_at >= now() - %(hours)s * interval '1 hour') AS rejected_orders,
+                    (SELECT COUNT(*) FROM job_runs WHERE enqueued_at >= now() - %(hours)s * interval '1 hour') AS job_runs,
+                    (SELECT COUNT(*) FROM job_runs WHERE status = 'FAILED' AND enqueued_at >= now() - %(hours)s * interval '1 hour') AS failed_runs,
+                    (SELECT COUNT(DISTINCT account_id) FROM trades WHERE executed_at >= now() - %(hours)s * interval '1 hour') AS active_traders,
+                    (SELECT COUNT(*) FROM instruments WHERE trading_status = 'FROZEN') AS frozen_instruments
+                """,
+                parameters,
+            )
+            overview = _serialize_required(cursor.fetchone(), "telemetry overview")
+            cursor.execute(
+                """
+                WITH buckets AS (
+                    SELECT generate_series(
+                        date_trunc('hour', now() - %(hours)s * interval '1 hour'),
+                        date_trunc('hour', now()), interval '1 hour'
+                    ) AS bucket
+                ), trade_activity AS (
+                    SELECT date_trunc('hour', executed_at) AS bucket,
+                           COUNT(*) AS trades, COALESCE(SUM(gross_amount), 0) AS gross_volume
+                    FROM trades
+                    WHERE executed_at >= now() - %(hours)s * interval '1 hour'
+                    GROUP BY 1
+                ), order_activity AS (
+                    SELECT date_trunc('hour', submitted_at) AS bucket,
+                           COUNT(*) AS orders,
+                           COUNT(*) FILTER (WHERE status = 'REJECTED') AS rejected_orders
+                    FROM orders
+                    WHERE submitted_at >= now() - %(hours)s * interval '1 hour'
+                    GROUP BY 1
+                ), run_activity AS (
+                    SELECT date_trunc('hour', enqueued_at) AS bucket,
+                           COUNT(*) AS job_runs,
+                           COUNT(*) FILTER (WHERE status = 'FAILED') AS failed_runs
+                    FROM job_runs
+                    WHERE enqueued_at >= now() - %(hours)s * interval '1 hour'
+                    GROUP BY 1
+                )
+                SELECT buckets.bucket,
+                       COALESCE(trade_activity.trades, 0) AS trades,
+                       COALESCE(trade_activity.gross_volume, 0) AS gross_volume,
+                       COALESCE(order_activity.orders, 0) AS orders,
+                       COALESCE(order_activity.rejected_orders, 0) AS rejected_orders,
+                       COALESCE(run_activity.job_runs, 0) AS job_runs,
+                       COALESCE(run_activity.failed_runs, 0) AS failed_runs
+                FROM buckets
+                LEFT JOIN trade_activity USING (bucket)
+                LEFT JOIN order_activity USING (bucket)
+                LEFT JOIN run_activity USING (bucket)
+                ORDER BY buckets.bucket
+                """,
+                parameters,
+            )
+            activity = [_serialize(row) for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT COALESCE(rejection_reason, 'Unspecified') AS reason, COUNT(*) AS count
+                FROM orders
+                WHERE status = 'REJECTED'
+                  AND submitted_at >= now() - %(hours)s * interval '1 hour'
+                GROUP BY 1 ORDER BY count DESC LIMIT 8
+                """,
+                parameters,
+            )
+            rejection_reasons = [_serialize(row) for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT operation_type,
+                       MAX(completed_at) FILTER (WHERE status = 'SUCCEEDED') AS latest_success_at,
+                       MAX(completed_at) FILTER (WHERE status = 'FAILED') AS latest_failure_at,
+                       COUNT(*) FILTER (WHERE status = 'FAILED' AND enqueued_at >= now() - %(hours)s * interval '1 hour') AS failures
+                FROM job_runs
+                GROUP BY operation_type
+                ORDER BY operation_type
+                """,
+                parameters,
+            )
+            operations = [_serialize(row) for row in cursor.fetchall()]
+        orders = int(overview["orders"])
+        filled = int(overview["filled_orders"])
+        overview["order_success_rate"] = 100.0 if orders == 0 else round(filled * 100 / orders, 1)
+        return {
+            "window_hours": hours,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "overview": overview,
+            "activity": activity,
+            "rejection_reasons": rejection_reasons,
+            "operations": operations,
+        }
+
     def social_ingestion_summary(self) -> dict[str, Any]:
         with self._connection() as connection, connection.cursor(
             cursor_factory=RealDictCursor
