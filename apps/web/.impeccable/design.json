@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T10:38:09Z",
+  "title": "Design System: Stockball",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Night Canvas",
+        "canonical": "#080b10",
+        "tonalRamp": ["oklch(15% 0.012 255)", "oklch(25% 0.012 255)", "oklch(35% 0.012 255)", "oklch(47% 0.012 255)", "oklch(59% 0.012 255)", "oklch(71% 0.012 255)", "oklch(83% 0.012 255)", "oklch(95% 0.012 255)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Trading Surface",
+        "canonical": "#0e131a",
+        "tonalRamp": ["oklch(15% 0.016 250)", "oklch(25% 0.016 250)", "oklch(35% 0.016 250)", "oklch(47% 0.016 250)", "oklch(59% 0.016 250)", "oklch(71% 0.016 250)", "oklch(83% 0.016 250)", "oklch(95% 0.016 250)"]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Raised Steel",
+        "canonical": "#11171f",
+        "tonalRamp": ["oklch(15% 0.019 250)", "oklch(25% 0.019 250)", "oklch(35% 0.019 250)", "oklch(47% 0.019 250)", "oklch(59% 0.019 250)", "oklch(71% 0.019 250)", "oklch(83% 0.019 250)", "oklch(95% 0.019 250)"]
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Quiet Divider",
+        "canonical": "#202630",
+        "tonalRamp": ["oklch(15% 0.019 250)", "oklch(25% 0.019 250)", "oklch(35% 0.019 250)", "oklch(47% 0.019 250)", "oklch(59% 0.019 250)", "oklch(71% 0.019 250)", "oklch(83% 0.019 250)", "oklch(95% 0.019 250)"]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Firm Divider",
+        "canonical": "#242c37",
+        "tonalRamp": ["oklch(15% 0.024 250)", "oklch(25% 0.024 250)", "oklch(35% 0.024 250)", "oklch(47% 0.024 250)", "oklch(59% 0.024 250)", "oklch(71% 0.024 250)", "oklch(83% 0.024 250)", "oklch(95% 0.024 250)"]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Floodlit White",
+        "canonical": "#edf1f5",
+        "tonalRamp": ["oklch(15% 0.008 250)", "oklch(25% 0.008 250)", "oklch(35% 0.008 250)", "oklch(47% 0.008 250)", "oklch(59% 0.008 250)", "oklch(71% 0.008 250)", "oklch(83% 0.008 250)", "oklch(95% 0.008 250)"]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Cool Slate",
+        "canonical": "#8d97a3",
+        "tonalRamp": ["oklch(15% 0.018 250)", "oklch(25% 0.018 250)", "oklch(35% 0.018 250)", "oklch(47% 0.018 250)", "oklch(59% 0.018 250)", "oklch(71% 0.018 250)", "oklch(83% 0.018 250)", "oklch(95% 0.018 250)"]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Floodlight Blue",
+        "canonical": "#8fb5ff",
+        "tonalRamp": ["oklch(15% 0.13 260)", "oklch(25% 0.13 260)", "oklch(35% 0.13 260)", "oklch(47% 0.13 260)", "oklch(59% 0.13 260)", "oklch(71% 0.13 260)", "oklch(83% 0.13 260)", "oklch(95% 0.13 260)"]
+      },
+      "positive": {
+        "role": "tertiary",
+        "displayName": "Market Up",
+        "canonical": "#35d07f",
+        "tonalRamp": ["oklch(15% 0.15 155)", "oklch(25% 0.15 155)", "oklch(35% 0.15 155)", "oklch(47% 0.15 155)", "oklch(59% 0.15 155)", "oklch(71% 0.15 155)", "oklch(83% 0.15 155)", "oklch(95% 0.15 155)"]
+      },
+      "negative": {
+        "role": "tertiary",
+        "displayName": "Market Down",
+        "canonical": "#f16d73",
+        "tonalRamp": ["oklch(15% 0.14 22)", "oklch(25% 0.14 22)", "oklch(35% 0.14 22)", "oklch(47% 0.14 22)", "oklch(59% 0.14 22)", "oklch(71% 0.14 22)", "oklch(83% 0.14 22)", "oklch(95% 0.14 22)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Page Display", "purpose": "Orbitron page titles and the strongest interface headings." },
+      "title": { "displayName": "Panel Title", "purpose": "Orbitron titles for analytical panels and sections." },
+      "body": { "displayName": "Interface Body", "purpose": "Orbitron explanatory and navigational copy." },
+      "label": { "displayName": "Interface Label", "purpose": "Orbitron compact metadata, labels, and controls." },
+      "data": { "displayName": "Market Data", "purpose": "Orbitron with tabular numerals on market discovery; IBM Plex Mono only for dense portfolio analytics and technical shortcuts." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "ticker", "value": "48s linear infinite", "purpose": "Continuous top-market strip; pause on hover or focus and disable for reduced motion." },
+      { "name": "state-color", "value": "color 150ms ease", "purpose": "Default restrained color response for links and buttons." },
+      { "name": "price-draw", "value": "360ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "One-time redraw when the selected price-history range changes; disable for reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The compact steel-blue action used to move users toward market discovery.",
+      "html": "<button class=\"ds-btn-primary\">EXPLORE MARKET <span aria-hidden=\"true\">→</span></button>",
+      "css": ".ds-btn-primary { height: 40px; display: inline-flex; align-items: center; gap: 12px; padding: 0 16px; border: 0; border-radius: 8px; background: #8fb5ff; color: #080b10; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; font-size: 12px; font-weight: 800; cursor: pointer; transition: background-color 150ms ease; } .ds-btn-primary:hover { background: #a9c6ff; } .ds-btn-primary:focus-visible { outline: 2px solid #8fb5ff; outline-offset: 2px; } .ds-btn-primary:active { background: #b5cdff; }"
+    },
+    {
+      "name": "Quiet Control",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "A bordered compact control for sorting and secondary actions inside data panels.",
+      "html": "<button class=\"ds-btn-quiet\">SORT BY VALUE⌄</button>",
+      "css": ".ds-btn-quiet { padding: 8px 10px; border: 1px solid #27303b; border-radius: 6px; background: #11171f; color: #9ba5b2; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; font-size: 9px; font-weight: 700; cursor: pointer; transition: border-color 150ms ease, color 150ms ease; } .ds-btn-quiet:hover { border-color: #8fb5ff; color: #edf1f5; } .ds-btn-quiet:focus-visible { outline: 2px solid #8fb5ff; outline-offset: 2px; } .ds-btn-quiet:active { background: #0e131a; }"
+    },
+    {
+      "name": "Search Control",
+      "kind": "input",
+      "refersTo": "search-control",
+      "description": "A field-like header control that exposes player search and its keyboard shortcut.",
+      "html": "<button class=\"ds-search\"><span aria-hidden=\"true\">⌕</span><span>Search players</span><kbd>⌘K</kbd></button>",
+      "css": ".ds-search { width: 192px; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid #242c37; border-radius: 8px; background: #0e131a; color: #a6afba; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; font-size: 12px; text-align: left; cursor: pointer; transition: border-color 150ms ease, color 150ms ease; } .ds-search kbd { margin-left: auto; padding: 2px 4px; border: 1px solid rgba(255,255,255,.1); border-radius: 4px; color: #78828e; font-family: var(--font-data), 'SFMono-Regular', Consolas, monospace; font-size: 10px; } .ds-search:hover { border-color: #8fb5ff; color: #edf1f5; } .ds-search:focus-visible { outline: 2px solid #8fb5ff; outline-offset: 2px; } .ds-search:active { background: #11171f; }"
+    },
+    {
+      "name": "Analytical Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The flat bordered container shared by market lists, portfolio metrics, charts, and activity.",
+      "html": "<article class=\"ds-panel\"><p class=\"ds-panel-label\">PORTFOLIO VALUE</p><strong>£10,482.60</strong><small>INVESTED £6,202.10</small></article>",
+      "css": ".ds-panel { padding: 16px; overflow: hidden; border: 1px solid #222a35; border-radius: 12px; background: #0e131a; color: #edf1f5; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; } .ds-panel-label { margin: 0 0 8px; color: #77818e; font-size: 11px; font-weight: 600; } .ds-panel strong { display: block; font-family: var(--font-data), 'SFMono-Regular', Consolas, monospace; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums slashed-zero; } .ds-panel small { display: block; margin-top: 6px; color: #77818e; font-size: 9px; } .ds-panel:hover { border-color: #242c37; } .ds-panel:focus-within { outline: 2px solid #8fb5ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Market Ticker Item",
+      "kind": "custom",
+      "description": "The compact rank-symbol-price-direction unit repeated across the live market strip.",
+      "html": "<a class=\"ds-ticker-item\" href=\"#\"><span>01</span>HAALAND <b>£112.08</b><em>▲ +3.16%</em></a>",
+      "css": ".ds-ticker-item { height: 36px; display: inline-flex; align-items: center; padding: 0 24px; border-right: 1px solid #202630; background: #0b0f15; color: #87919d; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; font-size: 10px; font-weight: 500; text-decoration: none; white-space: nowrap; font-variant-numeric: tabular-nums slashed-zero; transition: background-color 150ms ease, color 150ms ease; } .ds-ticker-item span { margin-right: 10px; color: #c1c8d0; font-weight: 800; } .ds-ticker-item b { margin: 0 8px; color: #edf1f5; } .ds-ticker-item em { color: #35d07f; font-style: normal; } .ds-ticker-item:hover { background: rgba(255,255,255,.03); color: #edf1f5; } .ds-ticker-item:focus-visible { outline: 2px solid #8fb5ff; outline-offset: -2px; } .ds-ticker-item:active { background: rgba(143,181,255,.08); }"
+    },
+    {
+      "name": "Performance Row",
+      "kind": "custom",
+      "description": "An unboxed watchlist row aligning player identity, a compact 24-hour sparkline, and a right-aligned quote with a signed status badge.",
+      "html": "<a class=\"ds-performance-row\" href=\"#\"><span class=\"ds-player\"><strong>Bukayo Saka</strong><small>ARS · FWD · VOL 18.4K</small></span><svg class=\"ds-sparkline\" aria-hidden=\"true\"></svg><span class=\"ds-price\"><strong>£86.42</strong><small>+4.82%</small></span></a>",
+      "css": ".ds-performance-row { min-height: 80px; display: grid; grid-template-columns: minmax(0,1fr) 128px 96px; gap: 20px; align-items: center; padding: 16px 4px; border-bottom: 1px solid #222a35; color: #edf1f5; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; text-decoration: none; transition: background-color 150ms ease; } .ds-player strong, .ds-player small, .ds-price strong, .ds-price small { display: block; } .ds-player strong { font-size: 16px; font-weight: 600; } .ds-player small { margin-top: 6px; color: #818b97; font-size: 11px; font-weight: 500; } .ds-sparkline { width: 100%; height: 32px; color: #35d07f; } .ds-price { text-align: right; font-variant-numeric: tabular-nums slashed-zero; } .ds-price strong { font-size: 16px; font-weight: 500; } .ds-price small { min-width: 72px; display: inline-flex; justify-content: flex-end; margin-top: 6px; padding: 4px 8px; border-radius: 6px; background: #07852f; color: #fff; font-size: 12px; font-weight: 600; } .ds-performance-row:hover { background: rgba(255,255,255,.025); } .ds-performance-row:focus-visible { outline: 2px solid #8fb5ff; outline-offset: -2px; } @media (max-width: 639px) { .ds-performance-row { grid-template-columns: minmax(0,1fr) 76px 80px; gap: 12px; } .ds-player strong, .ds-price strong { font-size: 14px; } .ds-player small { font-size: 10px; } }"
+    },
+    {
+      "name": "Price History Range",
+      "kind": "custom",
+      "description": "The full-width instrument history treatment with an external change summary, keyboard inspection, and pressed-state horizon controls.",
+      "html": "<section class=\"ds-price-history\" aria-labelledby=\"ds-price-title\"><header><div><h3 id=\"ds-price-title\">Price history</h3><small>Trading-driven share price</small></div><strong>+£2.14 · +2.48%</strong></header><div class=\"ds-chart\" role=\"img\" aria-label=\"One week price chart. Opened at £86.42 and closed at £88.56.\"><svg viewBox=\"0 0 480 120\" aria-hidden=\"true\"><path class=\"ds-chart-grid\" d=\"M40 22H470M40 60H470M40 98H470\"/><path class=\"ds-chart-line\" d=\"M40 92L110 78L180 84L250 51L320 60L390 30L470 38\"/></svg></div><label>Explore price points <input type=\"range\" min=\"0\" max=\"6\" value=\"6\" aria-valuetext=\"£88.56 on 15 Sep at 18:30\" /></label><div class=\"ds-ranges\" aria-label=\"Chart range\"><button>1D</button><button aria-pressed=\"true\">1W</button><button>1M</button><button>3M</button><button>1Y</button><button>ALL</button></div></section>",
+      "css": ".ds-price-history { overflow: hidden; border: 1px solid #222a35; border-radius: 12px; background: #0e131a; color: #edf1f5; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; } .ds-price-history header { display: flex; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #202630; } .ds-price-history h3 { margin: 0; font-size: 16px; } .ds-price-history small { display: block; margin-top: 5px; color: #77818e; font-size: 11px; } .ds-price-history header strong { align-self: center; color: #35d07f; font-size: 13px; font-variant-numeric: tabular-nums slashed-zero; } .ds-chart { padding: 18px 10px 8px; } .ds-chart svg { display: block; width: 100%; height: 150px; } .ds-chart-grid { fill: none; stroke: #222a35; stroke-width: 1; } .ds-chart-line { fill: none; stroke: #35d07f; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; } .ds-price-history label { display: flex; align-items: center; gap: 12px; padding: 0 20px 12px; color: #818b97; font-size: 11px; } .ds-price-history input { min-width: 0; flex: 1; accent-color: #8fb5ff; } .ds-price-history input:focus-visible, .ds-ranges button:focus-visible { outline: 2px solid #8fb5ff; outline-offset: 2px; } .ds-ranges { display: flex; gap: 4px; padding: 8px 12px; border-top: 1px solid #202630; } .ds-ranges button { min-width: 40px; height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #7f8995; font: 600 11px var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; cursor: pointer; } .ds-ranges button:hover { background: rgba(255,255,255,.04); color: #fff; } .ds-ranges button[aria-pressed='true'] { background: #8fb5ff; color: #080b10; }"
+    },
+    {
+      "name": "Mobile Percentile Profile",
+      "kind": "custom",
+      "description": "The small-screen fallback for a player radar, preserving every metric label, percentile ordinal, and raw value as readable rows.",
+      "html": "<section class=\"ds-profile\" aria-labelledby=\"ds-profile-title\"><h3 id=\"ds-profile-title\">Player profile</h3><p>Compared with Premier League forwards.</p><dl><div><dt>Goals</dt><dd><strong>84th</strong><span>0.62 / 90</span></dd></div><div><dt>Assists</dt><dd><strong>71st</strong><span>0.28 / 90</span></dd></div><div><dt>Progressive carries</dt><dd><strong>77th</strong><span>3.9 / 90</span></dd></div></dl></section>",
+      "css": ".ds-profile { max-width: 420px; padding: 20px; border: 1px solid #222a35; border-radius: 12px; background: #0e131a; color: #edf1f5; font-family: var(--font-ui), 'Avenir Next', 'Segoe UI', sans-serif; } .ds-profile h3 { margin: 0; font-size: 20px; letter-spacing: -.02em; } .ds-profile > p { margin: 8px 0 16px; color: #818b97; font-size: 12px; line-height: 1.6; } .ds-profile dl { margin: 0; border-top: 1px solid #202630; } .ds-profile dl > div { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #202630; } .ds-profile dt { color: #d9e0e8; font-size: 12px; font-weight: 600; } .ds-profile dd { display: flex; align-items: baseline; gap: 8px; margin: 0; color: #9aa4af; font-size: 11px; font-variant-numeric: tabular-nums slashed-zero; } .ds-profile dd strong { color: #8fb5ff; font-size: 14px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Match Exchange",
+    "overview": "Stockball combines the compressed information rhythm of a live market board with the atmosphere of a floodlit football ground. It is dark, focused, and data-forward: charcoal layers hold dense player information while a restrained steel-blue accent makes navigation and action states immediately legible.\n\nThe interface should feel technical without becoming specialist-only. Orbitron gives the market-discovery experience one unmistakable football-tech voice, including its headline values. IBM Plex Mono is reserved for dense portfolio analysis and technical shortcuts. Production surfaces are compact but not cramped, with clear section framing, repeated row structures, and plain-language context around market data.",
+    "keyCharacteristics": [
+      "Dark charcoal canvas with subtly stepped panels and cool borders.",
+      "Steel-blue accent used selectively for actions, focus, and active navigation.",
+      "Orbitron across the main interface and homepage market data; IBM Plex Mono only for dense portfolio analysis and technical shortcuts.",
+      "Dense, repeatable market rows with strong alignment and restrained status color.",
+      "Explicit virtual-market language wherever account balances or player prices appear."
+    ],
+    "rules": [
+      { "name": "The Incumbent Palette Rule", "body": "Only the charcoal, steel-blue, green, and red production palette documented here is approved. New palette experiments require a separate explicit design decision before promotion into product work.", "section": "colors" },
+      { "name": "The Signal, Not Decoration Rule", "body": "Blue, green, and red communicate action, selection, focus, or market direction; they are not ambient decoration.", "section": "colors" },
+      { "name": "The Two-Face Rule", "body": "Orbitron owns the interface and the market-discovery experience, including visible prices and changes. IBM Plex Mono is limited to dense portfolio analysis and technical shortcuts. Do not introduce a third production family.", "section": "typography" },
+      { "name": "The Numbers Line Up Rule", "body": "Numeric market content uses tabular numerals and a slashed zero so repeated values remain easy to compare.", "section": "typography" },
+      { "name": "The Alternating Movers Rule", "body": "Keep gainers and decliners in one DOM-ordered feed: gainer one, decliner one, gainer two, decliner two. Direction remains explicit through the signed percentage and an accessible rank description, never colour alone.", "section": "layout" },
+      { "name": "The Flat-by-Default Rule", "body": "Do not add ambient card shadows. Establish hierarchy with surface tone, borders, and state-specific fills.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Orbitron as the default face for headings, body copy, labels, navigation, controls, and player names.",
+      "Do use Orbitron for homepage prices, percentages, ranks, and times; reserve IBM Plex Mono for dense portfolio tables and keyboard shortcuts.",
+      "Do preserve the charcoal/steel-blue production palette and use green/red only for directional market state.",
+      "Do keep virtual-market and live-data disclosures legible near relevant balances and prices.",
+      "Do preserve keyboard focus visibility, reduced-motion behavior, and horizontal scrolling for dense comparisons.",
+      "Do pair pointer chart inspection with a labeled keyboard-operable range input and announce the inspected price and timestamp politely.",
+      "Do preserve metric labels, percentile ordinals, and raw values when the radar becomes a mobile list.",
+      "Do keep football percentiles position-relative and state that trading activity—not football statistics—determines price."
+    ],
+    "donts": [
+      "Don't introduce an alternate palette without first documenting its role and contrast behavior.",
+      "Don't use Oxanium, Rajdhani, or Chakra Petch in production without a new explicit typography decision.",
+      "Don't add ambient shadows, decorative gradients, or broad accent fills that weaken the data hierarchy.",
+      "Don't let IBM Plex Mono dominate the market homepage or use it as the general interface face.",
+      "Don't imply real-money investing through copy, imagery, or component treatment.",
+      "Don't shrink a radar chart until its labels become illegible; switch to the divided metric list below 640px.",
+      "Don't communicate chart direction or profile performance through colour or geometry alone."
+    ]
+  }
+}

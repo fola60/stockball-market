@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  --animate-ticker: ticker 48s linear infinite;
+  --font-sans: var(--font-ui), "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: var(--font-data), "SFMono-Regular", Consolas, monospace;
+
+  @keyframes ticker {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+}
+
+@layer base {
+  body {
+    @apply m-0 bg-[#080b10] font-sans;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  button, a {
+    @apply transition-colors;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  ::selection {
+    @apply bg-[#8fb5ff]/30 text-white;
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+}
+
+@keyframes price-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.55;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
