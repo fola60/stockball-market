@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up the Stockball PostgreSQL database
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/stockball
+ExecStart=/opt/stockball/scripts/backup-postgres.sh
+
+[Install]
+WantedBy=multi-user.target

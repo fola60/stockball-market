@@ -44,3 +44,20 @@ Stores database migration files.
 - Migrations define schema and controlled data changes.
 - Business logic belongs in services.
 - Migration files should be deterministic and reviewable.
+
+## Running migrations
+
+`scripts/migrate.sh` is the only supported migration runner. It records each filename and SHA-256
+checksum in `stockball_schema_migrations`, refuses to run changed migrations, serializes concurrent
+runners with a PostgreSQL advisory lock, and commits each migration together with its tracking row.
+
+Run it through Compose before starting or updating application services:
+
+```bash
+docker compose -f docker-compose.yml -f compose.dev.yml run --rm migrate
+```
+
+The regular Compose startup also waits for the migration service to complete before starting the
+trading engine. A database that already contains Stockball tables but has no migration history is
+rejected because the SQL files are not generally idempotent. Recreate a disposable database or
+perform a separately reviewed baseline before using this runner on such a database.

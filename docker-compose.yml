@@ -7,23 +7,31 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-stockball}
       POSTGRES_USER: ${POSTGRES_USER:-stockball}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockball}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./infra/postgres/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  migrate:
+    image: postgres:16-alpine
+    environment:
+      STOCKBALL_MIGRATION_DATABASE_URL: ${STOCKBALL_MIGRATION_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
+      STOCKBALL_MIGRATIONS_DIR: /migrations
+    volumes:
+      - ./scripts/migrate.sh:/opt/stockball/migrate.sh:ro
+      - ./infra/postgres/migrations:/migrations:ro
+    command: ["/bin/sh", "/opt/stockball/migrate.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     cpu_shares: 1024
     mem_limit: 256m
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -31,24 +39,16 @@ services:
       retries: 10
 
   trading-engine:
-    build:
-      context: .
-      dockerfile: services/trading-engine/Dockerfile
     cpu_shares: 2048
     mem_limit: 384m
     environment:
       STOCKBALL_TRADING_ENGINE_DATABASE_URL: ${STOCKBALL_TRADING_ENGINE_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
       STOCKBALL_TRADING_ENGINE_BIND_ADDR: ${STOCKBALL_TRADING_ENGINE_BIND_ADDR:-0.0.0.0:3000}
-    ports:
-      - "${TRADING_ENGINE_PORT:-3000}:3000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   api:
-    build:
-      context: .
-      dockerfile: services/api/Dockerfile
     cpu_shares: 2048
     mem_limit: 768m
     environment:
@@ -66,11 +66,6 @@ services:
       STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES: ${STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES:-1}
       STOCKBALL_ENV_FILE_PATH: ${STOCKBALL_ENV_FILE_PATH:-/config/stockball.env}
       STOCKBALL_ENV_EXAMPLE_PATH: ${STOCKBALL_ENV_EXAMPLE_PATH:-/config/stockball.env.example}
-    volumes:
-      - ./.env:/config/stockball.env
-      - ./.env.example:/config/stockball.env.example:ro
-    ports:
-      - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,38 +75,25 @@ services:
         condition: service_healthy
 
   admin-ui:
-    build:
-      context: .
-      dockerfile: services/admin-ui/Dockerfile
     cpu_shares: 128
     mem_limit: 256m
     environment:
       NEXT_PUBLIC_STOCKBALL_API_URL: ${NEXT_PUBLIC_STOCKBALL_API_URL:-http://localhost:8000}
-    ports:
-      - "${ADMIN_UI_PORT:-3001}:3001"
     depends_on:
       api:
         condition: service_started
 
   web:
-    build:
-      context: ./apps/web
-      dockerfile: Dockerfile
     cpu_shares: 1024
     mem_limit: 512m
     environment:
       STOCKBALL_API_URL: ${STOCKBALL_WEB_API_URL:-http://api:8000}
       NODE_ENV: ${NODE_ENV:-production}
-    ports:
-      - "${WEB_PORT:-3002}:3002"
     depends_on:
       api:
         condition: service_started
 
   worker:
-    build:
-      context: .
-      dockerfile: services/worker/Dockerfile
     cpu_shares: 256
     mem_limit: 3g
     command:
@@ -175,9 +157,6 @@ services:
         condition: service_started
 
   scheduler:
-    build:
-      context: .
-      dockerfile: services/worker/Dockerfile
     cpu_shares: 512
     mem_limit: 256m
     command: ["stockball-worker", "scheduler"]
@@ -231,9 +210,6 @@ services:
         condition: service_started
 
   bootstrap-dev-market:
-    build:
-      context: .
-      dockerfile: services/worker/Dockerfile
     cpu_shares: 256
     mem_limit: 3g
     init: true

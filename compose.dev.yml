@@ -1,0 +1,54 @@
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  trading-engine:
+    build:
+      context: .
+      dockerfile: services/trading-engine/Dockerfile
+    ports:
+      - "${TRADING_ENGINE_PORT:-3000}:3000"
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    volumes:
+      - ./.env:/config/stockball.env
+      - ./.env.example:/config/stockball.env.example:ro
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  admin-ui:
+    build:
+      context: .
+      dockerfile: services/admin-ui/Dockerfile
+    ports:
+      - "${ADMIN_UI_PORT:-3001}:3001"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-3002}:3002"
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+
+  bootstrap-dev-market:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile

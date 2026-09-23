@@ -201,57 +201,8 @@ run_worker_command() {
 }
 
 apply_migrations() {
-  local migration
-  local migration_name
-  local existing_schema
-  local applied
-
-  if ! command -v psql >/dev/null 2>&1; then
-    echo "psql is required to apply local migrations" >&2
-    exit 1
-  fi
-
-  existing_schema="$(
-    psql "$STOCKBALL_WORKER_DATABASE_URL" -At \
-      -c "SELECT to_regclass('public.accounts') IS NOT NULL" 2>/dev/null || true
-  )"
-
-  psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-    "CREATE TABLE IF NOT EXISTS stockball_schema_migrations (
-      filename text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
-    );"
-
-  if [[ "$existing_schema" == "t" ]]; then
-    applied="$(
-      psql "$STOCKBALL_WORKER_DATABASE_URL" -At \
-        -c "SELECT count(*) FROM stockball_schema_migrations"
-    )"
-    if [[ "$applied" == "0" ]]; then
-      echo "database already has Stockball tables but no local migration metadata" >&2
-      echo "not applying migrations because they are not idempotent on an existing schema" >&2
-      exit 1
-    fi
-  fi
-
-  for migration in "$repo_root"/infra/postgres/migrations/*.sql; do
-    migration_name="$(basename "$migration")"
-    applied="$(
-      psql "$STOCKBALL_WORKER_DATABASE_URL" -At \
-        -v "migration_name=$migration_name" \
-        -c "SELECT 1 FROM stockball_schema_migrations WHERE filename = :'migration_name'"
-    )"
-    if [[ "$applied" == "1" ]]; then
-      echo "skipping $migration_name"
-      continue
-    fi
-
-    echo "applying $migration_name"
-    psql "$STOCKBALL_WORKER_DATABASE_URL" -1 -v ON_ERROR_STOP=1 -f "$migration"
-    psql "$STOCKBALL_WORKER_DATABASE_URL" -v ON_ERROR_STOP=1 \
-      -v "migration_name=$migration_name" \
-      -c "INSERT INTO stockball_schema_migrations(filename) VALUES (:'migration_name')"
-  done
+  STOCKBALL_MIGRATION_DATABASE_URL="$STOCKBALL_WORKER_DATABASE_URL" \
+    "$repo_root/scripts/migrate.sh"
 }
 
 case "$command" in

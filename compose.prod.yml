@@ -1,0 +1,78 @@
+x-database-url: &database-url postgresql://${POSTGRES_USER:-stockball}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-stockball}
+x-worker-image: &worker-image ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-worker:${IMAGE_TAG:?Set IMAGE_TAG}
+
+services:
+  postgres:
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+
+  redis:
+    restart: unless-stopped
+
+  migrate:
+    environment:
+      STOCKBALL_MIGRATION_DATABASE_URL: *database-url
+
+  trading-engine:
+    image: ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-trading-engine:${IMAGE_TAG:?Set IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      STOCKBALL_TRADING_ENGINE_DATABASE_URL: *database-url
+
+  api:
+    image: ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-api:${IMAGE_TAG:?Set IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      STOCKBALL_API_DATABASE_URL: *database-url
+      STOCKBALL_DEV_PORTAL_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+
+  admin-ui:
+    image: ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-admin-ui:${IMAGE_TAG:?Set IMAGE_TAG}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ADMIN_UI_PORT:-3001}:3001"
+
+  web:
+    image: ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-web:${IMAGE_TAG:?Set IMAGE_TAG}
+    restart: unless-stopped
+
+  worker:
+    image: *worker-image
+    restart: unless-stopped
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: *database-url
+
+  scheduler:
+    image: *worker-image
+    restart: unless-stopped
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: *database-url
+
+  bootstrap-dev-market:
+    image: *worker-image
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: *database-url
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_started
+
+volumes:
+  caddy-data:
+  caddy-config:
