@@ -97,10 +97,22 @@ def known_http_routes(app) -> set[tuple[str, str]]:
     routes: set[tuple[str, str]] = set()
     openapi = getattr(app, "openapi", None)
     if callable(openapi):
-        for path, operations in openapi().get("paths", {}).items():
-            for method in operations:
-                if method.upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-                    routes.add((method.upper(), path))
+        openapi_document = openapi()
+        if isinstance(openapi_document, dict):
+            paths = openapi_document.get("paths", {})
+            if isinstance(paths, dict):
+                for path, operations in paths.items():
+                    if not isinstance(path, str) or not isinstance(operations, dict):
+                        continue
+                    for method in operations:
+                        if isinstance(method, str) and method.upper() in {
+                            "GET",
+                            "POST",
+                            "PUT",
+                            "PATCH",
+                            "DELETE",
+                        }:
+                            routes.add((method.upper(), path))
     for route in app.routes:
         path = getattr(route, "path", None)
         for method in getattr(route, "methods", set()):

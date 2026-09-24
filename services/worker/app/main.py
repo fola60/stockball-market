@@ -79,9 +79,9 @@ from app.jobs.dev_handlers import (
 )
 from app.process_state import RedisProcessState
 from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
+from app.runtime_settings import PostgresRuntimeSettings
 from app.scheduler import DueSocialSubscriptionDispatcher, SchedulerProcess, SchedulerService
 from app.scheduler.models import default_scheduler_plans
-from app.runtime_settings import PostgresRuntimeSettings
 from app.synthetic_traders import (
     BootstrapAllocationError,
     BotStatus,
