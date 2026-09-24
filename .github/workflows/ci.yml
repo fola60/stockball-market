@@ -195,7 +195,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
-      name: production
+      name: prod
       url: ${{ vars.PRODUCTION_URL }}
     concurrency:
       group: production

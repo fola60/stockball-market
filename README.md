@@ -94,7 +94,7 @@ and verifies both the API and public HTTPS endpoint. A failed health check resto
 application image tag. Database migrations are not reversed, so migrations must remain compatible
 with the previous application release.
 
-Configure a GitHub `production` environment with these secrets:
+Configure a GitHub `prod` environment with these secrets:
 
 - `VPS_HOST`: the VPS IP address.
 - `VPS_USER`: the dedicated `deploy` user.
