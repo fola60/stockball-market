@@ -6,7 +6,7 @@ from typing import Any
 
 import redis
 
-from app.jobs.models import WorkerJob
+from app.jobs.models import JobType, WorkerJob
 
 
 class RedisJobQueue:
@@ -29,6 +29,27 @@ class RedisJobQueue:
 
         _, raw_message = item
         return _deserialize_job(raw_message)
+
+
+class JobRoutingQueue:
+    """Routes scheduled jobs to isolated queues without changing message format."""
+
+    def __init__(
+        self,
+        *,
+        trading_queue: RedisJobQueue,
+        ingestion_queue: RedisJobQueue,
+    ) -> None:
+        self._trading_queue = trading_queue
+        self._ingestion_queue = ingestion_queue
+
+    def enqueue(self, job: WorkerJob) -> None:
+        queue = (
+            self._trading_queue
+            if job.job_type in {JobType.APPLY_TOPUPS, JobType.SYNTHETIC_TRADER_TICK}
+            else self._ingestion_queue
+        )
+        queue.enqueue(job)
 
 
 class RedisRetryQueue:

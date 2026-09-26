@@ -6,6 +6,11 @@ The worker service runs background and scheduled work.
 
 It owns external data ingestion, synthetic trader decisions, recurring top-up scheduling, and other asynchronous jobs.
 
+The Compose topology runs two instances of the same worker image. `worker` consumes the
+latency-sensitive trading queue (synthetic ticks and top-ups), while `ingestion-worker` consumes
+external ingestion and document-processing jobs. The scheduler routes jobs between them. This
+prevents a slow trading tick from starving social ingestion without duplicating scheduler runs.
+
 ## Responsibilities
 
 - Schedule and execute Redis-backed jobs.

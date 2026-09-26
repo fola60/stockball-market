@@ -36,11 +36,28 @@ class PostgresScheduledRunRepository:
         operation_type = SCHEDULE_OPERATION_TYPES[schedule_name]
         with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
-                if supersede_pending:
+                single_flight = schedule_name == "social-feed-ingestion"
+                if supersede_pending or single_flight:
                     cursor.execute(
                         "SELECT pg_advisory_xact_lock(hashtext(%(schedule_name)s))",
                         {"schedule_name": schedule_name},
                     )
+                if single_flight:
+                    cursor.execute(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM job_runs
+                            WHERE source = 'SCHEDULED'
+                              AND schedule_name = %(schedule_name)s
+                              AND status IN ('QUEUED', 'RUNNING', 'RETRYING')
+                        )
+                        """,
+                        {"schedule_name": schedule_name},
+                    )
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        return False
                 cursor.execute(
                     """
                     INSERT INTO job_runs (
@@ -88,6 +105,58 @@ class PostgresScheduledRunRepository:
                         },
                     )
                 return created
+
+    def has_in_flight(self, schedule_name: str) -> bool:
+        with pooled_connection(self._database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM job_runs
+                        WHERE source = 'SCHEDULED'
+                          AND schedule_name = %(schedule_name)s
+                          AND status IN ('QUEUED', 'RUNNING', 'RETRYING')
+                    )
+                    """,
+                    {"schedule_name": schedule_name},
+                )
+                row = cursor.fetchone()
+                return bool(row and row[0])
+
+    def reconcile_stale_runs(
+        self,
+        as_of: datetime,
+        *,
+        stale_after: timedelta,
+    ) -> int:
+        if stale_after <= timedelta(0):
+            raise ValueError("stale_after must be positive")
+        with pooled_connection(self._database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE job_runs
+                    SET status = 'FAILED',
+                        error_message = 'Worker did not complete this job before its stale timeout',
+                        metrics = metrics || jsonb_build_object(
+                            'failure_reason', 'abandoned_worker_run',
+                            'stale_after_seconds', %(stale_after_seconds)s
+                        ),
+                        failed_items = GREATEST(failed_items, 1),
+                        completed_at = %(as_of)s,
+                        updated_at = %(as_of)s
+                    WHERE source = 'SCHEDULED'
+                      AND status IN ('QUEUED', 'RUNNING', 'RETRYING')
+                      AND COALESCE(started_at, enqueued_at, updated_at) < %(stale_before)s
+                    """,
+                    {
+                        "as_of": as_of,
+                        "stale_before": as_of - stale_after,
+                        "stale_after_seconds": int(stale_after.total_seconds()),
+                    },
+                )
+                return cursor.rowcount
 
     def mark_enqueue_failed(self, run_id: UUID, message: str) -> None:
         with pooled_connection(self._database_url) as connection:
@@ -150,6 +219,49 @@ class PostgresOperationRunReporter:
                         ),
                         "stale_before": stale_before,
                     },
+                )
+                if cursor.fetchone() is not None:
+                    return False
+
+                cursor.execute(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                        hashtext('synthetic-trader-ticks-execution')
+                    )
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM job_runs
+                        WHERE id = %(id)s
+                          AND source = 'SCHEDULED'
+                          AND schedule_name = 'synthetic-trader-ticks'
+                    )
+                    """,
+                    {"id": str(run_id)},
+                )
+                cursor.execute(
+                    """
+                    UPDATE job_runs AS candidate
+                    SET status = 'SUPERSEDED',
+                        error_message = 'Superseded because another synthetic tick is running',
+                        metrics = metrics || jsonb_build_object(
+                            'superseded_reason', 'active_run'
+                        ),
+                        completed_at = now(), updated_at = now()
+                    WHERE candidate.id = %(id)s
+                      AND candidate.source = 'SCHEDULED'
+                      AND candidate.schedule_name = 'synthetic-trader-ticks'
+                      AND candidate.status IN ('QUEUED', 'RETRYING')
+                      AND EXISTS (
+                          SELECT 1
+                          FROM job_runs AS active
+                          WHERE active.source = 'SCHEDULED'
+                            AND active.schedule_name = candidate.schedule_name
+                            AND active.status = 'RUNNING'
+                            AND active.id <> candidate.id
+                      )
+                    RETURNING candidate.id
+                    """,
+                    {"id": str(run_id)},
                 )
                 if cursor.fetchone() is not None:
                     return False

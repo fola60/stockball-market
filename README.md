@@ -8,7 +8,7 @@ exactly one environment overlay.
 For local development, build the images from the working tree and publish the service ports:
 
 ```bash
-docker compose -f docker-compose.yml -f compose.dev.yml up --build
+docker compose --profile worker -f docker-compose.yml -f compose.dev.yml up --build
 ```
 
 Compose applies tracked database migrations before starting the trading engine and application
@@ -25,7 +25,7 @@ application through Caddy:
 POSTGRES_PASSWORD='replace-with-a-strong-secret' \
 IMAGE_TAG='full-git-commit-sha' \
 DOMAIN='stockball.example.com' \
-docker compose -f docker-compose.yml -f compose.prod.yml up -d
+docker compose --profile worker -f docker-compose.yml -f compose.prod.yml up -d
 ```
 
 For production deployments, run the migration service after pulling images and before updating
@@ -50,7 +50,7 @@ docker compose -f docker-compose.yml -f compose.dev.yml config --quiet
 POSTGRES_PASSWORD='validation-only' \
 IMAGE_TAG='validation-only' \
 DOMAIN='example.com' \
-docker compose -f docker-compose.yml -f compose.prod.yml config --quiet
+docker compose --profile worker -f docker-compose.yml -f compose.prod.yml config --quiet
 ```
 
 ## Local Ingestion

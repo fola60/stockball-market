@@ -20,6 +20,8 @@ class Settings:
     trading_engine_timeout_seconds: float = DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS
     redis_url: str = "redis://redis:6379/0"
     queue_name: str = "stockball:worker:jobs"
+    trading_queue_name: str = "stockball:worker:trading"
+    ingestion_queue_name: str = "stockball:worker:ingestion"
     dev_portal_enabled: bool = False
     user_opening_balance: Decimal = Decimal("100000.0000")
 
@@ -46,6 +48,12 @@ class Settings:
             trading_engine_timeout_seconds=DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS,
             redis_url=os.getenv(REDIS_URL_ENV, "redis://redis:6379/0"),
             queue_name=os.getenv("STOCKBALL_API_QUEUE_NAME", "stockball:worker:jobs"),
+            trading_queue_name=os.getenv(
+                "STOCKBALL_API_TRADING_QUEUE_NAME", "stockball:worker:trading"
+            ),
+            ingestion_queue_name=os.getenv(
+                "STOCKBALL_API_INGESTION_QUEUE_NAME", "stockball:worker:ingestion"
+            ),
             dev_portal_enabled=os.getenv(DEV_PORTAL_ENABLED_ENV, "false").lower()
             in {"1", "true", "yes", "on"},
             user_opening_balance=Decimal(

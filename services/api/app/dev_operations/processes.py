@@ -100,14 +100,16 @@ class RedisProcessRegistry:
     def __init__(
         self,
         redis_url: str,
-        queue_name: str,
+        queue_name: str | tuple[str, ...],
         executable_run_ids: Callable[[list[str]], set[str]] | None = None,
         runtime_values: Callable[[], Mapping[str, Any]] | None = None,
     ) -> None:
         # redis-py's sync and async overloads are indistinguishable to static
         # analyzers; this registry deliberately owns the synchronous client.
         self._client: Any = redis.Redis.from_url(redis_url, decode_responses=True)
-        self._queue_name = queue_name
+        self._queue_names = (
+            (queue_name,) if isinstance(queue_name, str) else tuple(queue_name)
+        )
         self._executable_run_ids = executable_run_ids
         self._runtime_values = runtime_values
         self._definitions = {item.name: item for item in configured_processes()}
@@ -120,8 +122,26 @@ class RedisProcessRegistry:
             }
         overrides = self._client.hgetall(SCHEDULE_OVERRIDES_KEY)
         heartbeat = _json_value(self._client.get(SCHEDULER_HEARTBEAT_KEY))
-        active_job = _json_value(self._client.get(WORKER_ACTIVE_JOB_KEY))
-        queued_messages = self._client.lrange(self._queue_name, 0, -1)
+        queue_names = getattr(
+            self,
+            "_queue_names",
+            (getattr(self, "_queue_name", "stockball:worker:jobs"),),
+        )
+        active_job_keys = (
+            WORKER_ACTIVE_JOB_KEY,
+            *(f"{WORKER_ACTIVE_JOB_KEY}:{queue_name}" for queue_name in queue_names),
+        )
+        active_jobs = [
+            value
+            for key in active_job_keys
+            if (value := _json_value(self._client.get(key))) is not None
+        ]
+        active_job = active_jobs[0] if active_jobs else None
+        queued_messages = [
+            message
+            for queue_name in queue_names
+            for message in self._client.lrange(queue_name, 0, -1)
+        ]
         queued_jobs = [_job_summary(message) for message in queued_messages]
         correlated_ids = [
             str(job["operation_run_id"])
@@ -151,7 +171,7 @@ class RedisProcessRegistry:
                     "schedule": definition.schedule,
                     "enabled": enabled,
                     "default_enabled": definition.default_enabled,
-                    "running": _matches(definition, active_job),
+                    "running": any(_matches(definition, job) for job in active_jobs),
                     "queued": sum(_matches(definition, job) for job in queued_jobs),
                 }
             )
@@ -162,6 +182,7 @@ class RedisProcessRegistry:
                 "last_scheduled": heartbeat.get("scheduled_names", []) if heartbeat else [],
             },
             "active_job": active_job,
+            "active_jobs": active_jobs,
             "queued_jobs": queued_jobs,
             "processes": processes,
         }

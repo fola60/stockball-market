@@ -41,7 +41,15 @@ class DueSocialSubscriptionDispatcher:
         scheduled: list[str] = []
         window = as_of.replace(second=0, microsecond=0).isoformat()
         due = self.repository.list_due_subscriptions(as_of, limit=1)
-        if due and self.claim_store.claim(SOCIAL_INGESTION_SCHEDULE_NAME, window):
+        has_in_flight_run = (
+            self.run_repository is not None
+            and self.run_repository.has_in_flight(SOCIAL_INGESTION_SCHEDULE_NAME)
+        )
+        if (
+            due
+            and not has_in_flight_run
+            and self.claim_store.claim(SOCIAL_INGESTION_SCHEDULE_NAME, window)
+        ):
             job = WorkerJob.ingest_social_feeds(
                 IngestSocialFeedsJobPayload(provider="ALL", limit=self.batch_size)
             )
@@ -53,7 +61,7 @@ class DueSocialSubscriptionDispatcher:
                     window,
                     job.job_type,
                     job.payload,
-                    True,
+                    False,
                 )
                 if created:
                     job = job.with_operation_run_id(run_id)

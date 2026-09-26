@@ -58,13 +58,22 @@ class ProcessRegistry(Protocol):
 
 
 class RedisJobPublisher:
-    def __init__(self, redis_url: str, queue_name: str) -> None:
+    def __init__(
+        self,
+        redis_url: str,
+        queue_name: str,
+        job_queue_names: Mapping[str, str] | None = None,
+    ) -> None:
         self._queue_name = queue_name
+        self._job_queue_names = dict(job_queue_names or {})
         self._client = redis.Redis.from_url(redis_url, decode_responses=True)
 
     def enqueue(self, message: Mapping[str, Any]) -> None:
+        queue_name = self._job_queue_names.get(
+            str(message.get("job_type")), self._queue_name
+        )
         self._client.rpush(
-            self._queue_name,
+            queue_name,
             json.dumps(dict(message), sort_keys=True, separators=(",", ":")),
         )
 

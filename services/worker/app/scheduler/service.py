@@ -22,6 +22,8 @@ class ScheduleControlStore(Protocol):
 
 
 class ScheduledRunRepository(Protocol):
+    def has_in_flight(self, schedule_name: str) -> bool: ...
+
     def create_run(
         self,
         run_id: UUID,

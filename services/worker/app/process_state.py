@@ -18,10 +18,12 @@ class RedisProcessState:
         redis_url: str,
         scheduler_heartbeat_ttl_seconds: int = 180,
         active_job_ttl_seconds: int = 3600,
+        active_job_key: str = WORKER_ACTIVE_JOB_KEY,
     ) -> None:
         self._client = redis.Redis.from_url(redis_url, decode_responses=True)
         self._scheduler_heartbeat_ttl_seconds = scheduler_heartbeat_ttl_seconds
         self._active_job_ttl_seconds = active_job_ttl_seconds
+        self._active_job_key = active_job_key
 
     def is_enabled(self, schedule_name: str, default: bool) -> bool:
         override = self._client.hget(SCHEDULE_OVERRIDES_KEY, schedule_name)
@@ -47,7 +49,7 @@ class RedisProcessState:
 
     def mark_job_started(self, job: WorkerJob, started_at: datetime) -> None:
         self._client.setex(
-            WORKER_ACTIVE_JOB_KEY,
+            self._active_job_key,
             self._active_job_ttl_seconds,
             json.dumps(
                 {
@@ -65,4 +67,4 @@ class RedisProcessState:
         )
 
     def mark_job_finished(self, job: WorkerJob) -> None:
-        self._client.delete(WORKER_ACTIVE_JOB_KEY)
+        self._client.delete(self._active_job_key)

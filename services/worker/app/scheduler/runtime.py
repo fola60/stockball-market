@@ -30,9 +30,12 @@ class SchedulerProcess:
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     status_reporter: SchedulerStatusReporter | None = None
     social_dispatcher: SocialSubscriptionDispatcher | None = None
+    housekeeping: Callable[[datetime], None] | None = None
 
     def run_once(self) -> int:
         checked_at = self.clock()
+        if self.housekeeping is not None:
+            self.housekeeping(checked_at)
         decisions = self.scheduler.schedule_due_jobs(checked_at)
         social_names = (
             ()

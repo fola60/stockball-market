@@ -76,10 +76,20 @@ def create_app(
             repository = PostgresDevOperationsRepository(settings.database_url)
             dev_operations_service = DevOperationsService(
                 repository=repository,
-                publisher=RedisJobPublisher(settings.redis_url, settings.queue_name),
+                publisher=RedisJobPublisher(
+                    settings.redis_url,
+                    settings.ingestion_queue_name,
+                    {
+                        "APPLY_TOPUPS": settings.trading_queue_name,
+                        "SYNTHETIC_TRADER_TICK": settings.trading_queue_name,
+                    },
+                ),
                 process_registry=RedisProcessRegistry(
                     settings.redis_url,
-                    settings.queue_name,
+                    (
+                        settings.trading_queue_name,
+                        settings.ingestion_queue_name,
+                    ),
                     executable_run_ids=repository.executable_run_ids,
                     runtime_values=repository.runtime_setting_values,
                 ),

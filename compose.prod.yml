@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
     environment:
       STOCKBALL_API_DATABASE_URL: *database-url
-      STOCKBALL_DEV_PORTAL_ENABLED: "false"
+      STOCKBALL_DEV_PORTAL_ENABLED: ${STOCKBALL_DEV_PORTAL_ENABLED:-false}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
 
@@ -40,6 +40,12 @@ services:
     restart: unless-stopped
 
   worker:
+    image: *worker-image
+    restart: unless-stopped
+    environment:
+      STOCKBALL_WORKER_DATABASE_URL: *database-url
+
+  ingestion-worker:
     image: *worker-image
     restart: unless-stopped
     environment:

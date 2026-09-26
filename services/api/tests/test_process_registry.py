@@ -66,6 +66,40 @@ class RedisProcessRegistryTests(unittest.TestCase):
         self.assertTrue(player_stats["running"])
         self.assertEqual(live_odds["queued"], 1)
 
+    def test_snapshot_combines_isolated_queues_and_active_workers(self) -> None:
+        self.registry._queue_names = (
+            "stockball:worker:trading",
+            "stockball:worker:ingestion",
+        )
+        self.redis.values[
+            "stockball:dev:worker:active-job:stockball:worker:ingestion"
+        ] = json.dumps(
+            {"job_type": "INGEST_SOCIAL_FEEDS", "payload": {}, "attempt": 0}
+        )
+        self.redis.queues["stockball:worker:trading"] = [
+            json.dumps({"job_type": "SYNTHETIC_TRADER_TICK", "payload": {}})
+        ]
+        self.redis.queues["stockball:worker:ingestion"] = [
+            json.dumps({"job_type": "INGEST_PLAYER_STATS", "payload": {}})
+        ]
+
+        snapshot = self.registry.snapshot()
+
+        social = next(
+            item
+            for item in snapshot["processes"]
+            if item["name"] == "social-feed-ingestion"
+        )
+        ticks = next(
+            item
+            for item in snapshot["processes"]
+            if item["name"] == "synthetic-trader-ticks"
+        )
+        self.assertTrue(social["running"])
+        self.assertEqual(ticks["queued"], 1)
+        self.assertEqual(len(snapshot["queued_jobs"]), 2)
+        self.assertEqual(len(snapshot["active_jobs"]), 1)
+
     def test_snapshot_excludes_non_executable_correlated_messages(self) -> None:
         self.registry._executable_run_ids = lambda run_ids: {"current-run"}
         self.redis.queues["jobs"] = [

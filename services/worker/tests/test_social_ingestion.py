@@ -262,6 +262,9 @@ class SocialSchedulingTests(unittest.TestCase):
         class RunRepository:
             created = None
 
+            def has_in_flight(self, schedule_name):
+                return False
+
             def create_run(self, *args):
                 self.created = args
                 return True
@@ -282,6 +285,36 @@ class SocialSchedulingTests(unittest.TestCase):
         self.assertIsNotNone(queue.jobs[0].operation_run_id)
         self.assertEqual(run_repository.created[1], "social-feed-ingestion")
         self.assertEqual(run_repository.created[3].value, "INGEST_SOCIAL_FEEDS")
+        self.assertFalse(run_repository.created[5])
+
+    def test_does_not_enqueue_a_second_parent_feed_run_while_one_is_in_flight(self) -> None:
+        source, subscription = _source_and_subscription(SocialProvider.BLUESKY)
+        repository = InMemorySocialRepository(source, subscription)
+        repository.list_due_subscriptions = lambda as_of, limit=100: [subscription.id]
+        queue = InMemoryJobQueue()
+
+        class RunRepository:
+            def has_in_flight(self, schedule_name):
+                return True
+
+            def create_run(self, *args):
+                raise AssertionError("an in-flight schedule must not create another run")
+
+            def mark_enqueue_failed(self, run_id, message):
+                raise AssertionError("enqueue should not be attempted")
+
+        dispatcher = DueSocialSubscriptionDispatcher(
+            repository,
+            queue,
+            InMemoryScheduleClaimStore(),
+            run_repository=RunRepository(),
+        )
+
+        names = dispatcher.dispatch_due(NOW.replace(minute=1))
+
+        self.assertEqual(names, ("social-document-processing",))
+        self.assertEqual(len(queue.jobs), 1)
+        self.assertEqual(queue.jobs[0].job_type.value, "PROCESS_SOCIAL_DOCUMENTS")
 
     def test_dispatcher_respects_social_process_pause(self) -> None:
         source, subscription = _source_and_subscription(SocialProvider.BLUESKY)

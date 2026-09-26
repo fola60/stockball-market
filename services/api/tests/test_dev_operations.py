@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from uuid import uuid4
 
-from app.dev_operations.service import DevOperationsService
+from app.dev_operations.service import DevOperationsService, RedisJobPublisher
 
 
 class FakeRepository:
@@ -110,6 +110,32 @@ class DevOperationsServiceTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "require forced timing"):
             self.service.enqueue("TICK_SYNTHETIC_TRADERS", {"tick_count": 2})
+
+
+class RedisJobPublisherTests(unittest.TestCase):
+    def test_routes_trading_jobs_and_defaults_other_jobs_to_ingestion(self) -> None:
+        class FakeRedis:
+            def __init__(self):
+                self.messages = []
+
+            def rpush(self, queue_name, message):
+                self.messages.append((queue_name, message))
+
+        publisher = RedisJobPublisher.__new__(RedisJobPublisher)
+        publisher._queue_name = "ingestion"
+        publisher._job_queue_names = {
+            "APPLY_TOPUPS": "trading",
+            "SYNTHETIC_TRADER_TICK": "trading",
+        }
+        publisher._client = FakeRedis()
+
+        publisher.enqueue({"job_type": "SYNTHETIC_TRADER_TICK", "payload": {}})
+        publisher.enqueue({"job_type": "INGEST_SOCIAL_FEEDS", "payload": {}})
+
+        self.assertEqual(
+            [queue_name for queue_name, _ in publisher._client.messages],
+            ["trading", "ingestion"],
+        )
 
 
 if __name__ == "__main__":

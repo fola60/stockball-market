@@ -39,7 +39,7 @@ if ! flock -n 9; then
   exit 1
 fi
 
-compose=(docker compose -f docker-compose.yml -f compose.prod.yml)
+compose=(docker compose --profile worker -f docker-compose.yml -f compose.prod.yml)
 current_release_file="$repo_root/.current-release"
 previous_release_file="$repo_root/.previous-release"
 previous_tag=""

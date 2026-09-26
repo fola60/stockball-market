@@ -78,7 +78,7 @@ from app.jobs.dev_handlers import (
     spawn_traders_handler,
 )
 from app.process_state import RedisProcessState
-from app.queue import RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
+from app.queue import JobRoutingQueue, RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
 from app.runtime_settings import PostgresRuntimeSettings
 from app.scheduler import DueSocialSubscriptionDispatcher, SchedulerProcess, SchedulerService
 from app.scheduler.models import default_scheduler_plans
@@ -531,7 +531,10 @@ def _print_provider_access_error(error: FbrefAccessDeniedError) -> None:
 
 
 def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
-    queue = RedisJobQueue(settings.redis_url, settings.queue_name)
+    queue = JobRoutingQueue(
+        trading_queue=RedisJobQueue(settings.redis_url, settings.trading_queue_name),
+        ingestion_queue=RedisJobQueue(settings.redis_url, settings.ingestion_queue_name),
+    )
     claim_store = RedisScheduleClaimStore(
         settings.redis_url,
         settings.schedule_claim_prefix,
@@ -575,6 +578,10 @@ def _build_scheduler_process(settings: Settings) -> SchedulerProcess:
     return SchedulerProcess(
         scheduler=scheduler,
         status_reporter=process_state,
+        housekeeping=lambda as_of: run_repository.reconcile_stale_runs(
+            as_of,
+            stale_after=timedelta(seconds=settings.stale_running_job_seconds),
+        ),
         social_dispatcher=DueSocialSubscriptionDispatcher(
             repository=PostgresSocialRepository(settings.database_url),
             queue=queue,
@@ -704,7 +711,9 @@ def _build_worker_process(settings: Settings) -> WorkerProcess:
             active_job_ttl_seconds=max(
                 60,
                 round(settings.bet365_job_timeout_seconds) + 60,
+                settings.stale_running_job_seconds + 60,
             ),
+            active_job_key=f"stockball:dev:worker:active-job:{settings.queue_name}",
         ),
         isolated_job_timeouts={
             JobType.INGEST_BET365_ODDS: settings.bet365_job_timeout_seconds,
