@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Label, Shell, panel } from "../../components/market-shell";
-import { TraderBadge } from "../../components/trader-badge";
+import { YouBadge } from "../../components/trader-identity";
 import { getTraderPageData } from "@/lib/api";
-import { formatCurrency, formatPercent, initials } from "@/lib/format";
+import { formatCurrency, formatPercent } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,6 @@ export default async function TraderPage({ params }: PageProps) {
   const isViewer = account?.id === trader.account_id;
   const holdingsValue = Number(trader.holdings_value);
   const netWorth = Number(trader.net_worth);
-  const joined = new Date(trader.joined_at).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
   return (
     <Shell active="leaderboard" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
@@ -39,13 +38,12 @@ export default async function TraderPage({ params }: PageProps) {
 
         <header className="mb-7 flex flex-col justify-between gap-6 md:flex-row md:items-end">
           <div className="flex min-w-0 items-center gap-4">
-            <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-[#8fb5ff]/10 text-base font-extrabold text-[#8fb5ff]">{initials(trader.display_name)}</span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-3xl font-semibold leading-tight tracking-[-0.03em] md:text-[38px]">{trader.display_name}</h1>
-                <TraderBadge kind={trader.kind} isViewer={isViewer} />
+                {isViewer && <YouBadge />}
               </div>
-              <p className="mt-1.5 text-xs font-medium text-[#818b97]">Rank #{trader.rank.toLocaleString("en-GB")} · {trader.kind === "BOT" ? "Synthetic trader" : "Trading"} since {joined}</p>
+              <p className="mt-1.5 text-xs font-medium text-[#818b97]">Rank #{trader.rank.toLocaleString("en-GB")}</p>
             </div>
           </div>
           {isViewer && <Link href="/portfolio" className="inline-flex h-10 items-center self-start rounded-lg bg-[#8fb5ff] px-4 text-xs font-extrabold text-[#080b10] hover:bg-[#a9c6ff] md:self-auto">Manage your portfolio <span className="ml-3 text-base">→</span></Link>}

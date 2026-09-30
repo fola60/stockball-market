@@ -45,6 +45,9 @@ export type TraderStanding = {
   holdings_value: string;
   holdings_count: number;
   joined_at: string;
+  /** Price movement of current holdings over the last 24 hours. */
+  day_change: string;
+  day_change_percent: string;
 };
 
 export type LeaderboardPage = {
@@ -391,7 +394,18 @@ export async function getLeaderboardPageData(filter: LeaderboardFilter, page: nu
       `/v1/traders/leaderboard?filter=${filter}&limit=${LEADERBOARD_PAGE_SIZE}&offset=${offset}`,
     ),
   ]);
-  return { ...shell, leaderboard };
+  // The signed-in trader's own standing, so they can find themselves on any page.
+  const viewerStanding = shell.account ? await getTraderStanding(shell.account.id) : null;
+  return { ...shell, leaderboard, viewerStanding };
+}
+
+async function getTraderStanding(accountId: string): Promise<TraderStanding | null> {
+  try {
+    return (await apiRequest<TraderProfile>(`/v1/traders/${encodeURIComponent(accountId)}`)).trader;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function getTraderPageData(accountId: string) {
