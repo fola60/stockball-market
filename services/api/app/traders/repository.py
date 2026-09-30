@@ -22,14 +22,31 @@ from app.traders.models import (
 # Every ranked account with its net worth: cash plus holdings at current prices. Ranks are
 # computed across all public traders so a person's rank doesn't change with the filter.
 # Admin and system accounts (such as the player-share reserve) are never ranked.
+#
+# day_change is how much the current holdings moved in price over the last 24 hours, the same
+# measure as the portfolio page's "Today" figure. Cash top-ups are not counted as gains.
 _STANDINGS = """
-    WITH holdings AS (
+    WITH opening_prices AS (
+        SELECT DISTINCT ON (snapshot.instrument_id)
+            snapshot.instrument_id,
+            snapshot.old_price AS opening_price
+        FROM price_snapshots AS snapshot
+        WHERE snapshot.captured_at >= now() - interval '24 hours'
+        ORDER BY snapshot.instrument_id, snapshot.captured_at ASC, snapshot.id ASC
+    ),
+    holdings AS (
         SELECT
             position.portfolio_id,
             SUM(position.quantity * instrument.current_price) AS holdings_value,
+            SUM(
+                position.quantity
+                * (instrument.current_price
+                    - COALESCE(opening.opening_price, instrument.current_price))
+            ) AS day_change,
             COUNT(*) AS holdings_count
         FROM positions AS position
         JOIN instruments AS instrument ON instrument.id = position.instrument_id
+        LEFT JOIN opening_prices AS opening ON opening.instrument_id = instrument.id
         WHERE position.quantity > 0
         GROUP BY position.portfolio_id
     ),
@@ -42,6 +59,7 @@ _STANDINGS = """
             portfolio.cash_balance,
             COALESCE(holdings.holdings_value, 0) AS holdings_value,
             COALESCE(holdings.holdings_count, 0) AS holdings_count,
+            COALESCE(holdings.day_change, 0) AS day_change,
             portfolio.cash_balance + COALESCE(holdings.holdings_value, 0) AS net_worth
         FROM accounts AS account
         JOIN portfolios AS portfolio ON portfolio.account_id = account.id
@@ -198,6 +216,10 @@ def _standing(row: dict) -> TraderStandingRecord:
         holdings_value=_money(row["holdings_value"]),
         holdings_count=int(row["holdings_count"]),
         joined_at=row["joined_at"],
+        day_change=_money(row["day_change"]),
+        day_change_percent=_day_change_percent(
+            Decimal(row["net_worth"]), Decimal(row["day_change"])
+        ),
     )
 
 
@@ -226,6 +248,14 @@ def _trade(row: dict) -> TraderTradeRecord:
         gross_amount=_money(row["gross_amount"]),
         executed_at=row["executed_at"],
     )
+
+
+def _day_change_percent(net_worth: Decimal, day_change: Decimal) -> str:
+    """Today's move as a share of net worth before it (24 hours ago, at today's holdings)."""
+    previous = net_worth - day_change
+    if previous <= 0:
+        return "0.0000"
+    return format_decimal((day_change / previous * 100).quantize(Decimal("0.0001")))
 
 
 def _money(value: Decimal) -> str:

@@ -28,6 +28,8 @@ class TraderStandingRecord:
     holdings_value: str
     holdings_count: int
     joined_at: datetime
+    day_change: str = "0.0000"
+    day_change_percent: str = "0.0000"
 
 
 @dataclass(frozen=True)

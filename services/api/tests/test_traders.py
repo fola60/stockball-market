@@ -32,6 +32,8 @@ def _standing(rank: int, kind: TraderKind = TraderKind.PERSON) -> TraderStanding
         holdings_value="100000.0000",
         holdings_count=3,
         joined_at=NOW,
+        day_change="-1250.5000",
+        day_change_percent="-0.8267",
     )
 
 
@@ -67,6 +69,8 @@ class TradersApiTests(unittest.TestCase):
         self.assertEqual(body["total"], 2)
         self.assertEqual([entry["rank"] for entry in body["entries"]], [1, 2])
         self.assertEqual(body["entries"][1]["kind"], "BOT")
+        self.assertEqual(body["entries"][0]["day_change"], "-1250.5000")
+        self.assertEqual(body["entries"][0]["day_change_percent"], "-0.8267")
         for private_field in ("email", "handle"):
             self.assertNotIn(private_field, body["entries"][0])
         self.assertEqual(self.repository.leaderboard_calls, [(LeaderboardFilter.PEOPLE, 50, 0)])
@@ -128,6 +132,17 @@ class TradersApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["code"], "trader_not_found")
+
+
+class DayChangePercentTests(unittest.TestCase):
+    def test_percent_is_relative_to_worth_before_the_move(self) -> None:
+        from decimal import Decimal
+
+        from app.traders.repository import _day_change_percent
+
+        self.assertEqual(_day_change_percent(Decimal("110"), Decimal("10")), "10.0000")
+        self.assertEqual(_day_change_percent(Decimal("90"), Decimal("-10")), "-10.0000")
+        self.assertEqual(_day_change_percent(Decimal("0"), Decimal("0")), "0.0000")
 
 
 if __name__ == "__main__":

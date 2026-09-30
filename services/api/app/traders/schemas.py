@@ -24,6 +24,8 @@ class TraderStandingResponse(BaseModel):
     holdings_value: str
     holdings_count: int
     joined_at: datetime
+    day_change: str
+    day_change_percent: str
 
 
 class LeaderboardResponse(BaseModel):
