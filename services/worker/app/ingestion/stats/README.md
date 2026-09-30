@@ -9,7 +9,7 @@ Ingests football performance observations from external providers.
 - Fetch player stat tables from approved football data providers.
 - Store normalized per-player observations with provider IDs, team, season, competition, source URL, and raw parsed rows.
 - Match provider player IDs to canonical Stockball players.
-- Feed later `signals/stats` calculations.
+- Feed the stats-value strategy engine.
 
 ## Current Source
 
@@ -43,4 +43,4 @@ If `--stat-type` is omitted, the default stat types are ingested. Each row is up
 
 - Does not decide bot trades directly.
 - Does not directly change prices.
-- Stat interpretation belongs to `services/worker/app/signals/stats`.
+- Stat interpretation belongs to the synthetic trader strategy engines in `services/worker/app/synthetic_traders/engines`.

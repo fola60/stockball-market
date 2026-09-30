@@ -11,7 +11,7 @@ from .operations import OPERATION_DEFINITIONS, operation_definition
 from .runtime_settings import RuntimeSettingsRegistry
 
 
-class DevOperationsRepository(Protocol):
+class AdminRepository(Protocol):
     def create_run(
         self,
         run_id: UUID,
@@ -79,8 +79,8 @@ class RedisJobPublisher:
 
 
 @dataclass(frozen=True)
-class DevOperationsService:
-    repository: DevOperationsRepository
+class AdminService:
+    repository: AdminRepository
     publisher: JobPublisher
     process_registry: ProcessRegistry | None = None
     runtime_settings: RuntimeSettingsRegistry | None = None

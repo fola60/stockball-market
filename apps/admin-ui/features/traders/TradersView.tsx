@@ -43,7 +43,7 @@ export function TradersView({
     setDetailError("");
     try {
       setBotDetail(
-        await getJson<BotDetail>(`/internal/v1/dev/synthetic-traders/${botId}`),
+        await getJson<BotDetail>(`/internal/v1/admin/synthetic-traders/${botId}`),
       );
     } catch (err) {
       setDetailError(

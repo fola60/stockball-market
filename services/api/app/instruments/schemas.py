@@ -16,6 +16,16 @@ from app.instruments.models import (
 )
 
 
+class InstrumentFreezeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    reason: str
+    started_at: datetime
+    fixture_home_team: str | None = None
+    fixture_away_team: str | None = None
+    fixture_kickoff_at: datetime | None = None
+
+
 class InstrumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -37,6 +47,7 @@ class InstrumentResponse(BaseModel):
     player_position: str | None = None
     price_change_24h: str = "0.0000"
     volume_24h: str = "0.000000"
+    freeze: InstrumentFreezeResponse | None = None
 
     @classmethod
     def from_record(cls, instrument: InstrumentRecord) -> "InstrumentResponse":

@@ -11,12 +11,20 @@ from uuid import UUID
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
-from app.clients import HttpTradingEngineClient
+from app.clients import (
+    HttpTradingEngineClient,
+    PreMarketPricer,
+    SetPreMarketPriceCommand,
+    TradingEngineClientError,
+)
 from app.database import connection as pooled_connection
+from app.synthetic_traders.models import (
+    SpawnSyntheticTraderBatchResult,
+    SpawnSyntheticTraderCommand,
+)
 from app.topups import PostgresTopupRepository, TopupCadence, TopupOutcomeStatus, TopupService
 
-from .bootstrap import SyntheticPortfolioBootstrapService
-from .models import SpawnSyntheticTraderBatchResult, SpawnSyntheticTraderCommand
+from .portfolios import SyntheticPortfolioBootstrapService
 
 MIN_PRICE = Decimal("1.0000")
 MAX_PRICE = Decimal("250.0000")
@@ -686,8 +694,9 @@ def _profile_seed(seed: int, config_key: str) -> int:
 
 
 class PostgresDevMarketBootstrapRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, pricer: PreMarketPricer) -> None:
         self._database_url = database_url
+        self._pricer = pricer
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
@@ -764,50 +773,43 @@ class PostgresDevMarketBootstrapRepository:
     ) -> int:
         if not valuations:
             return 0
+        weights = Json(
+            {
+                "market_value": options.market_value_weight,
+                "player_stats": options.stats_weight,
+                "social_sentiment": options.social_weight,
+            }
+        )
         applied = 0
         with self._connection() as connection:
-            with connection:
-                with connection.cursor() as cursor:
-                    for item in valuations:
+            for item in valuations:
+                with connection:
+                    with connection.cursor() as cursor:
                         cursor.execute(
                             """
-                            SELECT current_price
-                            FROM instruments
-                            WHERE id = %s
-                              AND NOT EXISTS (SELECT 1 FROM orders WHERE instrument_id = %s)
-                              AND NOT EXISTS (SELECT 1 FROM trades WHERE instrument_id = %s)
-                              AND NOT EXISTS (SELECT 1 FROM positions WHERE instrument_id = %s)
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM dev_market_bootstrap_instrument_valuations
-                                  WHERE instrument_id = %s
-                              )
-                            FOR UPDATE
+                            SELECT 1 FROM dev_market_bootstrap_instrument_valuations
+                            WHERE instrument_id = %s
                             """,
-                            (str(item.instrument_id),) * 5,
+                            (str(item.instrument_id),),
                         )
-                        locked = cursor.fetchone()
-                        if locked is None:
+                        if cursor.fetchone() is not None:
                             continue
-                        old_price = Decimal(str(locked[0]))
-                        cursor.execute(
-                            """
-                            UPDATE instruments
-                            SET current_price = %s,
-                                reference_price = %s,
-                                net_shares_purchased = 0,
-                                updated_at = now()
-                            WHERE id = %s
-                            """,
-                            (item.new_price, item.new_price, str(item.instrument_id)),
+                # Prices belong to the trading engine; it refuses instruments that have
+                # already traded, which are simply left at their current price.
+                try:
+                    result = self._pricer.set_pre_market_price(
+                        SetPreMarketPriceCommand(
+                            request_id=f"pre-market-price:{item.instrument_id}:{item.new_price}",
+                            instrument_id=item.instrument_id,
+                            new_price=str(item.new_price),
                         )
-                        cursor.execute(
-                            """
-                            INSERT INTO price_snapshots (
-                                instrument_id, old_price, new_price, reason
-                            ) VALUES (%s, %s, %s, 'ADMIN_ADJUSTMENT')
-                            """,
-                            (str(item.instrument_id), old_price, item.new_price),
-                        )
+                    )
+                except TradingEngineClientError as exc:
+                    if exc.body.get("code") == "instrument_has_market_activity":
+                        continue
+                    raise
+                with connection:
+                    with connection.cursor() as cursor:
                         cursor.execute(
                             """
                             INSERT INTO dev_market_bootstrap_instrument_valuations (
@@ -816,19 +818,12 @@ class PostgresDevMarketBootstrapRepository:
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
-                                str(item.instrument_id), old_price, item.new_price,
-                                item.anchor_price, item.market_rank, item.stats_rank,
-                                item.social_rank,
-                                Json(
-                                    {
-                                        "market_value": options.market_value_weight,
-                                        "player_stats": options.stats_weight,
-                                        "social_sentiment": options.social_weight,
-                                    }
-                                ),
+                                str(item.instrument_id), Decimal(result.old_price),
+                                item.new_price, item.anchor_price, item.market_rank,
+                                item.stats_rank, item.social_rank, weights,
                             ),
                         )
-                        applied += 1
+                applied += 1
         return applied
 
     def apply_activity_overrides(self, profiles: Sequence[FleetProfilePlan]) -> int:

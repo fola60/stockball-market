@@ -1,8 +1,8 @@
 """Quick local test: discover Bet365 fixtures and print normalized market odds.
 
 Usage:
-    python3 -m scripts.test_bet365_search --league PL --max-matches 5
-    python3 -m scripts.test_bet365_search --dedicated-profile
+    python3 -m scripts.probe_bet365_search --league PL --max-matches 5
+    python3 -m scripts.probe_bet365_search --dedicated-profile
 
 This calls the same ``Bet365Client`` used by the worker, but does not persist results.
 It uses an isolated temporary Chrome profile unless a dedicated profile is requested.

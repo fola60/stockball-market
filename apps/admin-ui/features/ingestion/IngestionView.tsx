@@ -35,7 +35,7 @@ export function IngestionView({
     try {
       setSocialStatus(
         await getJson<SocialIngestionSummary>(
-          "/internal/v1/dev/social-ingestion",
+          "/internal/v1/admin/social-ingestion",
         ),
       );
       setStatusError("");

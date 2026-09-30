@@ -13,7 +13,7 @@ from psycopg2.extras import RealDictCursor
 from app.database import connection as pooled_connection
 
 
-class PostgresDevOperationsRepository:
+class PostgresAdminRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 

@@ -38,7 +38,7 @@ export function TradesView() {
       });
       if (accountType !== "ALL") query.set("account_type", accountType);
       if (side !== "ALL") query.set("side", side);
-      setData(await getJson<TradePage>(`/internal/v1/dev/trades?${query}`));
+      setData(await getJson<TradePage>(`/internal/v1/admin/trades?${query}`));
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load trades");
@@ -49,7 +49,7 @@ export function TradesView() {
     setError("");
     try {
       setSelectedTrade(
-        await getJson<TradeDetail>(`/internal/v1/dev/trades/${tradeId}`),
+        await getJson<TradeDetail>(`/internal/v1/admin/trades/${tradeId}`),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load trade");

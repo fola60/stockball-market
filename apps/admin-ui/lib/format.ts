@@ -1,3 +1,5 @@
+import type { Run } from "@/lib/types";
+
 export function label(value: string) {
   return value
     ? value

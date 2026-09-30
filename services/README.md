@@ -8,8 +8,9 @@ Contains independently runnable Stockball services.
 
 - `api`: public/admin API service.
 - `trading-engine`: consistency-critical market execution service.
-- `worker`: scheduled jobs, ingestion, signals, and synthetic trader decisions.
-- `admin-ui`: internal dashboard.
+- `worker`: scheduled jobs, ingestion, and synthetic trader decisions.
+
+User interfaces live in `apps/`: `apps/web` (customer site) and `apps/admin-ui` (operations console).
 
 ## Boundary Rule
 

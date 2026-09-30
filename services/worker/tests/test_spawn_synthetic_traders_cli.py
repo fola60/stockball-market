@@ -51,7 +51,7 @@ class SpawnSyntheticTradersCliTests(unittest.TestCase):
                 "STOCKBALL_WORKER_TRADING_ENGINE_URL": "http://trading-engine.test",
                 "STOCKBALL_WORKER_API_URL": "http://api.test",
             },
-        ), patch("app.main.SyntheticTraderSpawner") as spawner_class:
+        ), patch("app.entrypoints.factories.SyntheticTraderSpawner") as spawner_class:
             spawner_class.return_value.spawn.return_value = result
             stdout = io.StringIO()
             with redirect_stdout(stdout):
@@ -107,7 +107,7 @@ class SpawnSyntheticTradersCliTests(unittest.TestCase):
                 "STOCKBALL_WORKER_TRADING_ENGINE_URL": "http://trading-engine.test",
                 "STOCKBALL_WORKER_API_URL": "http://api.test",
             },
-        ), patch("app.main.SyntheticTraderSpawner") as spawner_class:
+        ), patch("app.entrypoints.factories.SyntheticTraderSpawner") as spawner_class:
             spawner_class.return_value.spawn.return_value = result
             stdout = io.StringIO()
             with redirect_stdout(stdout):

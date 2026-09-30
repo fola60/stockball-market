@@ -1,8 +1,8 @@
 """Quick local test: search X and print parsed tweets.
 
 Usage:
-    python3 -m scripts.test_twitter_search "man united injury"
-    python3 -m scripts.test_twitter_search "arsenal confirmed XI" --user-data-dir /path/to/chrome
+    python3 -m scripts.probe_twitter_search "man united injury"
+    python3 -m scripts.probe_twitter_search "arsenal confirmed XI" --user-data-dir /path/to/chrome
 
 Requires:
     - Chrome installed (for browser fallback)

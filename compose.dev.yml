@@ -27,7 +27,7 @@ services:
   admin-ui:
     build:
       context: .
-      dockerfile: services/admin-ui/Dockerfile
+      dockerfile: apps/admin-ui/Dockerfile
     ports:
       - "${ADMIN_UI_PORT:-3001}:3001"
 

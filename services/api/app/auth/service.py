@@ -6,15 +6,25 @@ import secrets
 import unicodedata
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from app.accounts.models import AccountStatus, AccountType
 from app.accounts.repository import AccountAlreadyExistsError
 from app.auth.models import AuthenticatedSession, CurrentPrincipal
 from app.auth.passwords import hash_password, verify_password
 from app.auth.repository import AuthRepository
+from app.clients.trading_engine import (
+    OpeningBalanceClient,
+    TradingEngineClientError,
+    TradingEngineUnavailableError,
+)
 
 
 class InvalidCredentialsError(Exception):
+    pass
+
+
+class RegistrationUnavailableError(Exception):
     pass
 
 
@@ -31,10 +41,12 @@ class AuthService:
         self,
         repository: AuthRepository,
         *,
+        trading_engine: OpeningBalanceClient,
         opening_balance: Decimal,
         session_ttl: timedelta = timedelta(days=7),
     ) -> None:
         self._repository = repository
+        self._trading_engine = trading_engine
         self._opening_balance = opening_balance
         self._session_ttl = session_ttl
 
@@ -47,13 +59,26 @@ class AuthService:
                     display_name=display_name,
                     email=email.lower(),
                     password_hash=password_hash,
-                    opening_balance=self._opening_balance,
                 )
                 break
             except AccountAlreadyExistsError as exc:
                 if exc.field_name != "handle" or attempt == 2:
                     raise
+        self._fund_opening_balance(account.id, account.portfolio.id)
         return self._new_session(account.id)
+
+    def _fund_opening_balance(self, account_id: UUID, portfolio_id: UUID) -> None:
+        # Cash only moves through the trading engine. If the credit fails, undo the
+        # registration so the person can simply try again with the same email.
+        try:
+            self._trading_engine.apply_opening_balance(
+                account_id=account_id, portfolio_id=portfolio_id, amount=self._opening_balance
+            )
+        except (TradingEngineClientError, TradingEngineUnavailableError) as exc:
+            if self._repository.delete_unfunded_registration(account_id):
+                raise RegistrationUnavailableError(
+                    "registration is temporarily unavailable"
+                ) from exc
 
     def login(self, *, email: str, password: str) -> AuthenticatedSession:
         credential = self._repository.get_credential_by_email(email.lower())

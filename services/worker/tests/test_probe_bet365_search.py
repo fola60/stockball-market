@@ -18,7 +18,7 @@ from app.ingestion.betting_markets import (
     MarketScope,
     PlayerMarketType,
 )
-from scripts.test_bet365_search import main
+from scripts.probe_bet365_search import main
 
 
 def _observation(selection_key: str, odds: str) -> BettingMarketObservation:
@@ -83,7 +83,7 @@ def _player_observation() -> BettingMarketObservation:
 
 
 class Bet365SearchScriptTests(unittest.TestCase):
-    @patch("scripts.test_bet365_search.Bet365Client")
+    @patch("scripts.probe_bet365_search.Bet365Client")
     def test_uses_production_client_and_prints_normalized_results(self, client_type) -> None:
         client_type.return_value.list_pre_match_markets.return_value = [
             _observation("HOME", "2.2"),
@@ -116,7 +116,7 @@ class Bet365SearchScriptTests(unittest.TestCase):
         self.assertIn("SHOTS_ON_TARGET=1", output.getvalue())
         self.assertIn("Bukayo Saka", output.getvalue())
 
-    @patch("scripts.test_bet365_search.Bet365Client")
+    @patch("scripts.probe_bet365_search.Bet365Client")
     def test_reports_client_error_without_traceback(self, client_type) -> None:
         client_type.return_value.list_pre_match_markets.side_effect = Bet365IngestionError(
             "blocked"

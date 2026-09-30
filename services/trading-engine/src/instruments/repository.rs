@@ -179,6 +179,57 @@ pub(crate) async fn update_market_state(
     Instrument::try_from(row)
 }
 
+/// True once an instrument has any order, trade, or held position, i.e. it has left pre-market.
+pub(crate) async fn has_market_activity(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+) -> Result<bool, InstrumentError> {
+    let active = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT
+            EXISTS (SELECT 1 FROM orders WHERE instrument_id = $1)
+            OR EXISTS (SELECT 1 FROM trades WHERE instrument_id = $1)
+            OR EXISTS (SELECT 1 FROM positions WHERE instrument_id = $1)
+        "#,
+    )
+    .bind(instrument_id)
+    .fetch_one(&mut *connection)
+    .await?;
+    Ok(active)
+}
+
+/// Re-anchors a pre-market instrument: both the quoted and curve reference price move to
+/// `new_price` and net demand resets, so the curve starts from the new valuation.
+pub(crate) async fn reset_pre_market_price(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+    new_price: Decimal,
+) -> Result<(), InstrumentError> {
+    if new_price <= Decimal::ZERO {
+        return Err(InstrumentError::NegativePrice);
+    }
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE instruments
+        SET
+            current_price = $2,
+            reference_price = $2,
+            net_shares_purchased = 0,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(instrument_id)
+    .bind(new_price)
+    .execute(&mut *connection)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(InstrumentError::NotFound(instrument_id));
+    }
+    Ok(())
+}
+
 impl TryFrom<InstrumentRow> for Instrument {
     type Error = InstrumentError;
 

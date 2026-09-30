@@ -25,6 +25,10 @@ class TradingEngineEndpoints:
     execute_order: str = "/internal/v1/orders/execute"
     seed_player_shares: str = "/internal/v1/instruments/player-shares/seed"
     apply_topup: str = "/internal/v1/ledger/topups/apply"
+    issue_initial_supply: str = "/internal/v1/positions/initial-supply/issue"
+    set_pre_market_price: str = "/internal/v1/instruments/pre-market-price/set"
+    apply_freeze: str = "/internal/v1/freezes/apply"
+    release_freeze: str = "/internal/v1/freezes/release"
 
 
 @dataclass(frozen=True)
@@ -154,12 +158,128 @@ class SeedPlayerSharesRecord:
         )
 
 
+@dataclass(frozen=True)
+class InitialSupplyAllocation:
+    instrument_id: UUID
+    portfolio_id: UUID
+    quantity: str
+
+
+@dataclass(frozen=True)
+class IssueInitialSupplyCommand:
+    request_id: str
+    allocations: tuple[InitialSupplyAllocation, ...]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "allocations": [
+                {
+                    "instrument_id": str(item.instrument_id),
+                    "portfolio_id": str(item.portfolio_id),
+                    "quantity": item.quantity,
+                }
+                for item in self.allocations
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class SetPreMarketPriceCommand:
+    request_id: str
+    instrument_id: UUID
+    new_price: str
+
+    def to_payload(self) -> dict[str, str]:
+        return {
+            "request_id": self.request_id,
+            "instrument_id": str(self.instrument_id),
+            "new_price": self.new_price,
+        }
+
+
+@dataclass(frozen=True)
+class PreMarketPriceRecord:
+    instrument_id: UUID
+    old_price: str
+    new_price: str
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PreMarketPriceRecord":
+        return cls(
+            instrument_id=UUID(str(payload["instrument_id"])),
+            old_price=str(payload["old_price"]),
+            new_price=str(payload["new_price"]),
+        )
+
+
+@dataclass(frozen=True)
+class ApplyFreezeCommand:
+    reason: str
+    source_key: str
+    instrument_ids: tuple[UUID, ...]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "reason": self.reason,
+            "source_key": self.source_key,
+            "instrument_ids": [str(item) for item in self.instrument_ids],
+        }
+
+
+@dataclass(frozen=True)
+class ApplyFreezeRecord:
+    source_key: str
+    opened_count: int
+    already_open_count: int
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ApplyFreezeRecord":
+        return cls(
+            source_key=str(payload["source_key"]),
+            opened_count=int(payload["opened_count"]),
+            already_open_count=int(payload["already_open_count"]),
+        )
+
+
+@dataclass(frozen=True)
+class ReleaseFreezeRecord:
+    source_key: str
+    released_count: int
+    reactivated_instrument_ids: tuple[UUID, ...]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ReleaseFreezeRecord":
+        return cls(
+            source_key=str(payload["source_key"]),
+            released_count=int(payload["released_count"]),
+            reactivated_instrument_ids=tuple(
+                UUID(str(item)) for item in payload["reactivated_instrument_ids"]
+            ),
+        )
+
+
 class TradingEngineClient(Protocol):
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
 
     def seed_player_shares(self) -> SeedPlayerSharesRecord: ...
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord: ...
+
+
+class InitialSupplyIssuer(Protocol):
+    def issue_initial_supply(self, command: IssueInitialSupplyCommand) -> None: ...
+
+
+class PreMarketPricer(Protocol):
+    def set_pre_market_price(self, command: SetPreMarketPriceCommand) -> PreMarketPriceRecord: ...
+
+
+class FreezeClient(Protocol):
+    def apply_freeze(self, command: ApplyFreezeCommand) -> ApplyFreezeRecord: ...
+
+    def release_freeze(self, source_key: str) -> ReleaseFreezeRecord: ...
+
 
 class TradingEngineClientError(Exception):
     def __init__(self, status_code: int, body: dict[str, Any]) -> None:
@@ -209,6 +329,21 @@ class HttpTradingEngineClient:
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord:
         payload = self._post(self._endpoints.apply_topup, command.to_payload())
         return CashLedgerEntryRecord.from_payload(payload)
+
+    def issue_initial_supply(self, command: IssueInitialSupplyCommand) -> None:
+        self._post(self._endpoints.issue_initial_supply, command.to_payload())
+
+    def set_pre_market_price(self, command: SetPreMarketPriceCommand) -> PreMarketPriceRecord:
+        payload = self._post(self._endpoints.set_pre_market_price, command.to_payload())
+        return PreMarketPriceRecord.from_payload(payload)
+
+    def apply_freeze(self, command: ApplyFreezeCommand) -> ApplyFreezeRecord:
+        payload = self._post(self._endpoints.apply_freeze, command.to_payload())
+        return ApplyFreezeRecord.from_payload(payload)
+
+    def release_freeze(self, source_key: str) -> ReleaseFreezeRecord:
+        payload = self._post(self._endpoints.release_freeze, {"source_key": source_key})
+        return ReleaseFreezeRecord.from_payload(payload)
 
     def _post(self, path: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:

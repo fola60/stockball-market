@@ -10,6 +10,7 @@ OPENAPI = ROOT / "packages/contracts/openapi/trading-engine.internal.v1.yaml"
 SCHEMA = ROOT / "packages/contracts/schemas/trading.schema.json"
 ROUTER = ROOT / "services/trading-engine/src/http/router.rs"
 WORKER_CLIENT = ROOT / "services/worker/app/clients/trading_engine.py"
+API_CLIENT = ROOT / "services/api/app/clients/trading_engine.py"
 
 
 def _openapi_paths(document: str) -> set[str]:
@@ -36,5 +37,11 @@ def test_every_local_schema_reference_exists() -> None:
 
 def test_worker_client_only_calls_documented_routes() -> None:
     client_paths = set(re.findall(r'"(/internal/v1/[^"]+)"', WORKER_CLIENT.read_text()))
+    assert client_paths
+    assert client_paths <= _openapi_paths(OPENAPI.read_text())
+
+
+def test_api_client_only_calls_documented_routes() -> None:
+    client_paths = set(re.findall(r'"(/internal/v1/[^"]+)"', API_CLIENT.read_text()))
     assert client_paths
     assert client_paths <= _openapi_paths(OPENAPI.read_text())

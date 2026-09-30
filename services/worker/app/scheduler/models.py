@@ -7,6 +7,7 @@ from uuid import UUID
 
 from app.jobs.models import (
     Bet365IngestionMode,
+    CheckMarketFreezesJobPayload,
     IngestBet365OddsJobPayload,
     IngestPlayerStatsJobPayload,
     IngestSocialSourceJobPayload,
@@ -49,6 +50,24 @@ class RecurringTopupPlan:
                 cadence=self.cadence,
                 effective_at=window.start,
             )
+        )
+
+
+@dataclass(frozen=True)
+class MarketFreezeCheckPlan:
+    """Every minute, open and release match-day freezes around fixtures."""
+
+    name: str = "market-freezes"
+    interval_minutes: int = 1
+    enabled: bool = True
+    supersede_pending: bool = True
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        return _normalize_tick_time(effective_at).isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob.check_market_freezes(
+            CheckMarketFreezesJobPayload(effective_at=_normalize_tick_time(effective_at))
         )
 
 
@@ -219,10 +238,12 @@ def default_scheduler_plans(
     twitter_injury_enabled: bool = False,
     twitter_injury_interval_minutes: int = 5,
     twitter_query_key: str | None = None,
+    market_freezes_enabled: bool = True,
 ) -> tuple[SchedulePlan, ...]:
     return (
         RecurringTopupPlan(name="weekly-topups", cadence=TopupCadence.WEEKLY),
         RecurringTopupPlan(name="monthly-topups", cadence=TopupCadence.MONTHLY),
+        MarketFreezeCheckPlan(enabled=market_freezes_enabled),
         SyntheticTraderTickPlan(),
         DailyPlayerStatsIngestionPlan(
             enabled=player_stats_enabled,

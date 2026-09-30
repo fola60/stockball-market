@@ -12,9 +12,14 @@ from uuid import UUID
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
+from app.clients.trading_engine import (
+    InitialSupplyAllocation,
+    InitialSupplyIssuer,
+    IssueInitialSupplyCommand,
+    TradingEngineClientError,
+)
 from app.database import connection as pooled_connection
-
-from .models import StrategyEngine
+from app.synthetic_traders.models import StrategyEngine
 
 RESERVE_ACCOUNT_ID = UUID("7f63e2d0-1adc-4af1-8ad0-000000000001")
 RESERVE_PORTFOLIO_ID = UUID("7f63e2d0-1adc-4af1-8ad0-000000000002")
@@ -463,8 +468,9 @@ def _unit_random(seed: int, *parts: object) -> float:
 
 
 class PostgresSyntheticPortfolioBootstrapRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, supply_issuer: InitialSupplyIssuer) -> None:
         self._database_url = database_url
+        self._supply_issuer = supply_issuer
 
     @contextmanager
     def _connection(self) -> Iterator[psycopg2.extensions.connection]:
@@ -641,48 +647,25 @@ class PostgresSyntheticPortfolioBootstrapRepository:
         return instruments, skipped
 
     def persist(self, plan: BootstrapAllocationPlan, options: BootstrapOptions) -> None:
-        instrument_ids = sorted({item.instrument_id for item in plan.allocations}, key=str)
+        by_instrument: dict[UUID, list[BootstrapPositionAllocation]] = {}
+        for item in plan.allocations:
+            by_instrument.setdefault(item.instrument_id, []).append(item)
+        instrument_ids = [str(item) for item in by_instrument]
+
         with self._connection() as connection:
             with connection:
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT id FROM instruments WHERE id::text = ANY(%s) FOR UPDATE",
-                        ([str(item) for item in instrument_ids],),
-                    )
                     cursor.execute(
                         """
                         SELECT instrument_id FROM synthetic_portfolio_bootstrap_allocations
                         WHERE instrument_id::text = ANY(%s) LIMIT 1
                         """,
-                        ([str(item) for item in instrument_ids],),
+                        (instrument_ids,),
                     )
                     existing = cursor.fetchone()
                     if existing is not None:
                         raise BootstrapAlreadyExistsError(
                             f"bootstrap allocation already exists for instrument {existing[0]}"
-                        )
-                    cursor.execute(
-                        """
-                        SELECT instrument_id FROM positions
-                        WHERE instrument_id::text = ANY(%s)
-                        UNION ALL
-                        SELECT instrument_id FROM orders
-                        WHERE instrument_id::text = ANY(%s)
-                        UNION ALL
-                        SELECT instrument_id FROM trades
-                        WHERE instrument_id::text = ANY(%s)
-                        LIMIT 1
-                        """,
-                        (
-                            [str(item) for item in instrument_ids],
-                            [str(item) for item in instrument_ids],
-                            [str(item) for item in instrument_ids],
-                        ),
-                    )
-                    owned = cursor.fetchone()
-                    if owned is not None:
-                        raise BootstrapAllocationError(
-                            f"instrument {owned[0]} acquired market history while bootstrap was being prepared"
                         )
                     cursor.execute(
                         """
@@ -703,45 +686,60 @@ class PostgresSyntheticPortfolioBootstrapRepository:
                         ),
                     )
                     batch_id = cursor.fetchone()[0]
-                    for item in plan.allocations:
-                        cursor.execute(
-                            """
-                            INSERT INTO positions (portfolio_id, instrument_id, quantity)
-                            VALUES (%s, %s, %s)
-                            """,
-                            (str(item.portfolio_id), str(item.instrument_id), item.quantity),
-                        )
-                        cursor.execute(
-                            """
-                            INSERT INTO synthetic_portfolio_bootstrap_allocations (
-                                batch_id, instrument_id, portfolio_id, bot_id,
-                                quantity, seed_price, is_reserve
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                batch_id,
-                                str(item.instrument_id),
-                                str(item.portfolio_id),
-                                None if item.bot_id is None else str(item.bot_id),
-                                item.quantity,
-                                item.seed_price,
-                                item.is_reserve,
-                            ),
-                        )
-                    cursor.execute(
-                        """
-                        SELECT i.symbol
-                        FROM instruments AS i
-                        LEFT JOIN positions AS p ON p.instrument_id = i.id
-                        WHERE i.id::text = ANY(%s)
-                        GROUP BY i.id
-                        HAVING SUM(p.quantity) <> i.shares_outstanding
-                        LIMIT 1
-                        """,
-                        ([str(item) for item in instrument_ids],),
-                    )
-                    mismatch = cursor.fetchone()
-                    if mismatch is not None:
-                        raise BootstrapAllocationError(
-                            f"supply reconciliation failed for instrument {mismatch[0]}"
-                        )
+
+            # Positions are owned by the trading engine, which checks each instrument is still
+            # pre-market and that its supply is issued in full. Each instrument is one engine
+            # call; the audit rows are recorded as soon as its supply has been issued.
+            for instrument_id, allocations in by_instrument.items():
+                self._issue_supply(batch_id, instrument_id, allocations)
+                with connection:
+                    with connection.cursor() as cursor:
+                        for item in allocations:
+                            cursor.execute(
+                                """
+                                INSERT INTO synthetic_portfolio_bootstrap_allocations (
+                                    batch_id, instrument_id, portfolio_id, bot_id,
+                                    quantity, seed_price, is_reserve
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                """,
+                                (
+                                    batch_id,
+                                    str(item.instrument_id),
+                                    str(item.portfolio_id),
+                                    None if item.bot_id is None else str(item.bot_id),
+                                    item.quantity,
+                                    item.seed_price,
+                                    item.is_reserve,
+                                ),
+                            )
+
+    def _issue_supply(
+        self,
+        batch_id: object,
+        instrument_id: UUID,
+        allocations: Sequence[BootstrapPositionAllocation],
+    ) -> None:
+        command = IssueInitialSupplyCommand(
+            request_id=f"initial-supply:{batch_id}:{instrument_id}",
+            allocations=tuple(
+                InitialSupplyAllocation(
+                    instrument_id=item.instrument_id,
+                    portfolio_id=item.portfolio_id,
+                    quantity=str(item.quantity),
+                )
+                for item in allocations
+            ),
+        )
+        try:
+            self._supply_issuer.issue_initial_supply(command)
+        except TradingEngineClientError as exc:
+            code = exc.body.get("code")
+            if code == "instrument_has_market_activity":
+                raise BootstrapAllocationError(
+                    f"instrument {instrument_id} acquired market history while bootstrap was being prepared"
+                ) from exc
+            if code == "supply_mismatch":
+                raise BootstrapAllocationError(
+                    f"supply reconciliation failed for instrument {instrument_id}"
+                ) from exc
+            raise

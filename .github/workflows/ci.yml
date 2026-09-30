@@ -84,14 +84,14 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: services/admin-ui
+        working-directory: apps/admin-ui
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: services/admin-ui/package-lock.json
+          cache-dependency-path: apps/admin-ui/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -137,6 +137,7 @@ jobs:
           python-version: "3.12"
       - run: pip install pytest
       - run: python -m pytest -q packages/contracts/tests
+      - run: python scripts/check-table-ownership.py
 
   publish-images:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -161,7 +162,7 @@ jobs:
             dockerfile: services/trading-engine/Dockerfile
           - image: admin-ui
             context: .
-            dockerfile: services/admin-ui/Dockerfile
+            dockerfile: apps/admin-ui/Dockerfile
           - image: web
             context: ./apps/web
             dockerfile: apps/web/Dockerfile

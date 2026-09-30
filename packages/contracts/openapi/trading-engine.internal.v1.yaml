@@ -41,6 +41,183 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/ledger/opening-balance/apply:
+    post:
+      operationId: applyOpeningBalance
+      summary: Credit a new portfolio's one-time opening balance
+      description: >
+        Idempotent by request_id. A portfolio can receive only one OPENING_BALANCE credit; the API calls this after registering a user.
+      tags:
+        - Ledger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyOpeningBalanceRequest"
+      responses:
+        "200":
+          description: Opening balance credited or its prior result replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashLedgerEntry"
+        "404":
+          description: Account or portfolio was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The portfolio already has an opening balance, or the idempotency key conflicts with another request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The command is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/positions/initial-supply/issue:
+    post:
+      operationId: issueInitialSupply
+      summary: Issue the full share supply of pre-market instruments
+      description: >
+        Creates positions that together hold every outstanding share of each instrument. Rejected for instruments that already have orders, trades, or positions. Idempotent by request_id.
+      tags:
+        - Positions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueInitialSupplyRequest"
+      responses:
+        "200":
+          description: Supply issued or its prior result replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueInitialSupplyResponse"
+        "404":
+          description: An instrument or portfolio was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: An instrument already has market activity, or the idempotency key conflicts with another request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The allocations are invalid or do not add up to the shares outstanding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/instruments/pre-market-price/set:
+    post:
+      operationId: setPreMarketPrice
+      summary: Re-anchor the price of an instrument that has not traded
+      description: >
+        Sets the current and reference price, resets net demand, and records an ADMIN_ADJUSTMENT price snapshot. Rejected once the instrument has orders, trades, or positions. Idempotent by request_id.
+      tags:
+        - Instruments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPreMarketPriceRequest"
+      responses:
+        "200":
+          description: Price set or its prior result replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreMarketPriceResponse"
+        "404":
+          description: Instrument was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The instrument already has market activity, or the idempotency key conflicts with another request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The command is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/freezes/apply:
+    post:
+      operationId: applyFreeze
+      summary: Freeze instruments for a reason identified by a source key
+      description: >
+        Opens a freeze per instrument and marks it FROZEN. An instrument stays frozen while any freeze is open, so match-day freezes and admin halts are independent. Re-applying an open freeze is a no-op; delisted instruments are skipped.
+      tags:
+        - Freezes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyFreezeRequest"
+      responses:
+        "200":
+          description: Freezes opened or already open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyFreezeResponse"
+        "404":
+          description: An instrument was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The command is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/freezes/release:
+    post:
+      operationId: releaseFreeze
+      summary: Release every open freeze with a source key
+      description: >
+        Closes the freezes and reactivates instruments that have no other open freeze. Releasing twice is a no-op.
+      tags:
+        - Freezes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReleaseFreezeRequest"
+      responses:
+        "200":
+          description: Freezes released.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseFreezeResponse"
+        "422":
+          description: The command is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /internal/v1/instruments/player-shares/seed:
     post:
       operationId: seedPlayerShares
@@ -203,6 +380,16 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/ApplyTopupRequest"
     CashLedgerEntry:
       $ref: "../schemas/trading.schema.json#/$defs/CashLedgerEntry"
+    ApplyOpeningBalanceRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/ApplyOpeningBalanceRequest"
+    IssueInitialSupplyRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/IssueInitialSupplyRequest"
+    IssueInitialSupplyResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/IssueInitialSupplyResponse"
+    SetPreMarketPriceRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/SetPreMarketPriceRequest"
+    PreMarketPriceResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/PreMarketPriceResponse"
     ExecuteOrderRequest:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderRequest"
     ExecuteOrderResponse:
@@ -211,5 +398,13 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/OrderQuoteResponse"
     SeedPlayerSharesResponse:
       $ref: "../schemas/trading.schema.json#/$defs/SeedPlayerSharesResponse"
+    ApplyFreezeRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/ApplyFreezeRequest"
+    ApplyFreezeResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/ApplyFreezeResponse"
+    ReleaseFreezeRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/ReleaseFreezeRequest"
+    ReleaseFreezeResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/ReleaseFreezeResponse"
     ErrorResponse:
       $ref: "../schemas/common.schema.json#/$defs/ErrorResponse"

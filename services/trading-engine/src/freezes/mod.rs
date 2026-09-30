@@ -1,5 +1,9 @@
 mod error;
+mod model;
 mod repository;
 
 pub use error::FreezeError;
-pub use repository::{assert_not_frozen, freeze_instrument, unfreeze_instrument};
+pub use model::{
+    ApplyFreezeCommand, ApplyFreezeResult, FreezeReason, ReleaseFreezeCommand, ReleaseFreezeResult,
+};
+pub use repository::{apply_freeze, assert_not_frozen, release_freeze};

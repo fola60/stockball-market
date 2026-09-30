@@ -77,6 +77,43 @@ pub async fn credit_trade_cash(
     .await
 }
 
+/// Credits a portfolio's one-time opening balance. A portfolio can receive at most one.
+pub async fn credit_opening_balance(
+    connection: &mut PgConnection,
+    account_id: Uuid,
+    portfolio_id: Uuid,
+    amount: Decimal,
+    source_request_id: &str,
+) -> Result<CashLedgerEntry, LedgerError> {
+    let already_credited = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM cash_ledger_entries
+            WHERE portfolio_id = $1
+              AND reason = 'OPENING_BALANCE'
+        )
+        "#,
+    )
+    .bind(portfolio_id)
+    .fetch_one(&mut *connection)
+    .await?;
+    if already_credited {
+        return Err(LedgerError::OpeningBalanceAlreadyApplied(portfolio_id));
+    }
+
+    apply_cash_movement(
+        connection,
+        account_id,
+        portfolio_id,
+        None,
+        LedgerReason::OpeningBalance,
+        ensure_positive_amount(amount)?,
+        Some(source_request_id),
+    )
+    .await
+}
+
 pub async fn credit_weekly_topup(
     connection: &mut PgConnection,
     account_id: Uuid,

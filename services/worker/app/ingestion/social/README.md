@@ -15,7 +15,7 @@ injury/availability path remains available during the additive migration.
 - Match social observations to players, or to a reviewed source-club hint when no player resolves.
 - Classify every document by topic and positive, negative, neutral, or mixed sentiment.
 - Store general observations separately from specialized injury evidence.
-- Preserve enough raw context for `signals/social` to calculate hype and sentiment signals.
+- Preserve enough raw context for the social-sentiment strategy engine to calculate hype and sentiment.
 
 The dependency direction is `providers -> ports <- application -> domain`. Provider response
 objects never enter injury classification or trading code. One `INGEST_SOCIAL_SOURCE` job is
@@ -47,4 +47,4 @@ limited to full names and reviewed player aliases.
 
 - Does not calculate final trading decisions.
 - Does not directly mutate prices.
-- Signal interpretation belongs to `services/worker/app/signals/social`.
+- Signal interpretation belongs to the synthetic trader strategy engines in `services/worker/app/synthetic_traders/engines`.

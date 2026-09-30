@@ -28,7 +28,7 @@ class SeedPlayerSharesCliTests(unittest.TestCase):
                 "STOCKBALL_WORKER_REDIS_URL": "redis://redis.test/0",
                 "STOCKBALL_WORKER_TRADING_ENGINE_URL": "http://trading-engine.test",
             },
-        ), patch("app.main.HttpTradingEngineClient") as client_class:
+        ), patch("app.entrypoints.factories.HttpTradingEngineClient") as client_class:
             client_class.return_value.seed_player_shares.return_value = result
             stdout = io.StringIO()
             with redirect_stdout(stdout):

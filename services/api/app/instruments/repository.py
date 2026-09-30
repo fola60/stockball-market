@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Iterator, Protocol
@@ -12,6 +13,7 @@ from psycopg2.extras import RealDictCursor
 from app.common.decimal import format_decimal
 from app.database import connection as pooled_connection
 from app.instruments.models import (
+    InstrumentFreezeRecord,
     InstrumentRecord,
     InstrumentStatus,
     InstrumentType,
@@ -128,7 +130,12 @@ class PostgresInstrumentsRepository:
                             ),
                             0
                         ) AS price_change_24h,
-                        COALESCE(activity.volume_24h, 0) AS volume_24h
+                        COALESCE(activity.volume_24h, 0) AS volume_24h,
+                        active_freeze.reason AS freeze_reason,
+                        active_freeze.started_at AS freeze_started_at,
+                        fixture.home_team_name AS freeze_home_team,
+                        fixture.away_team_name AS freeze_away_team,
+                        fixture.kickoff_at AS freeze_kickoff_at
                     FROM instruments AS i
                     JOIN players AS p ON p.id = i.player_id
                     LEFT JOIN LATERAL (
@@ -145,6 +152,16 @@ class PostgresInstrumentsRepository:
                         WHERE t.instrument_id = i.id
                           AND t.executed_at >= now() - interval '24 hours'
                     ) AS activity ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT f.reason, f.started_at, f.source_key
+                        FROM instrument_freezes AS f
+                        WHERE f.instrument_id = i.id
+                          AND f.released_at IS NULL
+                        ORDER BY f.started_at, f.id
+                        LIMIT 1
+                    ) AS active_freeze ON TRUE
+                    LEFT JOIN fixtures AS fixture
+                        ON active_freeze.source_key = 'fixture:' || fixture.id::text
                     WHERE i.id = %(instrument_id)s
                     """,
                     {"instrument_id": str(instrument_id)},
@@ -154,7 +171,19 @@ class PostgresInstrumentsRepository:
         if row is None:
             return None
 
-        return _build_instrument_record(row)
+        record = _build_instrument_record(row)
+        if row["freeze_reason"] is None:
+            return record
+        return replace(
+            record,
+            freeze=InstrumentFreezeRecord(
+                reason=row["freeze_reason"],
+                started_at=row["freeze_started_at"],
+                fixture_home_team=row["freeze_home_team"],
+                fixture_away_team=row["freeze_away_team"],
+                fixture_kickoff_at=row["freeze_kickoff_at"],
+            ),
+        )
 
     def list_price_history(
         self, instrument_id: UUID, since: datetime | None = None

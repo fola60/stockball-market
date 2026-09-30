@@ -1,9 +1,9 @@
 """Fetch and print normalized social documents without persisting them.
 
 Usage:
-    python3 -m scripts.test_social_ingestion bluesky did:plc:example
-    python3 -m scripts.test_social_ingestion rss https://example.com/feed.xml
-    python3 -m scripts.test_social_ingestion mastodon https://mastodon.social 123456
+    python3 -m scripts.probe_social_ingestion bluesky did:plc:example
+    python3 -m scripts.probe_social_ingestion rss https://example.com/feed.xml
+    python3 -m scripts.probe_social_ingestion mastodon https://mastodon.social 123456
 
 The script calls the same provider connectors used by the worker. Sources must already
 be reviewed before using their output operationally; this command is diagnostics only.

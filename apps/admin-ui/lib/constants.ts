@@ -50,10 +50,13 @@ export const RUN_OPERATION_TYPES = [
   "INGEST_SOCIAL_FEEDS",
   "APPLY_TOPUPS",
   "TICK_SYNTHETIC_TRADERS",
+  "CHECK_MARKET_FREEZES",
   "SPAWN_SYNTHETIC_TRADERS",
   "BOOTSTRAP_SYNTHETIC_PORTFOLIOS",
   "SET_SYNTHETIC_TRADER_STATUS",
 ] as const;
+// Minute-by-minute schedules are hidden by default so they don't crowd out other runs.
 export const DEFAULT_RUN_OPERATIONS = RUN_OPERATION_TYPES.filter(
-  (operationType) => operationType !== "TICK_SYNTHETIC_TRADERS",
+  (operationType) =>
+    operationType !== "TICK_SYNTHETIC_TRADERS" && operationType !== "CHECK_MARKET_FREEZES",
 );

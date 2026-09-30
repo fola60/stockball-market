@@ -4,8 +4,8 @@ import unittest
 from decimal import Decimal
 from uuid import uuid4
 
-from app.jobs.dev_handlers import bootstrap_portfolios_handler
-from app.synthetic_traders.bootstrap import (
+from app.jobs.admin_handlers import bootstrap_portfolios_handler
+from app.seeding.portfolios import (
     RESERVE_PORTFOLIO_ID,
     BootstrapAllocationPlan,
     BootstrapPositionAllocation,

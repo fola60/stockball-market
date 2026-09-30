@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell, panel } from "../../components/market-shell";
-import { getInstrumentPageData, playerName } from "@/lib/api";
+import { getInstrumentPageData, playerName, type InstrumentFreeze } from "@/lib/api";
 import { formatCompact, formatCurrency, formatPercent } from "@/lib/format";
 import { PriceChart } from "./price-chart";
 import { RadarChart } from "./radar-chart";
@@ -17,6 +17,27 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const data = await getInstrumentPageData(id);
   if (!data) return { title: "Player stock not found — Stockball" };
   return { title: `${playerName(data.instrument)} stock — Stockball` };
+}
+
+function FreezeBanner({ freeze }: { freeze: InstrumentFreeze }) {
+  const kickoff = freeze.fixture_kickoff_at ? new Date(freeze.fixture_kickoff_at) : null;
+  const matchDay = freeze.reason === "MATCH_DAY" && freeze.fixture_home_team && freeze.fixture_away_team;
+  const title = matchDay ? "Trading paused for match day" : "Trading paused";
+  const detail = matchDay
+    ? `${freeze.fixture_home_team} v ${freeze.fixture_away_team}${kickoff ? ` · kick-off ${kickoff.toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}. Trading closes at lineup lock and reopens once the match has been settled.`
+    : "Stockball has temporarily halted trading in this player. Trading reopens automatically when the halt is lifted.";
+
+  return (
+    <div role="status" className="mb-5 flex items-start gap-3 rounded-xl border border-[#f4bb55]/25 bg-[#f4bb55]/[0.06] p-4">
+      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-[#f4bb55]/15 text-[#f4bb55]" aria-hidden="true">
+        <svg viewBox="0 0 20 20" className="size-4" fill="none"><rect x="5" y="9" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.6"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+      </span>
+      <div>
+        <p className="text-sm font-semibold text-[#f7d58f]">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-[#c9b27f]">{detail}</p>
+      </div>
+    </div>
+  );
 }
 
 export default async function InstrumentPage({ params }: PageProps) {
@@ -55,6 +76,8 @@ export default async function InstrumentPage({ params }: PageProps) {
             <span className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-xs font-semibold text-white tabular-nums slashed-zero ${positive ? "bg-[#07852f]" : "bg-[#d91c32]"}`}>{formatPercent(change)} today</span>
           </div>
         </header>
+
+        {instrument.freeze && <FreezeBanner freeze={instrument.freeze} />}
 
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-labelledby="price-history-title" className={panel}>

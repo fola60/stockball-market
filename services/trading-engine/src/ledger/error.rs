@@ -37,6 +37,9 @@ pub enum LedgerError {
         amount_delta: Decimal,
     },
 
+    #[error("portfolio {0} has already received its opening balance")]
+    OpeningBalanceAlreadyApplied(Uuid),
+
     #[error("unsupported ledger reason: {0}")]
     UnsupportedLedgerReason(String),
 

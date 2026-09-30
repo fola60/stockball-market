@@ -28,7 +28,7 @@ that dedicated Chrome window before running the fetch:
 
 ```bash
 python -m scripts.open_chrome_profile --dedicated-profile --url https://x.com/home
-python -m scripts.test_twitter_search "arsenal XI"
+python -m scripts.probe_twitter_search "arsenal XI"
 ```
 
 Set `FetchRequest.prefer_browser=True` only for providers whose ordinary HTTP response

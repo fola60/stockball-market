@@ -113,7 +113,7 @@ export function RunsView({
                 </td>
                 <td>
                   <strong>{label(run.source)}</strong>
-                  <small>{run.schedule_name ?? "dev portal"}</small>
+                  <small>{run.schedule_name ?? "admin"}</small>
                 </td>
                 <td>{time(run.enqueued_at)}</td>
                 <td>{duration(run)}</td>

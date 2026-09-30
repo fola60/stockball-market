@@ -7,7 +7,11 @@ from app.accounts.repository import AccountAlreadyExistsError
 from app.auth.dependencies import bearer_token, get_auth_service, get_current_principal
 from app.auth.models import CurrentPrincipal
 from app.auth.schemas import AuthAccountResponse, AuthSessionResponse, LoginRequest, RegisterRequest
-from app.auth.service import AccountUnavailableError, InvalidCredentialsError
+from app.auth.service import (
+    AccountUnavailableError,
+    InvalidCredentialsError,
+    RegistrationUnavailableError,
+)
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
@@ -24,6 +28,14 @@ def register(payload: RegisterRequest, request: Request) -> AuthSessionResponse 
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"code": f"{exc.field_name}_already_exists", "message": str(exc)},
+        )
+    except RegistrationUnavailableError:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "code": "registration_unavailable",
+                "message": "Registration is temporarily unavailable. Please try again.",
+            },
         )
     return AuthSessionResponse.from_record(session)
 

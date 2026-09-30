@@ -1,4 +1,4 @@
 from .router import router
-from .service import DevOperationsService
+from .service import AdminService
 
-__all__ = ["DevOperationsService", "router"]
+__all__ = ["AdminService", "router"]

@@ -11,8 +11,11 @@ from app.clients.trading_engine import (
     ApplyTopupCommand,
     ExecuteOrderCommand,
     HttpTradingEngineClient,
+    InitialSupplyAllocation,
+    IssueInitialSupplyCommand,
     LedgerReason,
     OrderSide,
+    SetPreMarketPriceCommand,
     TradingEngineClientError,
     TradingEngineUnavailableError,
 )
@@ -151,6 +154,71 @@ class TradingEngineClientTests(unittest.TestCase):
         self.assertEqual(result.created_count, 1)
         self.assertEqual(result.skipped_existing_count, 2)
         self.assertEqual(result.created_instrument_ids, (instrument_id,))
+
+    def test_issue_initial_supply_posts_allocations(self) -> None:
+        instrument_id, portfolio_id = uuid4(), uuid4()
+        requests: list[httpx.Request] = []
+
+        def handler(incoming: httpx.Request) -> httpx.Response:
+            requests.append(incoming)
+            return httpx.Response(
+                200,
+                json={"request_id": "supply-1", "instrument_count": 1, "position_count": 1},
+            )
+
+        client = HttpTradingEngineClient(
+            "http://trading-engine.test", transport=httpx.MockTransport(handler)
+        )
+        client.issue_initial_supply(
+            IssueInitialSupplyCommand(
+                request_id="supply-1",
+                allocations=(InitialSupplyAllocation(instrument_id, portfolio_id, "100"),),
+            )
+        )
+
+        self.assertEqual(requests[0].url.path, "/internal/v1/positions/initial-supply/issue")
+        self.assertEqual(
+            json.loads(requests[0].content),
+            {
+                "request_id": "supply-1",
+                "allocations": [
+                    {
+                        "instrument_id": str(instrument_id),
+                        "portfolio_id": str(portfolio_id),
+                        "quantity": "100",
+                    }
+                ],
+            },
+        )
+
+    def test_set_pre_market_price_parses_result(self) -> None:
+        instrument_id = uuid4()
+        requests: list[httpx.Request] = []
+
+        def handler(incoming: httpx.Request) -> httpx.Response:
+            requests.append(incoming)
+            return httpx.Response(
+                200,
+                json={
+                    "instrument_id": str(instrument_id),
+                    "old_price": "10.0000",
+                    "new_price": "12.5",
+                },
+            )
+
+        client = HttpTradingEngineClient(
+            "http://trading-engine.test", transport=httpx.MockTransport(handler)
+        )
+        result = client.set_pre_market_price(
+            SetPreMarketPriceCommand("price-1", instrument_id, "12.5")
+        )
+
+        self.assertEqual(requests[0].url.path, "/internal/v1/instruments/pre-market-price/set")
+        self.assertEqual(
+            json.loads(requests[0].content),
+            {"request_id": "price-1", "instrument_id": str(instrument_id), "new_price": "12.5"},
+        )
+        self.assertEqual(result.old_price, "10.0000")
 
     def test_http_error_is_retryable_unavailable_error(self) -> None:
         client = HttpTradingEngineClient(

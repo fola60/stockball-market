@@ -10,7 +10,9 @@ TRADING_ENGINE_URL_ENV = "STOCKBALL_API_TRADING_ENGINE_URL"
 TRADING_ENGINE_URL_FALLBACK_ENV = "STOCKBALL_TRADING_ENGINE_URL"
 DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS = 5.0
 REDIS_URL_ENV = "STOCKBALL_API_REDIS_URL"
-DEV_PORTAL_ENABLED_ENV = "STOCKBALL_DEV_PORTAL_ENABLED"
+ADMIN_API_ENABLED_ENV = "STOCKBALL_ADMIN_API_ENABLED"
+# Pre-rename name, still honoured so existing deployments keep their setting.
+ADMIN_API_ENABLED_LEGACY_ENV = "STOCKBALL_DEV_PORTAL_ENABLED"
 
 
 @dataclass(frozen=True)
@@ -22,7 +24,7 @@ class Settings:
     queue_name: str = "stockball:worker:jobs"
     trading_queue_name: str = "stockball:worker:trading"
     ingestion_queue_name: str = "stockball:worker:ingestion"
-    dev_portal_enabled: bool = False
+    admin_api_enabled: bool = False
     user_opening_balance: Decimal = Decimal("100000.0000")
 
     @classmethod
@@ -54,7 +56,10 @@ class Settings:
             ingestion_queue_name=os.getenv(
                 "STOCKBALL_API_INGESTION_QUEUE_NAME", "stockball:worker:ingestion"
             ),
-            dev_portal_enabled=os.getenv(DEV_PORTAL_ENABLED_ENV, "false").lower()
+            admin_api_enabled=(
+                os.getenv(ADMIN_API_ENABLED_ENV)
+                or os.getenv(ADMIN_API_ENABLED_LEGACY_ENV, "false")
+            ).lower()
             in {"1", "true", "yes", "on"},
             user_opening_balance=Decimal(
                 os.getenv("STOCKBALL_USER_OPENING_BALANCE", "100000.0000")

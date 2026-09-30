@@ -63,6 +63,18 @@ class TopupJobPayload:
 
 
 @dataclass(frozen=True)
+class CheckMarketFreezesJobPayload:
+    effective_at: datetime
+
+    def to_payload(self) -> dict[str, str]:
+        return {"effective_at": _normalize_timestamp(self.effective_at).isoformat()}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "CheckMarketFreezesJobPayload":
+        return cls(effective_at=datetime.fromisoformat(str(payload["effective_at"])))
+
+
+@dataclass(frozen=True)
 class SyntheticTraderTickJobPayload:
     effective_at: datetime
     force_timing: bool = False
@@ -305,6 +317,10 @@ class WorkerJob:
     @classmethod
     def topup(cls, payload: TopupJobPayload) -> "WorkerJob":
         return cls(job_type=JobType.APPLY_TOPUPS, payload=payload.to_payload())
+
+    @classmethod
+    def check_market_freezes(cls, payload: CheckMarketFreezesJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.CHECK_MARKET_FREEZES, payload=payload.to_payload())
 
     @classmethod
     def synthetic_trader_tick(cls, payload: SyntheticTraderTickJobPayload) -> "WorkerJob":

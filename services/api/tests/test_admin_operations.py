@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from uuid import uuid4
 
-from app.dev_operations.service import DevOperationsService, RedisJobPublisher
+from app.admin.service import AdminService, RedisJobPublisher
 
 
 class FakeRepository:
@@ -34,11 +34,11 @@ class FakePublisher:
     def enqueue(self, message): self.messages.append(dict(message))
 
 
-class DevOperationsServiceTests(unittest.TestCase):
+class AdminServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repository = FakeRepository()
         self.publisher = FakePublisher()
-        self.service = DevOperationsService(self.repository, self.publisher)
+        self.service = AdminService(self.repository, self.publisher)
 
     def test_enqueue_persists_run_and_correlates_worker_message(self) -> None:
         run = self.service.enqueue("INGEST_PLAYERS", {"season": 2026})
@@ -95,6 +95,12 @@ class DevOperationsServiceTests(unittest.TestCase):
         self.assertEqual(run["parameters"]["bot_ids"], [str(bot_id) for bot_id in bot_ids])
         self.assertEqual(run["parameters"]["tick_count"], 20)
         self.assertEqual(self.publisher.messages[0]["payload"], run["parameters"])
+
+    def test_market_freeze_check_is_stamped_and_published(self) -> None:
+        run = self.service.enqueue("CHECK_MARKET_FREEZES", {})
+
+        self.assertIn("effective_at", run["parameters"])
+        self.assertEqual(self.publisher.messages[0]["job_type"], "CHECK_MARKET_FREEZES")
 
     def test_force_tick_selection_is_bounded(self) -> None:
         with self.assertRaisesRegex(ValueError, "no more than 500"):

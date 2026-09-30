@@ -294,6 +294,8 @@ Not allowed:
 - API service can authenticate users and provision tagged synthetic trader accounts, but cannot execute trades.
 - Worker service can configure synthetic trader strategies and request bot trades, but cannot execute trades.
 - Worker service can decide a top-up is due, but the trading engine ledger applies the credit.
+- API service creates an account's empty portfolio, but the opening balance is credited by `provisioning`.
+- Worker service plans dev-market share distribution and valuations, but `provisioning` issues the positions and sets pre-market prices.
 - Admin UI reads through the API service only.
 
 ## V1 Non-Goals

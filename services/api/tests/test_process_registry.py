@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from app.dev_operations.processes import RedisProcessRegistry
+from app.admin.processes import RedisProcessRegistry
 
 
 class FakeRedis:
@@ -33,7 +33,7 @@ class RedisProcessRegistryTests(unittest.TestCase):
         self.registry._queue_name = "jobs"
         self.registry._executable_run_ids = None
         definitions = __import__(
-            "app.dev_operations.processes", fromlist=["configured_processes"]
+            "app.admin.processes", fromlist=["configured_processes"]
         ).configured_processes()
         self.registry._definitions = {item.name: item for item in definitions}
 

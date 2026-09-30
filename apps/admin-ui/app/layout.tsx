@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stockball Dev Portal",
-  description: "Local operations console for Stockball ingestion and synthetic traders.",
+  title: "Stockball Admin",
+  description: "Operations console for Stockball ingestion, synthetic traders, and trades.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

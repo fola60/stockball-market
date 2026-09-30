@@ -36,6 +36,10 @@ def _ingestion(values: dict[str, Any]) -> None:
     values.setdefault("season", 2025)
 
 
+def _freeze_check(values: dict[str, Any]) -> None:
+    values.setdefault("effective_at", datetime.now(UTC).isoformat())
+
+
 def _tick(values: dict[str, Any]) -> None:
     values.setdefault("effective_at", datetime.now(UTC).isoformat())
     values.setdefault("force_timing", False)
@@ -132,6 +136,7 @@ OPERATION_DEFINITIONS = tuple(
         _definition("INGEST_SOCIAL_FEEDS", normalizer=_social_feeds),
         _definition("APPLY_TOPUPS", normalizer=_topup),
         _definition("TICK_SYNTHETIC_TRADERS", "SYNTHETIC_TRADER_TICK", normalizer=_tick),
+        _definition("CHECK_MARKET_FREEZES", normalizer=_freeze_check),
         _definition("SPAWN_SYNTHETIC_TRADERS", normalizer=_spawn),
         _definition("BOOTSTRAP_SYNTHETIC_PORTFOLIOS", normalizer=_bootstrap),
         _definition("SET_SYNTHETIC_TRADER_STATUS", normalizer=_set_status),

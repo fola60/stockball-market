@@ -1,10 +1,3 @@
-from .bootstrap import (
-    BootstrapAllocationError,
-    BootstrapAllocationPlan,
-    BootstrapAlreadyExistsError,
-    PostgresSyntheticPortfolioBootstrapRepository,
-    SyntheticPortfolioBootstrapService,
-)
 from .config import (
     BettingMarketValueConfig,
     MarketMomentumConfig,
@@ -49,9 +42,6 @@ from .service import SyntheticTraderService
 from .spawner import SyntheticTraderConfigNotFoundError, SyntheticTraderSpawner
 
 __all__ = [
-    "BootstrapAllocationError",
-    "BootstrapAllocationPlan",
-    "BootstrapAlreadyExistsError",
     "BettingMarketContext",
     "BettingMarketQuote",
     "BettingMarketValueConfig",
@@ -68,7 +58,6 @@ __all__ = [
     "OrderIntent",
     "PlayerStatsContext",
     "PortfolioRebalancerConfig",
-    "PostgresSyntheticPortfolioBootstrapRepository",
     "PostgresSyntheticTraderRepository",
     "SocialSentimentConfig",
     "SocialSignalContext",
@@ -87,7 +76,6 @@ __all__ = [
     "SyntheticTraderRepository",
     "SyntheticTraderService",
     "SyntheticTraderSpawner",
-    "SyntheticPortfolioBootstrapService",
     "SyntheticTraderTickBatchResult",
     "SyntheticTraderTickDiagnostics",
     "SyntheticTraderTickOutcome",

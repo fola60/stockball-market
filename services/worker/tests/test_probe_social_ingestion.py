@@ -14,11 +14,11 @@ from app.ingestion.social import (
     SocialProvider,
     TransientProviderError,
 )
-from scripts.test_social_ingestion import main
+from scripts.probe_social_ingestion import main
 
 
 class SocialIngestionScriptTests(unittest.TestCase):
-    @patch("scripts.test_social_ingestion.BlueskyConnector")
+    @patch("scripts.probe_social_ingestion.BlueskyConnector")
     def test_bluesky_uses_production_connector_and_prints_documents(
         self, connector_type
     ) -> None:
@@ -50,7 +50,7 @@ class SocialIngestionScriptTests(unittest.TestCase):
         self.assertIn("Player returned to full training", output.getvalue())
         self.assertIn('"cursor": "next-page"', output.getvalue())
 
-    @patch("scripts.test_social_ingestion.RssConnector")
+    @patch("scripts.probe_social_ingestion.RssConnector")
     def test_reports_provider_errors_without_traceback(self, connector_type) -> None:
         connector_type.return_value.poll = AsyncMock(
             side_effect=TransientProviderError("publisher unavailable")

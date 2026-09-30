@@ -12,6 +12,7 @@ SCHEDULE_OPERATION_TYPES = {
     "weekly-topups": "APPLY_TOPUPS",
     "monthly-topups": "APPLY_TOPUPS",
     "synthetic-trader-ticks": "TICK_SYNTHETIC_TRADERS",
+    "market-freezes": "CHECK_MARKET_FREEZES",
     "daily-player-stats": "INGEST_PLAYER_STATS",
     "bet365-odds": "INGEST_BETTING_MARKETS",
     "bet365-live-odds": "INGEST_BETTING_MARKETS",

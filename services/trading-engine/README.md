@@ -33,6 +33,7 @@ It is the only service allowed to execute trades or mutate prices, balances, pos
 - `price_impact`: price movement calculation.
 - `ledger`: cash movement records and balance changes.
 - `topups`: idempotent scheduled cash-credit commands.
+- `provisioning`: idempotent opening balances, initial share supply, and pre-market prices.
 - `portfolios`: portfolio summary and cash balance coordination.
 - `positions`: account exposure to tradable instruments.
 - `instruments`: tradable instrument price/status state.

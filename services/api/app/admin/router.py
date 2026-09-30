@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.request_telemetry import known_http_routes
 
-router = APIRouter(prefix="/internal/v1/dev", tags=["dev operations"])
+router = APIRouter(prefix="/internal/v1/admin", tags=["admin"])
 
 
 class EnqueueOperationRequest(BaseModel):
@@ -37,9 +37,9 @@ class OperationCapabilityResponse(BaseModel):
 
 
 def _service(request: Request):
-    service = getattr(request.app.state, "dev_operations_service", None)
+    service = getattr(request.app.state, "admin_service", None)
     if service is None:
-        raise HTTPException(status_code=404, detail="dev portal is disabled")
+        raise HTTPException(status_code=404, detail="admin API is disabled")
     return service
 
 

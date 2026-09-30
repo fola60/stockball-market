@@ -1,5 +1,6 @@
 from .handlers import (
     AggregateSocialSignalsJobHandler,
+    CheckMarketFreezesJobHandler,
     FunctionJobHandler,
     IngestBet365OddsJobHandler,
     IngestFixturesJobHandler,
@@ -18,6 +19,7 @@ from .handlers import (
 from .models import (
     AggregateSocialSignalsJobPayload,
     Bet365IngestionMode,
+    CheckMarketFreezesJobPayload,
     IngestBet365OddsJobPayload,
     IngestFixturesJobPayload,
     IngestPlayersJobPayload,
@@ -36,6 +38,8 @@ from .runtime import BlockingJobQueue, RetryQueue, WorkerProcess
 
 __all__ = [
     "AggregateSocialSignalsJobHandler",
+    "CheckMarketFreezesJobHandler",
+    "CheckMarketFreezesJobPayload",
     "AggregateSocialSignalsJobPayload",
     "Bet365IngestionMode",
     "BlockingJobQueue",

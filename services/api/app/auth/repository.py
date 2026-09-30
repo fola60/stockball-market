@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
-from decimal import Decimal
 from typing import Iterator, Protocol
 from uuid import UUID
 
@@ -24,8 +23,9 @@ class AuthRepository(Protocol):
         display_name: str,
         email: str,
         password_hash: str,
-        opening_balance: Decimal,
     ) -> AccountRecord: ...
+
+    def delete_unfunded_registration(self, account_id: UUID) -> bool: ...
 
     def get_credential_by_email(self, email: str) -> StoredCredential | None: ...
 
@@ -54,8 +54,9 @@ class PostgresAuthRepository:
         display_name: str,
         email: str,
         password_hash: str,
-        opening_balance: Decimal,
     ) -> AccountRecord:
+        # The portfolio starts empty: its opening balance is a cash movement, which only the
+        # trading engine may make (see AuthService.register).
         try:
             with self._connection() as connection:
                 with connection:
@@ -75,14 +76,11 @@ class PostgresAuthRepository:
 
                         cursor.execute(
                             """
-                            INSERT INTO portfolios (account_id, cash_balance)
-                            VALUES (%(account_id)s, %(opening_balance)s)
+                            INSERT INTO portfolios (account_id)
+                            VALUES (%(account_id)s)
                             RETURNING id, account_id, cash_balance, created_at, updated_at
                             """,
-                            {
-                                "account_id": account_row["id"],
-                                "opening_balance": opening_balance,
-                            },
+                            {"account_id": account_row["id"]},
                         )
                         portfolio_row = cursor.fetchone()
                         if portfolio_row is None:
@@ -95,23 +93,6 @@ class PostgresAuthRepository:
                             """,
                             {"account_id": account_row["id"], "password_hash": password_hash},
                         )
-                        cursor.execute(
-                            """
-                            INSERT INTO cash_ledger_entries (
-                                account_id, portfolio_id, reason, amount_delta,
-                                balance_after, source_request_id
-                            ) VALUES (
-                                %(account_id)s, %(portfolio_id)s, 'OPENING_BALANCE',
-                                %(opening_balance)s, %(opening_balance)s, %(request_id)s
-                            )
-                            """,
-                            {
-                                "account_id": account_row["id"],
-                                "portfolio_id": portfolio_row["id"],
-                                "opening_balance": opening_balance,
-                                "request_id": f"opening-balance:{account_row['id']}",
-                            },
-                        )
         except errors.UniqueViolation as exc:
             constraint = exc.diag.constraint_name
             if constraint == "accounts_handle_key":
@@ -121,6 +102,44 @@ class PostgresAuthRepository:
             raise
 
         return _account_from_rows(account_row, portfolio_row)
+
+    def delete_unfunded_registration(self, account_id: UUID) -> bool:
+        """Undo a registration whose opening balance never landed.
+
+        Returns False, leaving the account in place, when the portfolio already has ledger
+        history: the engine credited it even though its response was lost.
+        """
+        with self._connection() as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT p.id
+                        FROM portfolios p
+                        WHERE p.account_id = %(account_id)s
+                        FOR UPDATE
+                        """,
+                        {"account_id": str(account_id)},
+                    )
+                    cursor.execute(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1 FROM cash_ledger_entries WHERE account_id = %(account_id)s
+                        )
+                        """,
+                        {"account_id": str(account_id)},
+                    )
+                    row = cursor.fetchone()
+                    if row is not None and row[0]:
+                        return False
+                    for statement in (
+                        "DELETE FROM user_sessions WHERE account_id = %(account_id)s",
+                        "DELETE FROM auth_credentials WHERE account_id = %(account_id)s",
+                        "DELETE FROM portfolios WHERE account_id = %(account_id)s",
+                        "DELETE FROM accounts WHERE id = %(account_id)s",
+                    ):
+                        cursor.execute(statement, {"account_id": str(account_id)})
+        return True
 
     def get_credential_by_email(self, email: str) -> StoredCredential | None:
         with self._connection() as connection:

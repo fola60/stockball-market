@@ -69,7 +69,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void getJson<OperationCapability[]>("/internal/v1/dev/operations/capabilities")
+    void getJson<OperationCapability[]>("/internal/v1/admin/operations/capabilities")
       .then((capabilities) => {
         const nextTypes = capabilities.map(({ operation_type }) => operation_type);
         setOperationTypes(nextTypes);
@@ -90,27 +90,27 @@ export default function Home() {
           query.append("exclude_operation_type", type),
         );
         const [nextRuns, nextSummary] = await Promise.all([
-          getJson<Run[]>(`/internal/v1/dev/runs?${query}`),
-          getJson<Summary>("/internal/v1/dev/summary"),
+          getJson<Run[]>(`/internal/v1/admin/runs?${query}`),
+          getJson<Summary>("/internal/v1/admin/summary"),
         ]);
         setRuns(nextRuns);
         setSummary(nextSummary);
       } else if (view === "processes") {
-        setProcesses(await getJson<ProcessSnapshot>("/internal/v1/dev/processes"));
+        setProcesses(await getJson<ProcessSnapshot>("/internal/v1/admin/processes"));
       } else if (view === "telemetry") {
-        setTelemetry(await getJson<TelemetrySnapshot>("/internal/v1/dev/telemetry?hours=24"));
+        setTelemetry(await getJson<TelemetrySnapshot>("/internal/v1/admin/telemetry?hours=24"));
       } else if (view === "settings") {
         const [nextSettings, nextAudit] = await Promise.all([
-          getJson<EnvironmentVariable[]>("/internal/v1/dev/environment"),
-          getJson<AuditEvent[]>("/internal/v1/dev/audit-events?limit=50"),
+          getJson<EnvironmentVariable[]>("/internal/v1/admin/environment"),
+          getJson<AuditEvent[]>("/internal/v1/admin/audit-events?limit=50"),
         ]);
         setEnvironment(nextSettings);
         setAuditEvents(nextAudit);
       } else if (view === "traders") {
         const [nextTraders, nextProfiles, nextSummary] = await Promise.all([
-          getJson<Trader[]>("/internal/v1/dev/synthetic-traders"),
-          getJson<Profile[]>("/internal/v1/dev/synthetic-trader-profiles"),
-          getJson<Summary>("/internal/v1/dev/summary"),
+          getJson<Trader[]>("/internal/v1/admin/synthetic-traders"),
+          getJson<Profile[]>("/internal/v1/admin/synthetic-trader-profiles"),
+          getJson<Summary>("/internal/v1/admin/summary"),
         ]);
         setTraders(nextTraders);
         setProfiles(nextProfiles);
@@ -130,7 +130,7 @@ export default function Home() {
   ) {
     setBusy(true);
     try {
-      await postJson("/internal/v1/dev/operations", {
+      await postJson("/internal/v1/admin/operations", {
         operation_type: operationType,
         parameters,
       });
@@ -145,7 +145,7 @@ export default function Home() {
   async function setProcessEnabled(name: string, enabled: boolean) {
     setBusy(true);
     try {
-      await patchJson(`/internal/v1/dev/processes/${name}`, { enabled });
+      await patchJson(`/internal/v1/admin/processes/${name}`, { enabled });
       await manualRefresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Process update failed");
@@ -157,10 +157,10 @@ export default function Home() {
   async function updateEnvironment(name: string, value: string, reason: string) {
     setBusy(true);
     try {
-      await patchJson(`/internal/v1/dev/environment/${name}`, { value, reason });
+      await patchJson(`/internal/v1/admin/environment/${name}`, { value, reason });
       const [nextSettings, nextAudit] = await Promise.all([
-        getJson<EnvironmentVariable[]>("/internal/v1/dev/environment"),
-        getJson<AuditEvent[]>("/internal/v1/dev/audit-events?limit=50"),
+        getJson<EnvironmentVariable[]>("/internal/v1/admin/environment"),
+        getJson<AuditEvent[]>("/internal/v1/admin/audit-events?limit=50"),
       ]);
       setEnvironment(nextSettings);
       setAuditEvents(nextAudit);
@@ -184,7 +184,7 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand">
           <span>SB</span>
-          <div><strong>Stockball</strong><small>DEV PORTAL</small></div>
+          <div><strong>Stockball</strong><small>ADMIN</small></div>
         </div>
         <nav>
           <Nav active={view === "runs"} icon={<Activity />} label="Runs" onClick={() => setView("runs")} />
