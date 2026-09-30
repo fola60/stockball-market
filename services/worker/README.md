@@ -31,13 +31,21 @@ prevents a slow trading tick from starving social ingestion without duplicating 
 
 ## Internal Modules
 
+- `entrypoints`: the `stockball-worker` command table, process wiring (scheduler and job
+  worker), and service factories. `app/main.py` is only the console-script shim.
 - `scheduler`: schedules recurring jobs.
 - `jobs`: job handlers executed by workers.
 - `ingestion`: external data intake.
-- `signals`: interpreted observations used by bot strategies.
 - `synthetic_traders`: bot strategy and decision logic.
+- `match_freezes`: decides which players are frozen for match day (lineup lock to
+  post-match settlement) and asks the trading engine to open and release those freezes.
+- `seeding`: one-off market seeding: pre-market valuations, fleet sizing, and initial share
+  supply. It plans and audits; the trading engine applies prices, positions, and cash.
 - `topups`: determines recurring credit eligibility.
 - `clients`: internal service clients.
+
+`scripts/probe_*.py` are manual checks against live providers; they are not part of the test
+suite.
 
 ## One-Off Commands
 

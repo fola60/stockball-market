@@ -9,5 +9,6 @@ pub mod orders;
 pub mod portfolios;
 pub mod positions;
 pub mod price_impact;
+pub mod provisioning;
 pub mod snapshots;
 pub mod topups;

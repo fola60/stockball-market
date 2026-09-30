@@ -1,0 +1,225 @@
+# Which service may write each table. `scripts/check-table-ownership.py` enforces this in CI:
+# every table created by a migration must be listed, and a service's code may only
+# INSERT, UPDATE, or DELETE the tables it is listed as a writer of.
+#
+# `owner` is the service responsible for the table's meaning. `writers` is who may write it,
+# with each exception to single ownership explained. Reads are unrestricted.
+#
+# Services: "api", "trading-engine", "worker".
+
+# --- Trading engine: every change to cash, positions, prices, and trades ----------------------
+
+[tables.instruments]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.instrument_price_curve_rebases]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.orders]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.trades]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.positions]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.cash_ledger_entries]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.price_snapshots]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.idempotency_keys]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.instrument_freezes]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.portfolios]
+owner = "trading-engine"
+# The API creates an empty (zero-cash) portfolio with each account and removes it again if
+# registration is rolled back. Every cash balance change goes through the engine's ledger.
+writers = ["trading-engine", "api"]
+
+# --- API: identity, sessions, and admin controls ---------------------------------------------
+
+[tables.accounts]
+owner = "api"
+writers = ["api"]
+
+[tables.auth_credentials]
+owner = "api"
+writers = ["api"]
+
+[tables.user_sessions]
+owner = "api"
+writers = ["api"]
+
+[tables.admin_audit_events]
+owner = "api"
+writers = ["api"]
+
+[tables.runtime_settings]
+owner = "api"
+writers = ["api"]
+
+[tables.job_runs]
+owner = "worker"
+# The admin API records runs it enqueues; the worker records their progress and outcome.
+writers = ["worker", "api"]
+
+# --- Worker: ingestion, synthetic traders, top-ups, and dev-market seeding -------------------
+
+[tables.players]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_provider_refs]
+owner = "worker"
+writers = ["worker"]
+
+[tables.provider_raw_documents]
+owner = "worker"
+writers = ["worker"]
+
+[tables.fixtures]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_stat_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_market_value_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.market_value_import_batches]
+owner = "worker"
+writers = ["worker"]
+
+[tables.market_value_import_rows]
+owner = "worker"
+writers = ["worker"]
+
+[tables.betting_market_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.betting_market_selections]
+owner = "worker"
+writers = ["worker"]
+
+[tables.betting_market_selection_players]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_injury_episodes]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_injury_episode_evidence]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_injury_availability_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.twitter_injury_source_accounts]
+owner = "worker"
+writers = ["worker"]
+
+[tables.twitter_player_aliases]
+owner = "worker"
+writers = ["worker"]
+
+[tables.twitter_injury_posts]
+owner = "worker"
+writers = ["worker"]
+
+[tables.twitter_injury_post_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.twitter_injury_ingestion_cursors]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_sources]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_subscriptions]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_documents]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_document_enrichments]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_document_processing_queue]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_ingestion_cursors]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_injury_observations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.social_player_injury_episode_evidence]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_social_signal_snapshots]
+owner = "worker"
+writers = ["worker"]
+
+[tables.synthetic_trader_bot_configs]
+owner = "worker"
+writers = ["worker"]
+
+[tables.synthetic_trader_bots]
+owner = "worker"
+writers = ["worker"]
+
+[tables.worker_topup_policies]
+owner = "worker"
+writers = ["worker"]
+
+[tables.worker_topup_records]
+owner = "worker"
+writers = ["worker"]
+
+[tables.synthetic_portfolio_bootstrap_batches]
+owner = "worker"
+writers = ["worker"]
+
+[tables.synthetic_portfolio_bootstrap_allocations]
+owner = "worker"
+writers = ["worker"]
+
+[tables.dev_market_bootstrap_instrument_valuations]
+owner = "worker"
+writers = ["worker"]

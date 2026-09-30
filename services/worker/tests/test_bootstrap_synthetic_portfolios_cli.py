@@ -9,7 +9,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from app.main import main
-from app.synthetic_traders.bootstrap import (
+from app.seeding.portfolios import (
     RESERVE_PORTFOLIO_ID,
     BootstrapAllocationPlan,
     BootstrapPositionAllocation,
@@ -46,8 +46,11 @@ class BootstrapSyntheticPortfoliosCliTests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"STOCKBALL_WORKER_DATABASE_URL": "postgresql://stockball.test/db"},
-        ), patch("app.main.SyntheticPortfolioBootstrapService") as service_class:
+            {
+                "STOCKBALL_WORKER_DATABASE_URL": "postgresql://stockball.test/db",
+                "STOCKBALL_WORKER_TRADING_ENGINE_URL": "http://trading-engine.test",
+            },
+        ), patch("app.entrypoints.commands.market.SyntheticPortfolioBootstrapService") as service_class:
             service_class.return_value.bootstrap.return_value = result
             stdout = io.StringIO()
             with redirect_stdout(stdout):

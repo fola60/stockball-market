@@ -20,6 +20,67 @@ export type Instrument = {
   volume_24h: string;
   status: "ACTIVE" | "FROZEN" | "DELISTED";
   updated_at: string;
+  /** Present on the instrument detail endpoint while the instrument is frozen. */
+  freeze?: InstrumentFreeze | null;
+};
+
+export type InstrumentFreeze = {
+  reason: "MATCH_DAY" | "ADMIN_HALT" | "DATA_ISSUE";
+  started_at: string;
+  fixture_home_team: string | null;
+  fixture_away_team: string | null;
+  fixture_kickoff_at: string | null;
+};
+
+export type TraderKind = "PERSON" | "BOT";
+export type LeaderboardFilter = "ALL" | "PEOPLE" | "BOTS";
+
+export type TraderStanding = {
+  account_id: string;
+  display_name: string;
+  kind: TraderKind;
+  rank: number;
+  net_worth: string;
+  cash_balance: string;
+  holdings_value: string;
+  holdings_count: number;
+  joined_at: string;
+};
+
+export type LeaderboardPage = {
+  entries: TraderStanding[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type TraderHolding = {
+  instrument_id: string;
+  symbol: string;
+  player_name: string;
+  player_club: string | null;
+  player_position: string | null;
+  quantity: string;
+  current_price: string;
+  market_value: string;
+  price_change_24h: string;
+};
+
+export type TraderTrade = {
+  trade_id: string;
+  instrument_id: string;
+  player_name: string;
+  side: OrderSide;
+  shares: string;
+  execution_price: string;
+  gross_amount: string;
+  executed_at: string;
+};
+
+export type TraderProfile = {
+  trader: TraderStanding;
+  holdings: TraderHolding[];
+  recent_trades: TraderTrade[];
 };
 
 export type PriceSnapshot = {
@@ -277,9 +338,21 @@ export async function getPortfolioPageData() {
   return { account, instruments, portfolio, activity, tickerStocks: toTickerStocks(instruments), searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED") };
 }
 
+async function getInstrument(instrumentId: string): Promise<Instrument | null> {
+  try {
+    return await apiRequest<Instrument>(`/v1/instruments/${instrumentId}`);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 422)) return null;
+    throw error;
+  }
+}
+
 export async function getInstrumentPageData(instrumentId: string) {
-  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
-  const instrument = instruments.find((candidate) => candidate.id === instrumentId);
+  const [account, instruments, instrument] = await Promise.all([
+    getOptionalAccount(),
+    getInstruments(),
+    getInstrument(instrumentId),
+  ]);
   if (!instrument) return null;
 
   const [history, stats, portfolio] = await Promise.all([
@@ -297,6 +370,39 @@ export async function getInstrumentPageData(instrumentId: string) {
     tickerStocks: toTickerStocks(instruments),
     searchInstruments: instruments.filter((candidate) => candidate.status !== "DELISTED"),
   };
+}
+
+async function getShellData() {
+  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
+  return {
+    account,
+    tickerStocks: toTickerStocks(instruments),
+    searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED"),
+  };
+}
+
+export const LEADERBOARD_PAGE_SIZE = 50;
+
+export async function getLeaderboardPageData(filter: LeaderboardFilter, page: number) {
+  const offset = (page - 1) * LEADERBOARD_PAGE_SIZE;
+  const [shell, leaderboard] = await Promise.all([
+    getShellData(),
+    apiRequest<LeaderboardPage>(
+      `/v1/traders/leaderboard?filter=${filter}&limit=${LEADERBOARD_PAGE_SIZE}&offset=${offset}`,
+    ),
+  ]);
+  return { ...shell, leaderboard };
+}
+
+export async function getTraderPageData(accountId: string) {
+  let profile: TraderProfile;
+  try {
+    profile = await apiRequest<TraderProfile>(`/v1/traders/${encodeURIComponent(accountId)}`);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 422)) return null;
+    throw error;
+  }
+  return { ...(await getShellData()), profile };
 }
 
 export function playerName(instrument: Instrument): string {

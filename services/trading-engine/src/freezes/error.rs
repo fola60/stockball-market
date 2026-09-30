@@ -13,6 +13,15 @@ pub enum FreezeError {
         status: InstrumentStatus,
     },
 
+    #[error("freeze source_key must not be empty")]
+    EmptySourceKey,
+
+    #[error("a freeze must include at least one instrument")]
+    EmptyInstruments,
+
+    #[error("unsupported freeze reason: {0}")]
+    UnsupportedReason(String),
+
     #[error(transparent)]
     Instrument(#[from] InstrumentError),
 

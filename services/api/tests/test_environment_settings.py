@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.dev_operations.environment import EnvironmentFileService
+from app.admin.environment import EnvironmentFileService
 
 
 class AuditRepository:
@@ -23,7 +23,7 @@ class EnvironmentFileServiceTests(unittest.TestCase):
         self.example_path = directory / ".env.example"
         self.env_path.write_text("API_PORT=8000\nPOSTGRES_PASSWORD=secret\n")
         self.example_path.write_text(
-            "API_PORT=8000\nPOSTGRES_PASSWORD=stockball\nSTOCKBALL_DEV_PORTAL_ENABLED=true\n"
+            "API_PORT=8000\nPOSTGRES_PASSWORD=stockball\nSTOCKBALL_ADMIN_API_ENABLED=true\n"
         )
         self.audit = AuditRepository()
         self.service = EnvironmentFileService(
@@ -39,7 +39,7 @@ class EnvironmentFileServiceTests(unittest.TestCase):
         self.assertEqual(settings["API_PORT"]["value"], "8000")
         self.assertIsNone(settings["POSTGRES_PASSWORD"]["value"])
         self.assertTrue(settings["POSTGRES_PASSWORD"]["has_value"])
-        self.assertIn("STOCKBALL_DEV_PORTAL_ENABLED", settings)
+        self.assertIn("STOCKBALL_ADMIN_API_ENABLED", settings)
 
     def test_updates_env_file_and_masks_sensitive_audit_values(self) -> None:
         self.service.update(

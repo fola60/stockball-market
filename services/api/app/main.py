@@ -9,18 +9,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.accounts.repository import PostgresAccountsRepository
 from app.accounts.router import router as accounts_router
 from app.accounts.service import AccountsService
+from app.admin import AdminService
+from app.admin.environment import EnvironmentFileService
+from app.admin.processes import RedisProcessRegistry
+from app.admin.repository import PostgresAdminRepository
+from app.admin.router import router as admin_router
+from app.admin.runtime_settings import RuntimeSettingsRegistry
+from app.admin.service import RedisJobPublisher
 from app.auth.repository import PostgresAuthRepository
 from app.auth.router import router as auth_router
 from app.auth.service import AuthService
 from app.clients.trading_engine import HttpTradingEngineClient
 from app.config import Settings
-from app.dev_operations import DevOperationsService
-from app.dev_operations.environment import EnvironmentFileService
-from app.dev_operations.processes import RedisProcessRegistry
-from app.dev_operations.repository import PostgresDevOperationsRepository
-from app.dev_operations.router import router as dev_operations_router
-from app.dev_operations.runtime_settings import RuntimeSettingsRegistry
-from app.dev_operations.service import RedisJobPublisher
 from app.instruments.repository import PostgresInstrumentsRepository
 from app.instruments.router import router as instruments_router
 from app.instruments.service import InstrumentsService
@@ -30,6 +30,9 @@ from app.portfolios.repository import PostgresPortfoliosRepository
 from app.portfolios.router import router as portfolios_router
 from app.portfolios.service import PortfoliosService
 from app.request_telemetry import RequestTelemetry, RequestTelemetryMiddleware
+from app.traders.repository import PostgresTradersRepository
+from app.traders.router import router as traders_router
+from app.traders.service import TradersService
 
 
 def create_app(
@@ -38,7 +41,8 @@ def create_app(
     portfolios_service: PortfoliosService | None = None,
     orders_service: OrdersService | None = None,
     auth_service: AuthService | None = None,
-    dev_operations_service: DevOperationsService | None = None,
+    admin_service: AdminService | None = None,
+    traders_service: TradersService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Stockball API", version="0.1.0")
     request_telemetry = RequestTelemetry()
@@ -62,19 +66,20 @@ def create_app(
         portfolios_service = PortfoliosService(
             repository=PostgresPortfoliosRepository(settings.database_url)
         )
-        orders_service = OrdersService(
-            trading_engine_client=HttpTradingEngineClient(
-                settings.trading_engine_url,
-                timeout_seconds=settings.trading_engine_timeout_seconds,
-            )
+        traders_service = TradersService(PostgresTradersRepository(settings.database_url))
+        trading_engine_client = HttpTradingEngineClient(
+            settings.trading_engine_url,
+            timeout_seconds=settings.trading_engine_timeout_seconds,
         )
+        orders_service = OrdersService(trading_engine_client=trading_engine_client)
         auth_service = AuthService(
             PostgresAuthRepository(settings.database_url),
+            trading_engine=trading_engine_client,
             opening_balance=settings.user_opening_balance,
         )
-        if settings.dev_portal_enabled:
-            repository = PostgresDevOperationsRepository(settings.database_url)
-            dev_operations_service = DevOperationsService(
+        if settings.admin_api_enabled:
+            repository = PostgresAdminRepository(settings.database_url)
+            admin_service = AdminService(
                 repository=repository,
                 publisher=RedisJobPublisher(
                     settings.redis_url,
@@ -82,6 +87,7 @@ def create_app(
                     {
                         "APPLY_TOPUPS": settings.trading_queue_name,
                         "SYNTHETIC_TRADER_TICK": settings.trading_queue_name,
+                        "CHECK_MARKET_FREEZES": settings.trading_queue_name,
                     },
                 ),
                 process_registry=RedisProcessRegistry(
@@ -102,7 +108,7 @@ def create_app(
                     env_path,
                     example_path,
                     repository,
-                    dev_operations_service.runtime_settings,
+                    admin_service.runtime_settings,
                 )
 
     app.state.accounts_service = accounts_service
@@ -110,7 +116,8 @@ def create_app(
     app.state.portfolios_service = portfolios_service
     app.state.orders_service = orders_service
     app.state.auth_service = auth_service
-    app.state.dev_operations_service = dev_operations_service
+    app.state.admin_service = admin_service
+    app.state.traders_service = traders_service
     if not hasattr(app.state, "environment_service"):
         app.state.environment_service = None
     app.state.request_telemetry = request_telemetry
@@ -126,7 +133,8 @@ def create_app(
     app.include_router(instruments_router)
     app.include_router(portfolios_router)
     app.include_router(orders_router)
-    app.include_router(dev_operations_router)
+    app.include_router(traders_router)
+    app.include_router(admin_router)
 
     @app.get("/healthz", tags=["health"])
     def healthcheck() -> dict[str, str]:

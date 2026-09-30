@@ -11,6 +11,7 @@ Contains the Rust modules that implement market execution and state mutation.
 - `price_impact`: curved price movement and exact trade quoting.
 - `ledger`: cash movements and audit entries.
 - `topups`: validated, idempotent weekly and monthly ledger credits.
+- `provisioning`: idempotent one-off setup writes: a new portfolio's opening balance, the initial share supply of pre-market instruments, and pre-market price anchoring.
 - `portfolios`: portfolio summary and cash balance coordination.
 - `positions`: account exposure to tradable instruments.
 - `instruments`: tradable instrument state.

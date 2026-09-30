@@ -21,9 +21,10 @@ Synthetic traders are tagged accounts that behave like users but are controlled 
 - `repository.py`: worker-owned PostgreSQL reads for due bots, portfolios, positions, trades, price snapshots, market values, stats, and player-linked betting odds.
 - `service.py`: bot tick orchestration, universal risk filtering, idempotent request-id generation, and trading-engine submission.
 - `spawner.py`: bulk bootstrap flow that asks the API to provision accounts and then attaches worker bot config rows.
-- `bootstrap.py`: deterministic one-off player-share issuance across bot portfolios and the internal reserve.
-- `startup.py`: target-activity fleet sizing, pre-market multi-signal valuation, funding, and idempotent development bootstrap orchestration.
 - `engines/`: reusable strategy engine implementations.
+
+One-off share issuance and development-market bootstrap orchestration live in `app/seeding`
+(`portfolios.py` and `dev_market.py`).
 
 ## Spawning Bots
 

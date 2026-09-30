@@ -10,7 +10,8 @@ use crate::{
     execution::ExecutionError, freezes::FreezeError, http::dto::ErrorResponse,
     idempotency::IdempotencyError, instruments::InstrumentError, ledger::LedgerError,
     orders::OrderError, portfolios::PortfolioError, positions::PositionError,
-    price_impact::PriceImpactError, snapshots::SnapshotError, topups::TopupError,
+    price_impact::PriceImpactError, provisioning::ProvisioningError, snapshots::SnapshotError,
+    topups::TopupError,
 };
 
 #[derive(Debug)]
@@ -113,6 +114,91 @@ impl From<TopupError> for ApiError {
             TopupError::Database(error) => internal_error(
                 "database_error",
                 "Unexpected database error while applying top-up.",
+                Some(json!({ "error": error.to_string() })),
+            ),
+        }
+    }
+}
+
+impl From<FreezeError> for ApiError {
+    fn from(error: FreezeError) -> Self {
+        freeze_error(error)
+    }
+}
+
+impl From<ProvisioningError> for ApiError {
+    fn from(error: ProvisioningError) -> Self {
+        match error {
+            ProvisioningError::EmptyRequestId => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "empty_request_id",
+                "request_id must not be empty.",
+                None,
+            ),
+            ProvisioningError::NonPositiveAmount(amount) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "non_positive_amount",
+                "amount must be greater than zero.",
+                Some(json!({ "amount": amount })),
+            ),
+            ProvisioningError::NonPositivePrice(price) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "non_positive_price",
+                "price must be greater than zero.",
+                Some(json!({ "new_price": price })),
+            ),
+            ProvisioningError::EmptyAllocations => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "empty_allocations",
+                "initial supply issuance must include at least one allocation.",
+                None,
+            ),
+            ProvisioningError::NonPositiveQuantity(quantity) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "non_positive_quantity",
+                "allocation quantity must be greater than zero.",
+                Some(json!({ "quantity": quantity })),
+            ),
+            ProvisioningError::DuplicateAllocation {
+                instrument_id,
+                portfolio_id,
+            } => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "duplicate_allocation",
+                "a portfolio may be allocated each instrument only once.",
+                Some(json!({
+                    "instrument_id": instrument_id,
+                    "portfolio_id": portfolio_id
+                })),
+            ),
+            ProvisioningError::SupplyMismatch {
+                instrument_id,
+                allocated,
+                shares_outstanding,
+            } => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "supply_mismatch",
+                "allocations must add up to the instrument's shares outstanding.",
+                Some(json!({
+                    "instrument_id": instrument_id,
+                    "allocated": allocated,
+                    "shares_outstanding": shares_outstanding
+                })),
+            ),
+            ProvisioningError::MarketActivityExists(instrument_id) => Self::new(
+                StatusCode::CONFLICT,
+                "instrument_has_market_activity",
+                "instrument already has orders, trades, or positions.",
+                Some(json!({ "instrument_id": instrument_id })),
+            ),
+            ProvisioningError::Idempotency(error) => idempotency_error(error),
+            ProvisioningError::Instrument(error) => instrument_error(error),
+            ProvisioningError::Ledger(error) => ledger_error(error),
+            ProvisioningError::Position(error) => position_error(error),
+            ProvisioningError::Snapshot(error) => snapshot_error(error),
+            ProvisioningError::Database(error) => internal_error(
+                "database_error",
+                "Unexpected database error while provisioning market state.",
                 Some(json!({ "error": error.to_string() })),
             ),
         }
@@ -321,6 +407,24 @@ fn freeze_error(error: FreezeError) -> ApiError {
                 "status": status.as_str()
             })),
         ),
+        FreezeError::EmptySourceKey => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "empty_source_key",
+            "freeze source_key must not be empty.",
+            None,
+        ),
+        FreezeError::EmptyInstruments => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "empty_instruments",
+            "a freeze must include at least one instrument.",
+            None,
+        ),
+        FreezeError::UnsupportedReason(reason) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unsupported_freeze_reason",
+            "freeze reason is not supported.",
+            Some(json!({ "reason": reason })),
+        ),
         FreezeError::Instrument(error) => instrument_error(error),
         FreezeError::Database(error) => internal_error(
             "database_error",
@@ -395,6 +499,12 @@ fn ledger_error(error: LedgerError) -> ApiError {
                 "portfolio_id": portfolio_id,
                 "amount_delta": amount_delta
             })),
+        ),
+        LedgerError::OpeningBalanceAlreadyApplied(portfolio_id) => ApiError::new(
+            StatusCode::CONFLICT,
+            "opening_balance_already_applied",
+            "portfolio has already received its opening balance.",
+            Some(json!({ "portfolio_id": portfolio_id })),
         ),
         LedgerError::UnsupportedLedgerReason(reason) => internal_error(
             "unsupported_ledger_reason",

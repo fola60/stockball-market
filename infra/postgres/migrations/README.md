@@ -38,6 +38,8 @@ Stores database migration files.
 - Store password credentials, revocable opaque sessions, and auditable opening balances for
   registered users.
 - Store allowlisted runtime settings and an append-only audit trail for admin changes.
+- Record why each instrument is frozen, so match-day freezes and admin halts can open and
+  release independently.
 
 ## Boundaries
 

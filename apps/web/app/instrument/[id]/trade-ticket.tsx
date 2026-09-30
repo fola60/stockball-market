@@ -152,6 +152,7 @@ export function TradeTicket(props: Props) {
         <div><h2 id="trade-title" className="text-lg font-semibold">Trade {props.playerName}</h2><p className="mt-1 text-[11px] text-[#77818e]">Immediate virtual-market order</p></div>
         <span className={`rounded-md px-2 py-1 text-[11px] font-bold ${active ? "bg-[#35d07f]/10 text-[#5ee09a]" : "bg-[#f4bb55]/10 text-[#f4bb55]"}`}>{props.status}</span>
       </div>
+      {!active && <p className="mt-4 rounded-lg border border-[#f4bb55]/25 bg-[#f4bb55]/[0.06] px-3 py-2.5 text-[11px] leading-5 text-[#f4d08a]">Trading is paused for this player. Orders reopen automatically when the freeze ends.</p>}
 
       <div className="mt-5 grid grid-cols-2 rounded-lg border border-[#273241] bg-[#090d12] p-1">
         {(["BUY", "SELL"] as const).map((value) => (

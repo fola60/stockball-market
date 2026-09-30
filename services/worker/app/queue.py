@@ -31,6 +31,13 @@ class RedisJobQueue:
         return _deserialize_job(raw_message)
 
 
+# Latency-sensitive market jobs. Everything else goes to the ingestion queue so slow scraping
+# never delays trading ticks, top-ups, or match-day freezes.
+TRADING_QUEUE_JOB_TYPES = frozenset(
+    {JobType.APPLY_TOPUPS, JobType.SYNTHETIC_TRADER_TICK, JobType.CHECK_MARKET_FREEZES}
+)
+
+
 class JobRoutingQueue:
     """Routes scheduled jobs to isolated queues without changing message format."""
 
@@ -46,7 +53,7 @@ class JobRoutingQueue:
     def enqueue(self, job: WorkerJob) -> None:
         queue = (
             self._trading_queue
-            if job.job_type in {JobType.APPLY_TOPUPS, JobType.SYNTHETIC_TRADER_TICK}
+            if job.job_type in TRADING_QUEUE_JOB_TYPES
             else self._ingestion_queue
         )
         queue.enqueue(job)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import atexit
+from decimal import Decimal
 from typing import Any, Protocol
+from uuid import UUID
 
 import httpx
 
@@ -11,6 +13,12 @@ from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord, OrderQu
 class TradingEngineClient(Protocol):
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
     def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord: ...
+
+
+class OpeningBalanceClient(Protocol):
+    def apply_opening_balance(
+        self, *, account_id: UUID, portfolio_id: UUID, amount: Decimal
+    ) -> None: ...
 
 
 class TradingEngineClientError(Exception):
@@ -46,17 +54,31 @@ class HttpTradingEngineClient:
     def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord:
         return self._post_order("/internal/v1/orders/quote", command, OrderQuoteRecord)
 
+    def apply_opening_balance(
+        self, *, account_id: UUID, portfolio_id: UUID, amount: Decimal
+    ) -> None:
+        # One request id per account makes retries replay instead of double-crediting.
+        self._post(
+            "/internal/v1/ledger/opening-balance/apply",
+            {
+                "request_id": f"opening-balance:{account_id}",
+                "account_id": str(account_id),
+                "portfolio_id": str(portfolio_id),
+                "amount": str(amount),
+            },
+        )
+
     def _post_order(self, path: str, command: ExecuteOrderCommand, record_type):
+        return record_type.from_payload(self._post(path, command.to_payload()))
+
+    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
-            response = self._client.post(
-                f"{self._base_url}{path}",
-                json=command.to_payload(),
-            )
+            response = self._client.post(f"{self._base_url}{path}", json=payload)
         except httpx.HTTPError as exc:
             raise TradingEngineUnavailableError("trading engine request failed") from exc
 
         if response.is_success:
-            return record_type.from_payload(response.json())
+            return response.json()
 
         raise TradingEngineClientError(response.status_code, _parse_error_body(response))
 

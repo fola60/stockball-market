@@ -87,6 +87,39 @@ where
     .await
 }
 
+pub async fn claim_admin_adjustment(
+    connection: &mut PgConnection,
+    request_key: &str,
+    request_hash: &str,
+) -> Result<IdempotencyClaim, IdempotencyError> {
+    claim_key(
+        connection,
+        IdempotencyScope::AdminAdjustment,
+        request_key,
+        request_hash,
+    )
+    .await
+}
+
+pub async fn complete_admin_adjustment<T>(
+    connection: &mut PgConnection,
+    request_key: &str,
+    response_status_code: i32,
+    response: &T,
+) -> Result<IdempotencyRecord, IdempotencyError>
+where
+    T: Serialize,
+{
+    complete_key(
+        connection,
+        IdempotencyScope::AdminAdjustment,
+        request_key,
+        response_status_code,
+        response,
+    )
+    .await
+}
+
 async fn claim_key(
     connection: &mut PgConnection,
     scope: IdempotencyScope,

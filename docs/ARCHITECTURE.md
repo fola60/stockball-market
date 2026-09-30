@@ -11,7 +11,7 @@ V1 services:
 - `api-service`: public and admin API
 - `trading-engine`: trade execution and price mutation
 - `worker-service`: ingestion, scheduled jobs, and synthetic trader decisions
-- `admin-ui`: internal dashboard
+- `admin-ui` (`apps/admin-ui`): internal operations console
 - `postgres`: durable database
 - `redis`: lightweight job queue and cache
 
@@ -166,11 +166,10 @@ Internal modules:
 - `ingestion.market_values`: external market-value data
 - `ingestion.fixtures`: fixtures, lineups, and match status
 - `ingestion.betting_markets`: external match/player odds observations
-- `signals.social`: mention volume and sentiment observations
-- `signals.stats`: player performance observations
-- `synthetic_traders`: bot strategy configuration, strategy selection, and trade decisions
+- `ingestion.social` / `ingestion.stats`: mention, sentiment, and player performance observations
+- `synthetic_traders`: bot strategy configuration, strategy selection, and trade decisions (strategy engines interpret signals)
 - `topups`: recurring virtual-cash allocations
-- `clients.trading_engine`: HTTP client for bot trades, top-up credits, and freeze commands
+- `clients.trading_engine`: HTTP client for bot trades, top-up credits, initial share supply, and pre-market prices
 
 Allowed writes:
 
@@ -304,17 +303,28 @@ Start with OpenAPI/JSON schema contracts. Move to protobuf/gRPC later only if th
 ## Core Module Ownership Rules
 
 - Only the trading engine executes trades.
-- Only the trading engine changes instrument prices.
-- Only the trading engine mutates positions after buy/sell activity.
+- Only the trading engine changes instrument prices, including pre-market price anchoring.
+- Only the trading engine changes positions, including the initial share supply.
+- Only the trading engine changes cash balances, including a new user's opening balance.
 - Worker service can decide bot behavior, but cannot directly execute bot trades.
 - API service can authenticate users and accept order requests, but cannot fill orders.
-- API service owns account provisioning, including tagged synthetic trader accounts.
+- API service owns account provisioning, including tagged synthetic trader accounts. It creates
+  each account's empty portfolio; the engine credits the opening balance.
 - Worker service owns synthetic trader strategy configuration after bot accounts exist.
-- Worker service owns the audited one-off player-share issuance into synthetic and reserve
-  portfolios; this bootstrap excludes social sentiment and does not execute trades.
+- Worker service plans and audits the one-off player-share issuance into synthetic and reserve
+  portfolios; the trading engine issues the positions. This bootstrap excludes social sentiment
+  and does not execute trades.
 - Admin UI reads through the API service only.
 - Redis queues work but never owns business decisions.
 - PostgreSQL stores durable state, but services must still respect table ownership.
+
+### Table ownership
+
+`infra/postgres/table-ownership.toml` lists which service may write each table, with every
+exception to single ownership explained. `scripts/check-table-ownership.py` runs in CI and fails
+when a migration adds a table without an owner or when a service's code writes a table it does
+not own. When a service needs to change another service's state, add a command to the owning
+service rather than an exception to the map.
 
 ## Instrument Model And Derivatives Scope
 
@@ -363,19 +373,23 @@ cash change goes through the trading engine.
 
 ```text
 stockball-market/
+  apps/
+    web/             customer-facing market and portfolio
+    admin-ui/        internal operations console
+
   services/
     api/
     trading-engine/
     worker/
-    admin-ui/
 
   packages/
     contracts/
 
   infra/
-    docker-compose.yml
     postgres/
       migrations/
+    caddy/
+    systemd/
 
   docs/
     ARCHITECTURE.md

@@ -55,6 +55,9 @@ TWITTER_MAX_RESULTS_ENV = "STOCKBALL_TWITTER_MAX_RESULTS"
 TWITTER_MAX_PAGES_ENV = "STOCKBALL_TWITTER_MAX_PAGES_PER_POLL"
 TWITTER_SCHEDULE_ENABLED_ENV = "STOCKBALL_TWITTER_INJURY_SCHEDULE_ENABLED"
 TWITTER_SCHEDULE_INTERVAL_MINUTES_ENV = "STOCKBALL_TWITTER_INJURY_SCHEDULE_INTERVAL_MINUTES"
+MATCH_FREEZE_SCHEDULE_ENABLED_ENV = "STOCKBALL_MATCH_FREEZE_SCHEDULE_ENABLED"
+MATCH_FREEZE_LINEUP_LOCK_MINUTES_ENV = "STOCKBALL_MATCH_FREEZE_LINEUP_LOCK_MINUTES"
+MATCH_FREEZE_SETTLEMENT_MINUTES_ENV = "STOCKBALL_MATCH_FREEZE_SETTLEMENT_MINUTES"
 TWITTER_BROWSER_ENABLED_ENV = "STOCKBALL_TWITTER_BROWSER_ENABLED"
 TWITTER_BROWSER_USER_DATA_DIR_ENV = "STOCKBALL_TWITTER_BROWSER_USER_DATA_DIR"
 TWITTER_BROWSER_PROFILE_DIRECTORY_ENV = "STOCKBALL_TWITTER_BROWSER_PROFILE_DIRECTORY"
@@ -100,6 +103,10 @@ DEFAULT_TWITTER_MAX_RATE_LIMIT_SLEEP_SECONDS = 60.0
 DEFAULT_TWITTER_MAX_RESULTS = 100
 DEFAULT_TWITTER_MAX_PAGES_PER_POLL = 10
 DEFAULT_TWITTER_SCHEDULE_INTERVAL_MINUTES = 5
+# Lineups are announced about an hour before kick-off. Settlement ends 150 minutes after
+# kick-off: a 90-minute match, half time, stoppage and extra time, then a settlement buffer.
+DEFAULT_MATCH_FREEZE_LINEUP_LOCK_MINUTES = 60
+DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES = 150
 DEFAULT_SOCIAL_SIGNAL_MAX_AGE_SECONDS = 60 * 60
 DEFAULT_SCHEDULER_POLL_SECONDS = 60
 DEFAULT_WORKER_BLOCK_SECONDS = 5
@@ -153,6 +160,9 @@ class Settings:
     twitter_browser_profile_directory: str | None = None
     social_signals_enabled: bool = False
     social_signal_max_age_seconds: int = DEFAULT_SOCIAL_SIGNAL_MAX_AGE_SECONDS
+    match_freeze_schedule_enabled: bool = True
+    match_freeze_lineup_lock_minutes: int = DEFAULT_MATCH_FREEZE_LINEUP_LOCK_MINUTES
+    match_freeze_settlement_minutes: int = DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES
     queue_name: str = DEFAULT_QUEUE_NAME
     retry_queue_name: str = DEFAULT_RETRY_QUEUE_NAME
     trading_queue_name: str = DEFAULT_TRADING_QUEUE_NAME
@@ -275,6 +285,15 @@ class Settings:
                 SOCIAL_SIGNAL_MAX_AGE_SECONDS_ENV,
                 DEFAULT_SOCIAL_SIGNAL_MAX_AGE_SECONDS,
             ),
+            match_freeze_schedule_enabled=_bool_env(MATCH_FREEZE_SCHEDULE_ENABLED_ENV, True),
+            match_freeze_lineup_lock_minutes=_int_env(
+                MATCH_FREEZE_LINEUP_LOCK_MINUTES_ENV,
+                DEFAULT_MATCH_FREEZE_LINEUP_LOCK_MINUTES,
+            ),
+            match_freeze_settlement_minutes=_int_env(
+                MATCH_FREEZE_SETTLEMENT_MINUTES_ENV,
+                DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES,
+            ),
             queue_name=os.getenv(QUEUE_NAME_ENV, DEFAULT_QUEUE_NAME),
             retry_queue_name=os.getenv(RETRY_QUEUE_NAME_ENV, DEFAULT_RETRY_QUEUE_NAME),
             trading_queue_name=os.getenv(
@@ -350,6 +369,29 @@ class DatabaseSettings:
     @classmethod
     def from_env(cls) -> "DatabaseSettings":
         return cls(database_url=_required_env(DATABASE_URL_ENV, DATABASE_URL_FALLBACK_ENV))
+
+
+@dataclass(frozen=True)
+class TradingEngineSettings:
+    """Settings for one-off commands that need the database and the trading engine only."""
+
+    database_url: str
+    trading_engine_url: str
+    trading_engine_timeout_seconds: float = DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS
+
+    @classmethod
+    def from_env(cls) -> "TradingEngineSettings":
+        return cls(
+            database_url=_required_env(DATABASE_URL_ENV, DATABASE_URL_FALLBACK_ENV),
+            trading_engine_url=_required_env(
+                TRADING_ENGINE_URL_ENV,
+                TRADING_ENGINE_URL_FALLBACK_ENV,
+            ),
+            trading_engine_timeout_seconds=_float_env(
+                TRADING_ENGINE_TIMEOUT_ENV,
+                DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS,
+            ),
+        )
 
 
 def _required_env(primary: str, fallback: str) -> str:

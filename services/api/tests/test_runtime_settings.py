@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.dev_operations.runtime_settings import RuntimeSettingsRegistry
+from app.admin.runtime_settings import RuntimeSettingsRegistry
 
 
 class FakeRepository:

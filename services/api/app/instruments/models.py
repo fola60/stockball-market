@@ -24,6 +24,17 @@ class PriceSnapshotReason(StrEnum):
 
 
 @dataclass(frozen=True)
+class InstrumentFreezeRecord:
+    """Why an instrument is frozen. Match-day freezes carry the fixture that caused them."""
+
+    reason: str
+    started_at: datetime
+    fixture_home_team: str | None = None
+    fixture_away_team: str | None = None
+    fixture_kickoff_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class InstrumentRecord:
     id: UUID
     instrument_type: InstrumentType
@@ -43,6 +54,7 @@ class InstrumentRecord:
     player_position: str | None = None
     price_change_24h: str = "0.0000"
     volume_24h: str = "0.000000"
+    freeze: InstrumentFreezeRecord | None = None
 
 
 @dataclass(frozen=True)

@@ -23,10 +23,8 @@ Ingestion answers: "What did the outside world say?"
 - `betting_markets`: opt-in rendered-page Bet365 pre-match discovery and live odds snapshots.
 - `social/twitter`: opt-in approved-X-API injury episodes and availability observations.
 - Future broader `social`: social mention and sentiment data from approved providers.
-- Future `news`: football news and transfer-rumor data.
 - `fbref`: isolated FBref client, parser, raw-page cache, and provider service.
 - `fetch`: provider-neutral, host-allowlisted content-fetching boundary for approved URLs.
-- `providers`: shared provider exports.
 
 ## V1 Player Universe And Valuation Approach
 

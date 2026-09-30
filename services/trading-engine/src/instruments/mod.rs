@@ -13,4 +13,6 @@ pub use seeding::{
     SeedPlayerSharesResult,
 };
 
-pub(crate) use repository::{lock_instrument_by_id, update_market_state};
+pub(crate) use repository::{
+    has_market_activity, lock_instrument_by_id, reset_pre_market_price, update_market_state,
+};

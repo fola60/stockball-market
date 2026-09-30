@@ -3,9 +3,15 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 from decimal import Decimal
-from uuid import UUID
+from unittest.mock import patch
+from uuid import UUID, uuid4
 
-from app.synthetic_traders.startup import (
+from app.clients.trading_engine import (
+    PreMarketPriceRecord,
+    SetPreMarketPriceCommand,
+    TradingEngineClientError,
+)
+from app.seeding.dev_market import (
     DEFAULT_ACTIVITY_PROFILES,
     DevMarketBootstrapError,
     DevMarketBootstrapOptions,
@@ -14,7 +20,9 @@ from app.synthetic_traders.startup import (
     FleetProfileState,
     FundingResult,
     InstrumentSignal,
+    InstrumentValuation,
     PortfolioResult,
+    PostgresDevMarketBootstrapRepository,
     StartupSnapshot,
     ValuationOptions,
     build_valuation_plan,
@@ -235,6 +243,93 @@ def _instrument(
         has_activity=False,
         has_positions=False,
         already_valued=False,
+    )
+
+
+
+class _ValuationCursor:
+    def __init__(self, valued: set[str]) -> None:
+        self.valued = valued
+        self.statements: list[str] = []
+        self._last: tuple[str, tuple] = ("", ())
+
+    def execute(self, query, params=()) -> None:
+        statement = " ".join(str(query).split())
+        self.statements.append(statement)
+        self._last = (statement, tuple(params or ()))
+
+    def fetchone(self):
+        statement, params = self._last
+        if statement.startswith("SELECT 1 FROM dev_market_bootstrap_instrument_valuations"):
+            return (1,) if params[0] in self.valued else None
+        return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return None
+
+
+class _ValuationConnection:
+    def __init__(self, cursor: _ValuationCursor) -> None:
+        self._cursor = cursor
+
+    def cursor(self, cursor_factory=None):
+        return self._cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return None
+
+
+class _FakePricer:
+    def __init__(self, traded: set[UUID]) -> None:
+        self.traded = traded
+        self.commands: list[SetPreMarketPriceCommand] = []
+
+    def set_pre_market_price(self, command: SetPreMarketPriceCommand) -> PreMarketPriceRecord:
+        self.commands.append(command)
+        if command.instrument_id in self.traded:
+            raise TradingEngineClientError(
+                409, {"code": "instrument_has_market_activity", "message": "traded"}
+            )
+        return PreMarketPriceRecord(command.instrument_id, "10.0000", command.new_price)
+
+
+class DevMarketValuationPersistenceTests(unittest.TestCase):
+    def test_valuations_are_priced_by_engine_and_skip_traded_or_valued_instruments(self) -> None:
+        fresh, traded, already_valued = uuid4(), uuid4(), uuid4()
+        cursor = _ValuationCursor(valued={str(already_valued)})
+        pricer = _FakePricer(traded={traded})
+        repository = PostgresDevMarketBootstrapRepository("postgres://test", pricer)
+        valuations = [_valuation(fresh), _valuation(traded), _valuation(already_valued)]
+
+        with patch(
+            "app.seeding.dev_market.pooled_connection",
+            return_value=_ValuationConnection(cursor),
+        ):
+            applied = repository.apply_valuations(valuations, ValuationOptions())
+
+        self.assertEqual(applied, 1)
+        self.assertEqual([item.instrument_id for item in pricer.commands], [fresh, traded])
+        writes = [s for s in cursor.statements if s.startswith(("INSERT", "UPDATE"))]
+        self.assertEqual(len(writes), 1)
+        self.assertTrue(writes[0].startswith("INSERT INTO dev_market_bootstrap_instrument_valuations"))
+
+
+def _valuation(instrument_id: UUID) -> InstrumentValuation:
+    return InstrumentValuation(
+        instrument_id=instrument_id,
+        symbol="TEST",
+        old_price=Decimal("10.0000"),
+        new_price=Decimal("12.5000"),
+        anchor_price=Decimal("12.0000"),
+        market_rank=0.5,
+        stats_rank=0.5,
+        social_rank=0.5,
     )
 
 

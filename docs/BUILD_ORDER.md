@@ -210,11 +210,10 @@ Build stat and social signals only after bots can trade without them.
 
 Modules involved:
 
-- `services/worker/app/signals/social`
-- `services/worker/app/signals/stats`
+- `services/worker/app/ingestion/social`
+- `services/worker/app/ingestion/stats`
 - `services/worker/app/ingestion/betting_markets`
-- future `services/worker/app/signals/market`
-- `services/worker/app/synthetic_traders`
+- `services/worker/app/synthetic_traders/engines` (signal interpretation)
 
 Deliverables:
 
@@ -237,7 +236,7 @@ Build admin views once enough backend behavior exists to inspect.
 
 Modules involved:
 
-- `services/admin-ui`
+- `apps/admin-ui`
 - `services/api/app/admin`
 
 Deliverables:

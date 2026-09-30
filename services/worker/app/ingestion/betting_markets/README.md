@@ -95,7 +95,7 @@ To exercise the same browser client and inspect all supported results without wr
 run from `services/worker`:
 
 ```bash
-python3 -m scripts.test_bet365_search --league PL --max-matches 5
+python3 -m scripts.probe_bet365_search --league PL --max-matches 5
 ```
 
 Worker ingestion always uses an isolated temporary browser profile and does not access a

@@ -7,11 +7,18 @@ use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use stockball_trading_engine::{
     execution::{ExecuteOrderResult, ExecutionError, OrderQuote},
-    freezes::FreezeError,
+    freezes::{
+        ApplyFreezeCommand, ApplyFreezeResult, FreezeError, ReleaseFreezeCommand,
+        ReleaseFreezeResult,
+    },
     http::{build_router, AppState, OrderExecutor},
     instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
     ledger::{CashLedgerEntry, LedgerReason},
     orders::{ExecuteOrderCommand, OrderError, OrderSide},
+    provisioning::{
+        ApplyOpeningBalanceCommand, IssueInitialSupplyCommand, IssueInitialSupplyResult,
+        PreMarketPriceResult, ProvisioningError, SetPreMarketPriceCommand,
+    },
     topups::{ApplyTopupCommand, TopupError},
 };
 use tower::ServiceExt;
@@ -259,6 +266,7 @@ impl OrderExecutor for StubExecutor {
             )),
             StubOutcome::SeedSuccess(_) => panic!("seed stub cannot execute orders"),
             StubOutcome::TopupSuccess(_) => panic!("top-up stub cannot execute orders"),
+            StubOutcome::MarketActive(_) => panic!("provisioning stub cannot execute orders"),
         }
     }
 
@@ -278,6 +286,46 @@ impl OrderExecutor for StubExecutor {
             _ => panic!("stub cannot apply top-ups"),
         }
     }
+
+    async fn apply_opening_balance(
+        &self,
+        _command: ApplyOpeningBalanceCommand,
+    ) -> Result<CashLedgerEntry, ProvisioningError> {
+        panic!("stub cannot apply opening balances")
+    }
+
+    async fn issue_initial_supply(
+        &self,
+        _command: IssueInitialSupplyCommand,
+    ) -> Result<IssueInitialSupplyResult, ProvisioningError> {
+        panic!("stub cannot issue initial supply")
+    }
+
+    async fn set_pre_market_price(
+        &self,
+        _command: SetPreMarketPriceCommand,
+    ) -> Result<PreMarketPriceResult, ProvisioningError> {
+        match &self.outcome {
+            StubOutcome::MarketActive(instrument_id) => {
+                Err(ProvisioningError::MarketActivityExists(*instrument_id))
+            }
+            _ => panic!("stub cannot set pre-market prices"),
+        }
+    }
+
+    async fn apply_freeze(
+        &self,
+        _command: ApplyFreezeCommand,
+    ) -> Result<ApplyFreezeResult, FreezeError> {
+        Err(FreezeError::EmptyInstruments)
+    }
+
+    async fn release_freeze(
+        &self,
+        _command: ReleaseFreezeCommand,
+    ) -> Result<ReleaseFreezeResult, FreezeError> {
+        panic!("stub cannot release freezes")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +336,58 @@ enum StubOutcome {
     NonPositiveQuantity(Decimal),
     SeedSuccess(SeedPlayerSharesResult),
     TopupSuccess(CashLedgerEntry),
+    MarketActive(Uuid),
+}
+
+#[tokio::test]
+async fn pre_market_price_rejects_traded_instrument_with_409() {
+    let instrument_id = Uuid::new_v4();
+    let response = build_router(AppState::new(StubExecutor {
+        outcome: StubOutcome::MarketActive(instrument_id),
+    }))
+    .oneshot(
+        Request::post("/internal/v1/instruments/pre-market-price/set")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "request_id": "pre-market-price:1",
+                    "instrument_id": instrument_id,
+                    "new_price": "12.50"
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = read_body(response).await;
+    assert_eq!(body["code"], "instrument_has_market_activity");
+    assert_eq!(body["details"]["instrument_id"], instrument_id.to_string());
+}
+
+#[tokio::test]
+async fn apply_freeze_maps_validation_errors_to_422() {
+    let response = build_router(AppState::new(StubExecutor::success(sample_response())))
+        .oneshot(
+            Request::post("/internal/v1/freezes/apply")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "reason": "MATCH_DAY",
+                        "source_key": "fixture:1",
+                        "instrument_ids": []
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(read_body(response).await["code"], "empty_instruments");
 }
 
 fn sample_request() -> Value {

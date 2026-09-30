@@ -5,7 +5,8 @@ from decimal import Decimal
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
-from app.synthetic_traders.bootstrap import (
+from app.clients.trading_engine import IssueInitialSupplyCommand, TradingEngineClientError
+from app.seeding.portfolios import (
     RESERVE_PORTFOLIO_ID,
     BootstrapAllocationError,
     BootstrapAllocationPlan,
@@ -250,8 +251,19 @@ class RecordingConnection:
         return None
 
 
+class RecordingSupplyIssuer:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.commands: list[IssueInitialSupplyCommand] = []
+        self.error = error
+
+    def issue_initial_supply(self, command: IssueInitialSupplyCommand) -> None:
+        self.commands.append(command)
+        if self.error is not None:
+            raise self.error
+
+
 class BootstrapPersistenceTests(unittest.TestCase):
-    def test_persistence_only_creates_positions_and_bootstrap_audit_rows(self) -> None:
+    def test_persistence_issues_supply_through_engine_and_records_audit_rows(self) -> None:
         instrument_id = uuid4()
         bot_id = uuid4()
         plan = BootstrapAllocationPlan(
@@ -278,31 +290,72 @@ class BootstrapPersistenceTests(unittest.TestCase):
             skipped_instruments=(),
         )
         cursor = RecordingCursor()
-        repository = PostgresSyntheticPortfolioBootstrapRepository("postgres://test")
+        issuer = RecordingSupplyIssuer()
+        repository = PostgresSyntheticPortfolioBootstrapRepository("postgres://test", issuer)
 
         with patch(
-            "app.synthetic_traders.bootstrap.pooled_connection",
+            "app.seeding.portfolios.pooled_connection",
             return_value=RecordingConnection(cursor),
         ):
-            repository.persist(
-                plan,
-                BootstrapOptions(
-                    seed=5,
-                    min_holders_per_player=1,
-                    max_player_supply_per_bot=Decimal("90"),
-                    reserve_supply_percent=Decimal("10"),
-                    max_positions_per_bot=1,
+            repository.persist(plan, _persist_options())
+
+        self.assertEqual(len(issuer.commands), 1)
+        command = issuer.commands[0]
+        self.assertTrue(command.request_id.startswith("initial-supply:"))
+        self.assertTrue(command.request_id.endswith(f":{instrument_id}"))
+        self.assertEqual(
+            sorted(item.quantity for item in command.allocations), ["10", "90"]
+        )
+        mutations = "\n".join(cursor.statements).upper()
+        self.assertEqual(mutations.count("INSERT INTO SYNTHETIC_PORTFOLIO_BOOTSTRAP_ALLOCATIONS"), 2)
+        # Engine-owned tables are never written or locked by the worker.
+        for table in ("POSITIONS", "ORDERS", "TRADES", "CASH_LEDGER_ENTRIES", "PRICE_SNAPSHOTS"):
+            self.assertNotIn(f"INSERT INTO {table}", mutations)
+        self.assertNotIn("UPDATE PORTFOLIOS", mutations)
+        self.assertNotIn("FOR UPDATE", mutations)
+
+    def test_engine_market_activity_rejection_becomes_allocation_error(self) -> None:
+        instrument_id = uuid4()
+        plan = BootstrapAllocationPlan(
+            seed=5,
+            selected_bot_ids=(),
+            allocations=(
+                BootstrapPositionAllocation(
+                    instrument_id=instrument_id,
+                    portfolio_id=RESERVE_PORTFOLIO_ID,
+                    bot_id=None,
+                    quantity=100,
+                    seed_price=Decimal("12.50"),
+                    is_reserve=True,
                 ),
-            )
+            ),
+            instruments_processed=1,
+            skipped_instruments=(),
+        )
+        cursor = RecordingCursor()
+        issuer = RecordingSupplyIssuer(
+            TradingEngineClientError(409, {"code": "instrument_has_market_activity", "message": "x"})
+        )
+        repository = PostgresSyntheticPortfolioBootstrapRepository("postgres://test", issuer)
+
+        with patch(
+            "app.seeding.portfolios.pooled_connection",
+            return_value=RecordingConnection(cursor),
+        ), self.assertRaisesRegex(BootstrapAllocationError, "acquired market history"):
+            repository.persist(plan, _persist_options())
 
         mutations = "\n".join(cursor.statements).upper()
-        self.assertEqual(mutations.count("INSERT INTO POSITIONS"), 2)
-        self.assertEqual(mutations.count("INSERT INTO SYNTHETIC_PORTFOLIO_BOOTSTRAP_ALLOCATIONS"), 2)
-        self.assertNotIn("INSERT INTO ORDERS", mutations)
-        self.assertNotIn("INSERT INTO TRADES", mutations)
-        self.assertNotIn("CASH_LEDGER_ENTRIES", mutations)
-        self.assertNotIn("UPDATE PORTFOLIOS", mutations)
-        self.assertNotIn("PRICE_SNAPSHOTS", mutations)
+        self.assertNotIn("INSERT INTO SYNTHETIC_PORTFOLIO_BOOTSTRAP_ALLOCATIONS", mutations)
+
+
+def _persist_options() -> BootstrapOptions:
+    return BootstrapOptions(
+        seed=5,
+        min_holders_per_player=1,
+        max_player_supply_per_bot=Decimal("90"),
+        reserve_supply_percent=Decimal("10"),
+        max_positions_per_bot=1,
+    )
 
 
 def _bot(index: int, strategy: StrategyEngine) -> BootstrapBot:

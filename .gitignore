@@ -48,3 +48,5 @@ services/worker/app/ingestion/*
 
 .agents
 .codex
+# Local scratch output (scraper debug pages, screenshots)
+/tmp/

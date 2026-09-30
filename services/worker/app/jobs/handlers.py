@@ -30,6 +30,7 @@ from app.ingestion.stats import PlayerStatsIngestionService
 from app.jobs.models import (
     AggregateSocialSignalsJobPayload,
     Bet365IngestionMode,
+    CheckMarketFreezesJobPayload,
     IngestBet365OddsJobPayload,
     IngestFixturesJobPayload,
     IngestPlayersJobPayload,
@@ -44,6 +45,7 @@ from app.jobs.models import (
     TopupJobPayload,
     WorkerJob,
 )
+from app.match_freezes import MatchFreezeService
 from app.synthetic_traders import (
     SyntheticTraderService,
     SyntheticTraderTickBatchResult,
@@ -137,6 +139,38 @@ class TopupJobHandler:
                 job_result,
             )
         return job_result
+
+
+@dataclass(frozen=True)
+class CheckMarketFreezesJobHandler:
+    match_freeze_service: MatchFreezeService
+    clock: Callable[[], datetime] = _utc_now
+
+    def handle(self, job: WorkerJob) -> JobExecutionResult:
+        if job.job_type is not JobType.CHECK_MARKET_FREEZES:
+            raise UnknownJobError(f"market-freeze handler cannot process {job.job_type.value}")
+
+        # Reconcile against the actual time: a delayed or retried job must not freeze or
+        # release players using a stale timestamp.
+        CheckMarketFreezesJobPayload.from_payload(job.payload)
+        result = self.match_freeze_service.reconcile(self.clock())
+        execution = JobExecutionResult(
+            job_type=job.job_type,
+            handled_at=self.clock(),
+            successful_items=result.fixtures_frozen + result.fixtures_released,
+            skipped_items=0,
+            failed_items=len(result.failures),
+            retryable_failures=len(result.failures),
+            metrics={
+                "fixtures_frozen": result.fixtures_frozen,
+                "fixtures_released": result.fixtures_released,
+                "instruments_frozen": result.instruments_frozen,
+                "instruments_reactivated": result.instruments_reactivated,
+            },
+        )
+        if result.failures:
+            raise RetryableJobError("; ".join(result.failures), execution)
+        return execution
 
 
 @dataclass(frozen=True)
