@@ -17,6 +17,9 @@ use crate::{
     topups::{self, ApplyTopupCommand, TopupError},
 };
 
+// async-trait generates must-use futures for these Result-returning methods. Rust 1.99's
+// double_must_use lint sees both layers, even though the source methods have no such attribute.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait OrderExecutor: Clone + Send + Sync + 'static {
     async fn execute_order(
