@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
+from app.clients.trading_engine import OrderSide
 from app.synthetic_traders.config import MarketMomentumConfig
 from app.synthetic_traders.models import (
     BotTickContext,
@@ -24,6 +25,9 @@ from .base import (
     volatility_pct,
     window_trades,
 )
+from .base import (
+    stats_confirmation as shared_stats_confirmation,
+)
 
 
 @dataclass(frozen=True)
@@ -35,9 +39,19 @@ class MarketMomentumStrategyEngine:
         context: BotTickContext,
         config: MarketMomentumConfig,
     ) -> tuple[StrategyDecision, ...]:
-        candidates = filter_candidates(context.candidates, config.universe)
+        volume_start = context.as_of - timedelta(minutes=config.lookbacks.volume_window_minutes)
+        candidates = filter_candidates(
+            tuple(
+                replace(c, recent_trades=tuple(window_trades(c.recent_trades, volume_start)))
+                for c in context.candidates
+            ),
+            config.universe,
+            f"{context.bot.id}:{context.as_of.date()}",
+        )
         if not candidates:
             return ()
+        originals = {c.instrument_id: c for c in context.candidates}
+        candidates = [originals[c.instrument_id] for c in candidates]
 
         volume_window_start = context.as_of - timedelta(
             minutes=config.lookbacks.volume_window_minutes
@@ -80,7 +94,7 @@ class MarketMomentumStrategyEngine:
                 breakout_window_start,
             )
             unique_participation = clamp(
-                unique_trader_count(pressure_trades)
+                unique_trader_count([t for t in pressure_trades if t.side is OrderSide.BUY])
                 / max(config.market_inputs.crowded_unique_buyer_threshold, 1),
                 0.0,
                 1.0,
@@ -89,13 +103,7 @@ class MarketMomentumStrategyEngine:
             crowded_trade = 0.0
             if pressure > config.market_inputs.buy_pressure_threshold:
                 crowded_trade = unique_participation
-            stats_confirmation = 0.0
-            if candidate.stats.average_rating is not None:
-                stats_confirmation = clamp(
-                    (candidate.stats.average_rating - 6.5) / 2.0,
-                    -1.0,
-                    1.0,
-                )
+            stats_confirmation = shared_stats_confirmation(candidate.stats)
             volatility_risk = clamp(
                 volatility / max(config.risk.volatility_tolerance, 0.01),
                 0.0,
@@ -103,7 +111,9 @@ class MarketMomentumStrategyEngine:
             )
             alpha = (
                 config.signal_weights.get("price_momentum", 0.0)
-                * clamp(price_momentum / max(config.market_inputs.min_price_move_pct, 0.01), -1.0, 1.0)
+                * clamp(
+                    price_momentum / max(config.market_inputs.min_price_move_pct, 0.01), -1.0, 1.0
+                )
                 + config.signal_weights.get("buy_sell_pressure", 0.0) * pressure
                 + config.signal_weights.get("volume_confirmation", 0.0) * volume_confirmation
                 + config.signal_weights.get("breakout_strength", 0.0)
@@ -127,11 +137,15 @@ class MarketMomentumStrategyEngine:
                 1.0,
             )
             side = DecisionSide.HOLD
-            if abs(alpha) > config.decision.hold_band and confidence >= config.decision.min_confidence:
+            if (
+                abs(alpha) > config.decision.hold_band
+                and confidence >= config.decision.min_confidence
+            ):
                 if (
                     alpha >= config.decision.buy_threshold
                     and price_momentum >= config.market_inputs.min_price_move_pct
                     and pressure >= config.market_inputs.buy_pressure_threshold
+                    and (config.market_inputs.allow_chasing_new_highs or breakout < 0)
                 ):
                     side = DecisionSide.BUY
                 elif (
@@ -139,7 +153,10 @@ class MarketMomentumStrategyEngine:
                     and candidate.current_holding_quantity > 0
                     and alpha <= config.decision.sell_threshold
                 ):
-                    if price_momentum < 0 or config.market_inputs.allow_fading_failed_breakouts:
+                    if price_momentum < 0 or (
+                        config.market_inputs.allow_fading_failed_breakouts
+                        and breakout < -config.market_inputs.breakout_near_high_pct
+                    ):
                         side = DecisionSide.SELL
 
             suggested_cash_pct = config.sizing.base_cash_pct * (

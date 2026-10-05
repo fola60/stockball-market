@@ -3,6 +3,9 @@ use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OrderError {
+    #[error("quoted price, cash balance or order budget changed")]
+    QuoteChanged,
+
     #[error("order {0} was not found")]
     NotFound(Uuid),
 

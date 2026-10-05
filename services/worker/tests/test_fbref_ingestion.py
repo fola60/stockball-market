@@ -42,10 +42,15 @@ class FakeStatsRepository:
     def __init__(self, matched_players: int = 0) -> None:
         self.observations: list[ExternalPlayerStat] = []
         self.matched_players = matched_players
+        self.snapshots: list[tuple[str, int]] = []
 
     def upsert_player_stats(self, observations: list[ExternalPlayerStat]) -> tuple[int, int]:
         self.observations.extend(observations)
         return len(observations), self.matched_players
+
+    def record_season_snapshots(self, provider: str, season: int) -> int:
+        self.snapshots.append((provider, season))
+        return self.matched_players
 
 
 class FakeFbrefClient:
@@ -301,10 +306,8 @@ class FbrefServiceTests(unittest.TestCase):
             stat_type="shooting",
         )[0]
         client = FakeFbrefClient(stats=[observation])
-        service = PlayerStatsIngestionService(
-            client=client,
-            repository=FakeStatsRepository(matched_players=1),
-        )
+        repository = FakeStatsRepository(matched_players=1)
+        service = PlayerStatsIngestionService(client=client, repository=repository)
         handler = IngestPlayerStatsJobHandler(
             stats_ingestion_service=service,
             clock=lambda: datetime(2026, 4, 26, 12, 0, tzinfo=UTC),
@@ -323,6 +326,8 @@ class FbrefServiceTests(unittest.TestCase):
         self.assertEqual(result.job_type, JobType.INGEST_PLAYER_STATS)
         self.assertEqual(result.successful_items, 1)
         self.assertEqual(client.stats_calls, [(9, 2025, ("shooting",))])
+        # Each import freezes a dated copy of the season totals for form tracking.
+        self.assertEqual(repository.snapshots, [(observation.provider, 2025)])
 
 
 def _fixture_html(filename: str) -> str:

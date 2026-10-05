@@ -11,7 +11,7 @@ from app.synthetic_traders.models import (
     StrategyEngine,
 )
 
-from .base import clamp, price_change_pct, sorted_decisions
+from .base import clamp, price_change_pct, sorted_decisions, stats_confirmation, volatility_pct
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class PortfolioRebalancerStrategyEngine:
 
         for position in context.portfolio.positions:
             candidate = candidates_by_instrument.get(position.instrument_id)
-            if candidate is None:
+            if candidate is None or candidate.trading_status != "ACTIVE":
                 continue
             position_pct = float(position.market_value / context.portfolio.total_equity)
             overweight = max(
@@ -64,27 +64,44 @@ class PortfolioRebalancerStrategyEngine:
             )
             concentration_risk = max(overweight, team_overweight)
             sell_need = max(concentration_risk, cash_raise, profit_take, loss_reduce)
-            confidence = clamp(
-                sell_need * 2.0 + (0.2 if position.quantity > 0 else 0.0),
-                0.0,
-                1.0,
+            cash_trigger = (
+                cash_pct < config.portfolio_targets.min_cash_pct
+                or cash_raise >= config.rebalance_rules.cash_raise_threshold_pct
             )
+            triggered = (
+                cash_trigger
+                or overweight >= config.rebalance_rules.player_overweight_threshold_pct
+                or team_overweight >= config.rebalance_rules.team_overweight_threshold_pct
+                or profit_take > 0
+                or loss_reduce > 0
+            )
+            confidence = 1.0 if triggered else 0.0
             alpha = -(
                 config.signal_weights.get("portfolio_drift", 0.0) * overweight
                 + config.signal_weights.get("cash_drift", 0.0) * cash_raise
                 + config.signal_weights.get("concentration_risk", 0.0) * concentration_risk
                 + config.signal_weights.get("profit_taking", 0.0) * max(profit_take, loss_reduce)
             )
+            alpha += config.signal_weights.get("volatility_risk", 0.0) * clamp(
+                volatility_pct(candidate.recent_prices, price_window_start)
+                / max(config.risk.volatility_tolerance, 0.01),
+                0.0,
+                1.0,
+            )
             side = DecisionSide.HOLD
-            if (
-                config.decision.allow_sells
-                and sell_need >= config.decision.rebalance_threshold
-                and confidence >= config.decision.min_confidence
-            ):
+            if config.decision.allow_sells and triggered:
                 side = DecisionSide.SELL
-            suggested_cash_pct = config.sizing.base_rebalance_pct * max(
-                sell_need,
-                config.rebalance_rules.player_overweight_threshold_pct,
+            suggested_cash_pct = min(
+                position_pct,
+                max(
+                    config.rebalance_rules.trim_to_target_pct * concentration_risk,
+                    cash_raise if cash_trigger else 0.0,
+                    config.sizing.base_rebalance_pct
+                    * position_pct
+                    * (1.0 + config.sizing.profit_take_multiplier * max(profit_take, loss_reduce))
+                    if profit_take or loss_reduce
+                    else 0.0,
+                ),
             )
             decisions.append(
                 StrategyDecision(
@@ -101,10 +118,20 @@ class PortfolioRebalancerStrategyEngine:
                         "cash_raise_pct": cash_raise,
                         "profit_take": profit_take,
                         "loss_reduce": loss_reduce,
+                        "volatility_risk": clamp(
+                            volatility_pct(candidate.recent_prices, price_window_start)
+                            / max(config.risk.volatility_tolerance, 0.01),
+                            0.0,
+                            1.0,
+                        ),
                     },
                 )
             )
 
+        decisions = list(sorted_decisions(decisions))[
+            : config.candidate_selection.max_sell_candidates
+        ]
+        selling = {d.instrument_id for d in decisions if d.side is DecisionSide.SELL}
         cash_deploy_need = max(
             cash_pct - config.portfolio_targets.target_cash_pct,
             0.0,
@@ -112,7 +139,8 @@ class PortfolioRebalancerStrategyEngine:
         buy_candidates = [
             candidate
             for candidate in context.candidates
-            if not (
+            if candidate.instrument_id not in selling
+            and not (
                 config.candidate_selection.avoid_frozen_or_inactive_instruments
                 and candidate.trading_status != "ACTIVE"
             )
@@ -134,10 +162,15 @@ class PortfolioRebalancerStrategyEngine:
                 and candidate.current_holding_quantity <= 0
             ):
                 continue
-            if len(context.portfolio.positions) >= config.portfolio_targets.max_position_count:
+            if (
+                candidate.current_holding_quantity <= 0
+                and len(context.portfolio.positions) >= config.portfolio_targets.max_position_count
+            ):
                 continue
             if candidate.current_holding_value > 0:
-                position_pct = float(candidate.current_holding_value / context.portfolio.total_equity)
+                position_pct = float(
+                    candidate.current_holding_value / context.portfolio.total_equity
+                )
                 if position_pct >= config.portfolio_targets.max_player_position_pct:
                     continue
             alpha_tiebreaker = self._alpha_tiebreaker(candidate, price_window_start)
@@ -145,21 +178,24 @@ class PortfolioRebalancerStrategyEngine:
                 cash_deploy_need,
                 0.0,
             )
-            confidence = clamp(
-                buy_need * 2.0 + max(alpha_tiebreaker, 0.0) * 0.3,
-                0.0,
-                1.0,
+            triggered = (
+                cash_pct > config.portfolio_targets.max_cash_pct
+                or buy_need >= config.rebalance_rules.cash_deploy_threshold_pct
             )
+            confidence = 1.0 if triggered else 0.0
             alpha = (
                 config.signal_weights.get("cash_drift", 0.0) * buy_need
                 + config.signal_weights.get("portfolio_drift", 0.0) * max(0.0, 1.0 - cash_pct)
                 + config.signal_weights.get("positive_alpha_tiebreaker", 0.0) * alpha_tiebreaker
             )
+            alpha += config.signal_weights.get("volatility_risk", 0.0) * clamp(
+                volatility_pct(candidate.recent_prices, price_window_start)
+                / max(config.risk.volatility_tolerance, 0.01),
+                0.0,
+                1.0,
+            )
             side = DecisionSide.HOLD
-            if (
-                buy_need >= config.decision.rebalance_threshold
-                and confidence >= config.decision.min_confidence
-            ):
+            if triggered:
                 side = DecisionSide.BUY
             suggested_cash_pct = (
                 config.sizing.base_rebalance_pct
@@ -183,6 +219,12 @@ class PortfolioRebalancerStrategyEngine:
                         "cash_deploy_need": buy_need,
                         "alpha_tiebreaker": alpha_tiebreaker,
                         "position_count": len(context.portfolio.positions),
+                        "volatility_risk": clamp(
+                            volatility_pct(candidate.recent_prices, price_window_start)
+                            / max(config.risk.volatility_tolerance, 0.01),
+                            0.0,
+                            1.0,
+                        ),
                     },
                 )
             )
@@ -208,10 +250,17 @@ class PortfolioRebalancerStrategyEngine:
         context: BotTickContext,
         config: PortfolioRebalancerConfig,
     ) -> float:
-        priority = self._alpha_tiebreaker(candidate, price_window_start)
+        priority = (
+            self._alpha_tiebreaker(candidate, price_window_start)
+            if config.candidate_selection.prefer_positive_alpha_when_deploying_cash
+            else 0.0
+        )
         if candidate.current_holding_quantity > 0:
             priority += 0.15
-        if config.candidate_selection.prefer_existing_watchlist and candidate.current_holding_quantity > 0:
+        if (
+            config.candidate_selection.prefer_existing_watchlist
+            and candidate.current_holding_quantity > 0
+        ):
             priority += 0.1
         if candidate.current_holding_value < config.portfolio_targets.min_position_cash_value:
             priority += 0.05
@@ -225,7 +274,5 @@ class PortfolioRebalancerStrategyEngine:
             candidate.current_price,
             price_window_start,
         )
-        stats_alpha = 0.0
-        if candidate.stats.average_rating is not None:
-            stats_alpha = clamp((candidate.stats.average_rating - 6.5) / 2.0, -1.0, 1.0)
+        stats_alpha = stats_confirmation(candidate.stats)
         return clamp(price_momentum / 0.15, -1.0, 1.0) * 0.6 + stats_alpha * 0.4

@@ -65,7 +65,7 @@ scripts/local-ingestion.sh twitter-sources --registry /path/to/reviewed-registry
 scripts/local-ingestion.sh twitter-injuries
 ```
 
-The helper creates `.venv-worker`, installs the worker package into it, and runs the matching `stockball-worker` command locally. FBref commands default to season `2025`; override with `--season` or `STOCKBALL_INGESTION_SEASON`.
+The helper creates `.venv-worker`, installs the worker package into it, and runs the matching `stockball-worker` command locally. FBref commands default to the season in progress (seasons roll over in July; 2026 is 2026-27); pin one with `--season` or `STOCKBALL_INGESTION_SEASON`.
 
 `migrate` applies `infra/postgres/migrations/*.sql` to `STOCKBALL_WORKER_DATABASE_URL` for a fresh local Postgres database. The database must already exist. If the database already has Stockball tables without local migration metadata, it exits instead of reapplying non-idempotent migrations.
 
@@ -101,7 +101,7 @@ Seed current Premier League players from FBref:
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
 STOCKBALL_FBREF_USER_AGENT="StockballMarketWorker/0.1 (contact: ops@example.com)" \
-stockball-worker seed-players --league 9 --season 2025
+stockball-worker seed-players --league 9
 ```
 
 This writes `FBREF` into `players.provider`, stores the FBref player ID in `players.provider_player_id`, and records FBref URLs/raw rows in provider metadata and `player_provider_refs`.
@@ -111,7 +111,7 @@ Ingest Premier League fixtures from FBref:
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
 STOCKBALL_FBREF_USER_AGENT="StockballMarketWorker/0.1 (contact: ops@example.com)" \
-stockball-worker ingest-fixtures --league 9 --season 2025
+stockball-worker ingest-fixtures --league 9
 ```
 
 Ingest Premier League player stat tables from FBref:
@@ -119,7 +119,7 @@ Ingest Premier League player stat tables from FBref:
 ```bash
 STOCKBALL_WORKER_DATABASE_URL=postgres://... \
 STOCKBALL_FBREF_USER_AGENT="StockballMarketWorker/0.1 (contact: ops@example.com)" \
-stockball-worker ingest-player-stats --league 9 --season 2025 --stat-type standard --stat-type shooting
+stockball-worker ingest-player-stats --league 9 --stat-type standard --stat-type shooting
 ```
 
 Import Transfermarkt-derived market values from downloaded CSV files:
@@ -170,8 +170,14 @@ To refresh players, stats, approved social feeds, and Transfermarkt CSV data fir
 `--ingest-data`, `--season`, and `--market-values-dir /path/to/csv-directory` to the committed
 command. The worker aggregates a seven-day social signal after polling (configurable with
 `--social-lookback-hours`). External ingestion is never attempted by a dry-run.
+FBref players and stats are not fetched by the bootstrap process itself: they are queued as
+`INGEST_PLAYERS` and `INGEST_PLAYER_STATS` runs on the ingestion worker, which must be running,
+and the bootstrap waits for each to succeed (`--worker-ingestion-timeout-minutes`, default 30).
+FBref's browser fallback is reliably challenged from one-off `docker compose run` containers but
+not from the ingestion worker. The runs appear in the admin UI like any manual job.
 
-Docker Compose uses the existing worker image rather than a separate image per job:
+Docker Compose uses the existing worker image rather than a separate image per job. The
+`bootstrap` profile includes the ingestion worker, so this also starts it if needed:
 
 ```bash
 STOCKBALL_BOOTSTRAP_TARGET_TRADES_PER_HOUR=2 \
@@ -185,9 +191,10 @@ profiles represented, increases candidate coverage to the complete instrument un
 active bots are reused and receive the same activity overrides; only profile deficits are spawned.
 Use `--popularity-headroom` to change the extra capacity. The default `--max-bots 5000` is a
 safety limit; pass `--max-bots unlimited` (or `none`) to remove it.
-The noise profiles additionally rank hourly undertraded instruments and bias their next eligible
-orders toward that gap, while signal-led profiles continue concentrating extra volume on popular
-players.
+The noise profiles increase participation for hourly undertraded instruments without changing
+buy/sell direction. Candidate sampling includes discovery as well as held instruments. Fleet
+projections remain capacity estimates: decision yield, available signals, and risk checks determine
+actual fills. Trade probability is a single draw per tick, so adding candidates does not compound it.
 
 Pre-market player prices use a market-value anchor adjusted by percentile signals. Defaults are
 45% latest market value, 45% player stats, and 10% social sentiment. Missing signals are neutral,
@@ -199,6 +206,27 @@ job must be running for the projection to become market activity.
 The recurring job processes up to 500 due bots each minute, providing 30,000 scheduled bot ticks
 per hour of runtime capacity; the bootstrap report's projected tick demand should remain below
 that ceiling for this single-worker development topology.
+
+### Seasons, League Roster, and Player Stats
+
+Every season setting uses 0 to mean the season in progress, which rolls over each July, so the
+daily jobs follow the league without a config change. `STOCKBALL_PLAYER_STATS_SCHEDULE_SEASON`
+and the admin runtime setting pin a season only when set to a year.
+
+Two daily jobs keep player data current:
+
+- `daily-league-roster` (an hour before the stats import) refreshes the season's player list,
+  lets the trading engine list newcomers, and halts trading for players no longer in the league
+  with an `ADMIN_HALT` freeze keyed `not-in-league:<player id>`. A player who returns is released.
+  A season list with fewer than 300 players or 18 clubs is treated as incomplete and halts no one.
+- `daily-player-stats` imports FBref's season tables and freezes a dated copy of each player's
+  totals in `player_season_stat_snapshots`.
+
+`app.player_stats` turns those snapshots into per-90 profiles: totals are combined across stat
+tables and clubs, early-season rates are blended with the player's previous season (or the
+league median) worth eight full matches, and recent form is the per-90 output since the snapshot
+three weeks earlier. Synthetic traders and seed pricing read the same profiles. FBref supplies no
+match ratings and, since 2025, no chance-creation data, so those inputs are left out of scoring.
 
 ### Synthetic Portfolio Bootstrap
 
@@ -218,6 +246,11 @@ python3 -m app.main bootstrap-synthetic-portfolios \
   --max-player-supply-per-bot 20 \
   --reserve-supply-percent 10 \
   --max-positions-per-bot 100 \
+  --top-player-holder-percent 40 \
+  --holder-price-exponent 1 \
+  --target-seed-value-per-bot 250000 \
+  --seed-value-jitter-percent 25 \
+  --risk-limit-headroom-percent 75 \
   --dry-run
 
 python3 -m app.main bootstrap-synthetic-portfolios \
@@ -227,7 +260,23 @@ python3 -m app.main bootstrap-synthetic-portfolios \
 
 Use repeated `--bot-id UUID` arguments instead of `--all-active-synthetic-bots` to target a
 specific fleet. Omit `--seed` to generate one; the command always prints the resolved seed.
-Social-sentiment bots and social signals are intentionally excluded from this bootstrap.
+Social-sentiment bots are seeded like the rest of the fleet so contrarian profiles have positions
+to sell into hype; social signals don't affect which players they are given.
+
+Seed holdings follow value, as in a real market. The most valuable player is held by
+`--top-player-holder-percent` of the bots (default 40%), and every other player by that share
+scaled by (its price / the top price) ^ `--holder-price-exponent` (default 1, linear), never fewer
+than `--min-holders-per-player`. Each bot's number of positions follows from those targets, with
+diversified strategies holding more players than noise traders, and bots choose which players they
+hold by strategy preference.
+
+Every bot gets roughly `--target-seed-value-per-bot` (jittered by `--seed-value-jitter-percent`)
+spread over its players, so no bot's net worth depends on which players it drew. Each position,
+club and cash balance stays within `--risk-limit-headroom-percent` of the bot's own risk limits; a
+bot seeded past its limits would spend every tick selling instead of trading. No bot holds more
+than `--max-player-supply-per-bot` percent of a player, and the reserve keeps at least
+`--reserve-supply-percent` of each player plus any supply the bots don't take. The dry run prints
+the positions and seed-value spread per bot and the average holders per price quintile.
 
 Bootstrap allocation is issuance, not trading. It transfers no cash and creates no orders,
 trades, fees, price changes, or cash-ledger entries. It creates integer positions directly in
@@ -235,3 +284,16 @@ one audited transaction, values them at the instrument seed price, and assigns t
 reserve to the dedicated `system-player-share-reserve` portfolio. A unique audit marker rejects
 attempts to bootstrap an instrument twice. After issuance, every ownership and cash change must
 use the normal trading-engine order path.
+
+### Engine profile correctness
+
+See [the strategy guide](app/synthetic_traders/STRATEGY_ENGINES.md#current-implementation-october-2026)
+for current signal semantics, retired controls, and rollout ordering. Migration 0029 updates the
+existing profiles. Deploy the trading engine first, then pause the worker while applying migrations
+and deploying its update; resume it once its parser matches the migrated profiles.
+
+Behavioral regression tests live in `tests/test_profile_regressions.py`. The end-to-end tests in
+`tests/test_profile_postgres.py` require a disposable migrated PostgreSQL database and a running
+trading engine connected to that same database. Set `STOCKBALL_PROFILE_TEST_DATABASE_URL` and
+`STOCKBALL_PROFILE_TEST_ENGINE_URL` to run them; they insert test records and must not target a
+shared or production database.

@@ -7,6 +7,8 @@ from typing import Any, Callable, Mapping
 
 import redis
 
+from app.common.seasons import describe_season
+
 SCHEDULE_OVERRIDES_KEY = "stockball:dev:schedule-overrides"
 SCHEDULER_HEARTBEAT_KEY = "stockball:dev:scheduler-heartbeat"
 WORKER_ACTIVE_JOB_KEY = "stockball:dev:worker:active-job"
@@ -28,7 +30,7 @@ def configured_processes(
     values = runtime_values or {}
     player_hour = int(values.get("player_stats_schedule_hour_utc", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_HOUR_UTC", "3")))
     player_league = str(values.get("player_stats_schedule_league", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_LEAGUE", "9")))
-    player_season = str(values.get("player_stats_schedule_season", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_SEASON", "2025")))
+    player_season = describe_season(int(values.get("player_stats_schedule_season", os.getenv("STOCKBALL_PLAYER_STATS_SCHEDULE_SEASON", "0"))))
     bet_interval = int(values.get("bet365_schedule_interval_minutes", os.getenv("STOCKBALL_BET365_SCHEDULE_INTERVAL_MINUTES", "15")))
     live_interval = int(values.get("bet365_live_schedule_interval_minutes", os.getenv("STOCKBALL_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES", "1")))
     twitter_interval = int(values.get("twitter_injury_schedule_interval_minutes", os.getenv("STOCKBALL_TWITTER_INJURY_SCHEDULE_INTERVAL_MINUTES", "5")))
@@ -39,6 +41,13 @@ def configured_processes(
             "INGEST_SOCIAL_FEEDS",
             "Every scheduler cycle · polls only due subscriptions",
             True,
+        ),
+        ProcessDefinition(
+            "daily-league-roster",
+            "Daily league roster",
+            "SYNC_LEAGUE_ROSTER",
+            f"Daily at {(player_hour - 1) % 24:02d}:00 UTC · league {player_league} · season {player_season} · halts players who left the league",
+            _bool_env("STOCKBALL_PLAYER_STATS_SCHEDULE_ENABLED", True),
         ),
         ProcessDefinition(
             "daily-player-stats",

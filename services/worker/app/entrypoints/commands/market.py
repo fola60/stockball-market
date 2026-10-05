@@ -17,17 +17,21 @@ from app.clients import (
 from app.config import Settings, TradingEngineSettings
 from app.entrypoints.factories import (
     build_market_value_import_service,
-    build_player_seed_service,
-    build_player_stats_ingestion_service,
     build_social_source_handler,
     build_synthetic_trader_spawner,
     configure_logging,
-    fbref_settings,
     trading_engine_client,
 )
-from app.ingestion.fbref import FbrefAccessDeniedError
 from app.ingestion.social import PostgresSocialRepository, SocialSignalAggregationService
-from app.jobs import IngestSocialSourceJobPayload, RetryableJobError, WorkerJob
+from app.jobs import (
+    IngestPlayersJobPayload,
+    IngestPlayerStatsJobPayload,
+    IngestSocialSourceJobPayload,
+    RetryableJobError,
+    WorkerJob,
+)
+from app.league_roster import LeagueRosterService, PostgresLeagueRosterRepository
+from app.queue import RedisJobQueue
 from app.seeding import (
     BootstrapAllocationError,
     PostgresSyntheticPortfolioBootstrapRepository,
@@ -44,6 +48,7 @@ from app.seeding.dev_market import (
     TradingEngineInstrumentSeeder,
     ValuationOptions,
 )
+from app.seeding.worker_jobs import PostgresJobRunStore, WorkerJobDispatcher, WorkerJobFailedError
 from app.synthetic_traders import (
     BotStatus,
     SpawnNameStyle,
@@ -124,6 +129,11 @@ def bootstrap_synthetic_portfolios(args) -> int:
             max_player_supply_per_bot=args.max_player_supply_per_bot,
             reserve_supply_percent=args.reserve_supply_percent,
             max_positions_per_bot=args.max_positions_per_bot,
+            top_player_holder_percent=args.top_player_holder_percent,
+            holder_price_exponent=args.holder_price_exponent,
+            target_seed_value_per_bot=args.target_seed_value_per_bot,
+            seed_value_jitter_percent=args.seed_value_jitter_percent,
+            risk_limit_headroom_percent=args.risk_limit_headroom_percent,
             dry_run=args.dry_run,
         )
     except BootstrapAllocationError as error:
@@ -137,6 +147,8 @@ def bootstrap_synthetic_portfolios(args) -> int:
         f"bot_shares={result.bot_shares}, reserve_shares={result.reserve_shares}, "
         f"positions={result.created_positions}, skipped={len(result.skipped_instruments)}"
     )
+    print(f"bot distribution: {result.bot_distribution()}")
+    print(f"holders by price quintile: {result.holders_by_price_quintile()}")
     for symbol, reason in result.skipped_instruments:
         print(f"skipped {symbol}: {reason}")
     return 0
@@ -170,6 +182,9 @@ def bootstrap_dev_market(args) -> int:
                     PostgresSyntheticPortfolioBootstrapRepository(settings.database_url, engine)
                 )
             ),
+            roster=LeagueRosterService(
+                repository=PostgresLeagueRosterRepository(settings.database_url), engine=engine
+            ),
         ).run(
             DevMarketBootstrapOptions(
                 fleet=FleetPlanningOptions(
@@ -191,6 +206,7 @@ def bootstrap_dev_market(args) -> int:
                 min_holders_per_instrument=args.min_holders_per_instrument,
                 max_positions_per_bot=args.max_positions_per_bot,
                 commit=args.commit,
+                season=args.season,
             )
         )
     except (
@@ -198,10 +214,10 @@ def bootstrap_dev_market(args) -> int:
         ApiUnavailableError,
         BootstrapAllocationError,
         DevMarketBootstrapError,
-        FbrefAccessDeniedError,
         psycopg2.Error,
         TradingEngineClientError,
         TradingEngineUnavailableError,
+        WorkerJobFailedError,
     ) as error:
         print(f"development market bootstrap failed: {error}")
         return 1
@@ -210,14 +226,30 @@ def bootstrap_dev_market(args) -> int:
 
 
 def _ingest_bootstrap_data(settings: Settings, args) -> None:
-    fbref = fbref_settings(settings)
-    players = build_player_seed_service(fbref).seed_players(args.league, args.season)
-    print(f"ingested {players.upserted_players} players")
-    stats = build_player_stats_ingestion_service(fbref).ingest_player_stats(
-        league=args.league,
-        season=args.season,
+    # FBref is challenged from this short-lived container but not from the long-running
+    # ingestion worker, so players and stats are queued there and awaited.
+    dispatcher = WorkerJobDispatcher(
+        PostgresJobRunStore(settings.database_url),
+        RedisJobQueue(settings.redis_url, settings.ingestion_queue_name),
     )
-    print(f"ingested {stats.upserted_observations} player-stat observations")
+    timeout = timedelta(minutes=args.worker_ingestion_timeout_minutes)
+    players = dispatcher.run(
+        "INGEST_PLAYERS",
+        WorkerJob.ingest_players(IngestPlayersJobPayload(league=args.league, season=args.season)),
+        timeout,
+    )
+    print(f"ingested {players.successful_items} players (worker run {players.run_id})")
+    stats = dispatcher.run(
+        "INGEST_PLAYER_STATS",
+        WorkerJob.ingest_player_stats(
+            IngestPlayerStatsJobPayload(league=args.league, season=args.season)
+        ),
+        timeout,
+    )
+    print(
+        f"ingested {stats.successful_items} player-stat observations "
+        f"(worker run {stats.run_id})"
+    )
     if args.market_values_dir:
         market_values_dir = Path(args.market_values_dir)
         valuations = market_values_dir / "player_valuations.csv"

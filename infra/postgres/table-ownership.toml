@@ -100,6 +100,10 @@ writers = ["worker"]
 owner = "worker"
 writers = ["worker"]
 
+[tables.player_season_stat_snapshots]
+owner = "worker"
+writers = ["worker"]
+
 [tables.player_market_value_observations]
 owner = "worker"
 writers = ["worker"]

@@ -251,6 +251,9 @@ def _summarize_tick_diagnostics(
             item.rejection_reasons for item in diagnostics
         ),
     }
+    explanations = {str(item.bot_id): item.explanation for item in diagnostics if item.explanation}
+    if explanations:
+        summary["explanations"] = explanations
     if include_profiles:
         profiles: dict[str, dict[str, object]] = {}
         for strategy_engine in sorted({item.strategy_engine.value for item in diagnostics}):
@@ -383,7 +386,8 @@ class IngestPlayerStatsJobHandler:
             successful_items=result.upserted_observations,
             skipped_items=0,
             failed_items=0,
-            metrics={"fetched_observations": result.fetched_observations, "matched_players": result.matched_players},
+            metrics={"fetched_observations": result.fetched_observations, "matched_players": result.matched_players,
+                     "snapshots_recorded": result.snapshots_recorded},
         )
 
 

@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from app.jobs import Bet365IngestionMode
+from app.seasons import current_season
 from app.synthetic_traders import BotStatus, SpawnNameStyle, StrategyEngine
 
 
@@ -29,8 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     seed_players.add_argument(
         "--season",
         type=int,
-        required=True,
-        help="season year",
+        default=current_season(),
+        help="season start year (2026 is 2026-27), default: the season in progress",
     )
     seed_players.add_argument(
         "--log-level",
@@ -42,7 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="ingest fixtures from FBref",
     )
     ingest_fixtures.add_argument("--league", type=int, default=9, help="FBref competition id")
-    ingest_fixtures.add_argument("--season", type=int, required=True, help="season year")
+    ingest_fixtures.add_argument(
+        "--season", type=int, default=current_season(), help="season start year (2026 is 2026-27), default: the season in progress"
+    )
     ingest_fixtures.add_argument("--from-date", help="optional start date YYYY-MM-DD")
     ingest_fixtures.add_argument("--to-date", help="optional end date YYYY-MM-DD")
     ingest_fixtures.add_argument(
@@ -55,7 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="ingest season player stat tables from FBref",
     )
     ingest_stats.add_argument("--league", type=int, default=9, help="FBref competition id")
-    ingest_stats.add_argument("--season", type=int, required=True, help="season start year")
+    ingest_stats.add_argument(
+        "--season", type=int, default=current_season(), help="season start year (2026 is 2026-27), default: the season in progress"
+    )
     ingest_stats.add_argument(
         "--stat-type",
         action="append",
@@ -213,7 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     bot_selector.add_argument(
         "--all-active-synthetic-bots",
         action="store_true",
-        help="select every active non-social synthetic trader",
+        help="select every active synthetic trader",
     )
     bootstrap_portfolios.add_argument("--seed", type=int)
     bootstrap_portfolios.add_argument(
@@ -227,6 +232,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_portfolios.add_argument(
         "--max-positions-per-bot", type=_positive_int, default=100
+    )
+    bootstrap_portfolios.add_argument(
+        "--top-player-holder-percent",
+        type=_percentage_up_to_100,
+        default=Decimal("40"),
+        help="share of bots holding the most valuable player, default: 40",
+    )
+    bootstrap_portfolios.add_argument(
+        "--target-seed-value-per-bot", type=_positive_decimal, default=Decimal("250000")
+    )
+    bootstrap_portfolios.add_argument(
+        "--seed-value-jitter-percent", type=_percentage_from_zero, default=Decimal("25")
+    )
+    bootstrap_portfolios.add_argument(
+        "--holder-price-exponent",
+        type=_non_negative_float,
+        default=1.0,
+        help="how holder share falls with price below the top player: 1 linear (default), 0 flat",
+    )
+    bootstrap_portfolios.add_argument(
+        "--risk-limit-headroom-percent",
+        type=_percentage_up_to_100,
+        default=Decimal("75"),
+        help="seed positions stay within this share of each bot's own risk limits, default: 75",
     )
     bootstrap_portfolios.add_argument("--dry-run", action="store_true")
     bootstrap_portfolios.add_argument("--log-level", default="INFO")
@@ -266,7 +295,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "ingest players, stats, social feeds, and the supplied market-value CSVs "
-            "before bootstrap"
+            "before bootstrap; players and stats run as jobs on the ingestion worker, "
+            "which must be running"
         ),
     )
     bootstrap_market.add_argument(
@@ -281,8 +311,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=168,
         help="lookback used to aggregate bootstrap social signals, default: 168 (7 days)",
     )
+    bootstrap_market.add_argument(
+        "--worker-ingestion-timeout-minutes",
+        type=_positive_int,
+        default=30,
+        help="how long to wait for each FBref job queued on the ingestion worker, default: 30",
+    )
     bootstrap_market.add_argument("--league", type=int, default=9)
-    bootstrap_market.add_argument("--season", type=int, default=2025)
+    bootstrap_market.add_argument(
+        "--season", type=int, default=current_season(), help="season start year (2026 is 2026-27), default: the season in progress"
+    )
     bootstrap_market.add_argument(
         "--market-values-dir",
         help="directory containing player_valuations.csv and players.csv for --ingest-data",
@@ -339,6 +377,16 @@ def _percentage(value: str) -> Decimal:
         raise argparse.ArgumentTypeError("value must be a decimal percentage") from error
     if not Decimal("0") < parsed < Decimal("100"):
         raise argparse.ArgumentTypeError("value must be greater than 0 and less than 100")
+    return parsed
+
+
+def _percentage_from_zero(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise argparse.ArgumentTypeError("value must be a decimal percentage") from error
+    if not Decimal("0") <= parsed < Decimal("100"):
+        raise argparse.ArgumentTypeError("value must be at least 0 and less than 100")
     return parsed
 
 

@@ -74,7 +74,6 @@ class AlphaDecisionConfig:
     min_confidence: float
     hold_band: float
     allow_sells: bool
-    sell_only_if_position_exists: bool
 
 
 @dataclass(frozen=True)
@@ -157,8 +156,6 @@ class MarketMomentumConfig:
 @dataclass(frozen=True)
 class StatsValueLookbacks:
     form_matches: int
-    baseline_matches: int
-    minutes_matches: int
     market_value_days: int
     price_momentum_days: int
 
@@ -174,6 +171,10 @@ class StatsInputsConfig:
     key_passes_weight: float
     cards_penalty_weight: float
     position_baseline_enabled: bool
+    # How much a bot values regular starts and recent form. Older profiles predate these and
+    # get the values their engine used to hard-code.
+    minutes_weight: float = 0.15
+    form_weight: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -216,11 +217,7 @@ class StatsValueConfig:
 
 @dataclass(frozen=True)
 class SocialSentimentLookbacks:
-    mention_window_minutes: int
-    baseline_window_days: int
-    news_window_hours: int
     price_momentum_hours: int
-    sentiment_window_hours: int
 
 
 @dataclass(frozen=True)
@@ -328,11 +325,8 @@ class CandidateSelectionConfig:
 
 @dataclass(frozen=True)
 class PortfolioDecisionConfig:
-    rebalance_threshold: float
-    min_confidence: float
     allow_buys: bool
     allow_sells: bool
-    sell_only_if_position_exists: bool
 
 
 @dataclass(frozen=True)

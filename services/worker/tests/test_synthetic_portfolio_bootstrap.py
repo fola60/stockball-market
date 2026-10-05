@@ -59,39 +59,203 @@ class SyntheticPortfolioBootstrapTests(unittest.TestCase):
             self.assertEqual(sum(item.quantity for item in allocations), instrument.total_supply)
             reserve = [item for item in allocations if item.is_reserve]
             self.assertEqual(len(reserve), 1)
-            self.assertEqual(reserve[0].quantity, 100)
+            # The reserve keeps at least its floor and absorbs whatever the bots don't take.
+            self.assertGreaterEqual(reserve[0].quantity, 100)
             self.assertEqual(reserve[0].portfolio_id, RESERVE_PORTFOLIO_ID)
             bot_allocations = [item for item in allocations if not item.is_reserve]
-            self.assertGreaterEqual(len(bot_allocations), 4)
-            self.assertTrue(all(item.quantity <= 250 for item in bot_allocations))
+            self.assertGreaterEqual(len(bot_allocations), 3)
+            self.assertTrue(all(1 <= item.quantity <= 250 for item in bot_allocations))
             self.assertTrue(all(item.quantity == int(item.quantity) for item in bot_allocations))
 
         positions_by_bot = {
             bot.bot_id: sum(1 for item in first.allocations if item.bot_id == bot.bot_id)
             for bot in snapshot.bots
         }
-        self.assertTrue(all(count == 2 for count in positions_by_bot.values()))
-        self.assertEqual(first.bot_positions, 12)
+        # Three players with a three-holder floor: nine positions spread over six bots.
+        self.assertTrue(all(1 <= count <= 2 for count in positions_by_bot.values()))
+        self.assertEqual(first.bot_positions, 9)
         self.assertEqual(first.reserve_positions, 3)
         self.assertEqual(first.total_bot_cash, Decimal("2100"))
         self.assertEqual(first.average_bot_cash, Decimal("350"))
-        self.assertEqual(
-            first.bot_distribution(),
-            {
-                "min_positions_per_bot": 2,
-                "max_positions_per_bot": 2,
-                "avg_positions_per_bot": 2.0,
-                "min_shares_per_bot": min(
-                    sum(item.quantity for item in first.allocations if item.bot_id == bot.bot_id)
-                    for bot in snapshot.bots
-                ),
-                "max_shares_per_bot": max(
-                    sum(item.quantity for item in first.allocations if item.bot_id == bot.bot_id)
-                    for bot in snapshot.bots
-                ),
-                "avg_shares_per_bot": 450.0,
-            },
+        distribution = first.bot_distribution()
+        self.assertEqual(distribution["min_positions_per_bot"], 1)
+        self.assertEqual(distribution["max_positions_per_bot"], 2)
+        self.assertEqual(distribution["avg_shares_per_bot"], round(first.bot_shares / 6, 2))
+
+    def test_bots_get_balanced_seed_value_over_several_positions(self) -> None:
+        prices = (Decimal("1"), Decimal("4"), Decimal("18"), Decimal("75"), Decimal("200"))
+        instruments = tuple(
+            BootstrapInstrument(
+                instrument_id=UUID(int=300 + index),
+                player_id=UUID(int=400 + index),
+                symbol=f"P{index}",
+                seed_price=prices[index % len(prices)],
+                total_supply=1_000_000,
+                stats_value=float(index),
+                market_value=float(index * 3 % 17),
+            )
+            for index in range(20)
         )
+        strategies = (
+            StrategyEngine.STATS_VALUE,
+            StrategyEngine.NOISE,
+            StrategyEngine.MARKET_MOMENTUM,
+            StrategyEngine.PORTFOLIO_REBALANCER,
+            StrategyEngine.BETTING_MARKET_VALUE,
+        )
+        snapshot = BootstrapSnapshot(
+            bots=tuple(_bot(index, strategies[index % 5]) for index in range(1, 41)),
+            instruments=instruments,
+        )
+        options = BootstrapOptions(
+            seed=9,
+            min_holders_per_player=5,
+            target_seed_value_per_bot=Decimal("50000"),
+            seed_value_jitter_percent=Decimal("20"),
+        )
+
+        plan = allocate_bootstrap(snapshot, options)
+
+        values = {bot.bot_id: Decimal("0") for bot in snapshot.bots}
+        positions = {bot.bot_id: 0 for bot in snapshot.bots}
+        holders: dict[UUID, int] = {}
+        for item in plan.allocations:
+            if item.bot_id is None:
+                continue
+            values[item.bot_id] += item.quantity * item.seed_price
+            positions[item.bot_id] += 1
+            holders[item.instrument_id] = holders.get(item.instrument_id, 0) + 1
+        # Every bot lands within the jitter band, whatever the price of the players it drew.
+        for value in values.values():
+            self.assertGreaterEqual(value, Decimal("39500"))
+            self.assertLessEqual(value, Decimal("60000"))
+        self.assertTrue(all(count >= 1 for count in positions.values()))
+        self.assertTrue(all(holders[item.instrument_id] >= 5 for item in instruments))
+        for instrument in instruments:
+            issued = sum(
+                item.quantity
+                for item in plan.allocations
+                if item.instrument_id == instrument.instrument_id
+            )
+            self.assertEqual(issued, instrument.total_supply)
+
+    def test_capped_positions_move_value_to_the_bots_other_players(self) -> None:
+        # Two players: one tiny, one deep. Each bot holds both, but the tiny player can
+        # only absorb a fraction of the requested value, so the rest goes to the deep one.
+        tiny = BootstrapInstrument(UUID(int=501), UUID(int=601), "TINY", Decimal("1"), 1000)
+        deep = BootstrapInstrument(UUID(int=502), UUID(int=602), "DEEP", Decimal("1"), 1_000_000)
+        snapshot = BootstrapSnapshot(
+            bots=tuple(_bot(index, StrategyEngine.NOISE) for index in range(1, 4)),
+            instruments=(tiny, deep),
+        )
+        options = BootstrapOptions(
+            seed=3,
+            min_holders_per_player=3,
+            max_player_supply_per_bot=Decimal("30"),
+            target_seed_value_per_bot=Decimal("10000"),
+            seed_value_jitter_percent=Decimal("0"),
+        )
+
+        plan = allocate_bootstrap(snapshot, options)
+
+        tiny_items = [item for item in plan.allocations if item.instrument_id == tiny.instrument_id]
+        self.assertTrue(all(item.quantity <= 300 for item in tiny_items if not item.is_reserve))
+        self.assertGreaterEqual(
+            next(item.quantity for item in tiny_items if item.is_reserve), 100
+        )
+        for bot in snapshot.bots:
+            total = sum(
+                item.quantity * item.seed_price
+                for item in plan.allocations
+                if item.bot_id == bot.bot_id
+            )
+            self.assertGreaterEqual(total, Decimal("9998"))
+            self.assertLessEqual(total, Decimal("10000"))
+
+    def test_more_valuable_players_get_more_holders(self) -> None:
+        snapshot = _priced_market()
+        options = BootstrapOptions(
+            seed=11,
+            min_holders_per_player=3,
+            target_seed_value_per_bot=Decimal("20000"),
+        )
+
+        plan = allocate_bootstrap(snapshot, options)
+
+        holders = _holders_by_symbol(plan, snapshot)
+        # The most valuable player is held by 40% of the 40 bots.
+        self.assertEqual(holders["P30"], 16)
+        # Holder counts climb with price, and every player keeps the floor.
+        self.assertGreater(holders["P30"], 2 * holders["P1"])
+        self.assertTrue(all(count >= 3 for count in holders.values()))
+        averages = [item["avg_holders"] for item in plan.holders_by_price_quintile()]
+        self.assertEqual(len(averages), 5)
+        self.assertEqual(averages, sorted(averages))
+        self.assertGreater(averages[-1], 2 * averages[0])
+
+    def test_zero_holder_price_exponent_spreads_holders_evenly(self) -> None:
+        snapshot = _priced_market()
+        options = BootstrapOptions(
+            seed=11,
+            min_holders_per_player=3,
+            target_seed_value_per_bot=Decimal("20000"),
+            holder_price_exponent=0.0,
+        )
+
+        holders = _holders_by_symbol(allocate_bootstrap(snapshot, options), snapshot)
+
+        self.assertLessEqual(max(holders.values()) - min(holders.values()), 2)
+
+    def test_seed_keeps_every_bot_inside_its_own_risk_limits(self) -> None:
+        # Noise-trader limits: 8% of equity per player, 20% per club, 5% cash reserve.
+        instruments = tuple(
+            BootstrapInstrument(
+                instrument_id=UUID(int=900 + rank),
+                player_id=UUID(int=950 + rank),
+                symbol=f"C{rank}",
+                seed_price=Decimal(1 + rank * 7),
+                total_supply=1_000_000,
+                market_value=float(rank),
+                club=f"Club {rank % 10}",
+            )
+            for rank in range(1, 101)
+        )
+        bots = tuple(
+            BootstrapBot(
+                bot_id=UUID(int=index),
+                account_id=UUID(int=1000 + index),
+                portfolio_id=UUID(int=2000 + index),
+                bot_key=f"bot-{index}",
+                strategy_engine=StrategyEngine.NOISE,
+                cash_balance=Decimal("100000"),
+                max_player_position_pct=0.08,
+                max_team_exposure_pct=0.20,
+                min_cash_reserve_pct=0.05,
+            )
+            for index in range(1, 31)
+        )
+        snapshot = BootstrapSnapshot(bots=bots, instruments=instruments)
+
+        plan = allocate_bootstrap(snapshot, BootstrapOptions(seed=5, min_holders_per_player=3))
+
+        clubs = {item.instrument_id: item.club for item in instruments}
+        for bot in bots:
+            held = [item for item in plan.allocations if item.bot_id == bot.bot_id]
+            seed_value = sum(item.quantity * item.seed_price for item in held)
+            equity = bot.cash_balance + seed_value
+            self.assertGreater(seed_value, Decimal("100000"))
+            for item in held:
+                self.assertLessEqual(item.quantity * item.seed_price, equity * Decimal("0.08"))
+            by_club: dict[str | None, Decimal] = {}
+            for item in held:
+                club = clubs[item.instrument_id]
+                by_club[club] = by_club.get(club, Decimal("0")) + item.quantity * item.seed_price
+            self.assertTrue(all(value <= equity * Decimal("0.20") for value in by_club.values()))
+            self.assertGreaterEqual(bot.cash_balance, equity * Decimal("0.05"))
+
+    def test_holder_price_exponent_is_validated(self) -> None:
+        with self.assertRaisesRegex(BootstrapAllocationError, "holder price exponent"):
+            BootstrapOptions(seed=1, holder_price_exponent=-0.1).validate()
 
     def test_profile_weights_prefer_their_primary_available_signal(self) -> None:
         snapshot = _snapshot()
@@ -161,7 +325,7 @@ class SyntheticPortfolioBootstrapTests(unittest.TestCase):
                 ),
             )
 
-    def test_social_sentiment_profile_is_not_allocated(self) -> None:
+    def test_social_sentiment_bots_are_seeded_so_they_have_positions_to_sell(self) -> None:
         snapshot = BootstrapSnapshot(
             bots=(
                 _bot(1, StrategyEngine.SOCIAL_SENTIMENT),
@@ -170,17 +334,21 @@ class SyntheticPortfolioBootstrapTests(unittest.TestCase):
             ),
             instruments=(_snapshot().instruments[0],),
         )
-        with self.assertRaisesRegex(BootstrapAllocationError, "not eligible"):
-            allocate_bootstrap(
-                snapshot,
-                BootstrapOptions(
-                    seed=1,
-                    min_holders_per_player=3,
-                    max_player_supply_per_bot=Decimal("50"),
-                    reserve_supply_percent=Decimal("10"),
-                    max_positions_per_bot=1,
-                ),
-            )
+
+        plan = allocate_bootstrap(
+            snapshot,
+            BootstrapOptions(
+                seed=1,
+                min_holders_per_player=3,
+                max_player_supply_per_bot=Decimal("50"),
+                reserve_supply_percent=Decimal("10"),
+                max_positions_per_bot=1,
+            ),
+        )
+
+        social_positions = [item for item in plan.allocations if item.bot_id == UUID(int=1)]
+        self.assertEqual(len(social_positions), 1)
+        self.assertGreater(social_positions[0].quantity, 0)
 
     def test_dry_run_does_not_persist_positions_or_audit(self) -> None:
         repository = FakeBootstrapRepository(_snapshot())
@@ -367,6 +535,34 @@ def _bot(index: int, strategy: StrategyEngine) -> BootstrapBot:
         strategy_engine=strategy,
         cash_balance=Decimal(index * 100),
     )
+
+
+def _priced_market() -> BootstrapSnapshot:
+    # 30 players priced 1..225 (P1 cheapest, P30 dearest) and 40 bots of mixed strategies.
+    instruments = tuple(
+        BootstrapInstrument(
+            instrument_id=UUID(int=700 + rank),
+            player_id=UUID(int=800 + rank),
+            symbol=f"P{rank}",
+            seed_price=Decimal(1 + (rank - 1) ** 2 // 4),
+            total_supply=1_000_000,
+            stats_value=float(rank % 7),
+            market_value=float(rank),
+        )
+        for rank in range(1, 31)
+    )
+    strategies = (StrategyEngine.NOISE, StrategyEngine.STATS_VALUE, StrategyEngine.MARKET_MOMENTUM)
+    bots = tuple(_bot(index, strategies[index % 3]) for index in range(1, 41))
+    return BootstrapSnapshot(bots=bots, instruments=instruments)
+
+
+def _holders_by_symbol(plan: BootstrapAllocationPlan, snapshot: BootstrapSnapshot) -> dict[str, int]:
+    symbols = {item.instrument_id: item.symbol for item in snapshot.instruments}
+    holders = {symbol: 0 for symbol in symbols.values()}
+    for item in plan.allocations:
+        if not item.is_reserve:
+            holders[symbols[item.instrument_id]] += 1
+    return holders
 
 
 def _snapshot() -> BootstrapSnapshot:

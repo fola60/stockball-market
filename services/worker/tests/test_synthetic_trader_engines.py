@@ -205,13 +205,13 @@ class SyntheticTraderEngineTests(unittest.TestCase):
             current_price=Decimal("15"),
             market_value=Decimal("85000000"),
             stats=PlayerStatsContext(
-                observation_count=5,
-                average_rating=7.8,
-                average_minutes=88.0,
-                goals_per_match=0.8,
-                assists_per_match=0.4,
-                shots_per_match=3.5,
-                key_passes_per_match=2.2,
+                games=5,
+                minutes_per_game=88.0,
+                goals_per90=0.6,
+                assists_per90=0.3,
+                shots_per90=3.5,
+                defensive_actions_per90=1.2,
+                strength=0.9,
                 latest_observed_at=self.as_of,
             ),
         )
@@ -219,11 +219,12 @@ class SyntheticTraderEngineTests(unittest.TestCase):
             current_price=Decimal("45"),
             market_value=Decimal("10000000"),
             stats=PlayerStatsContext(
-                observation_count=5,
-                average_rating=6.2,
-                average_minutes=42.0,
-                goals_per_match=0.0,
-                assists_per_match=0.1,
+                games=5,
+                minutes_per_game=42.0,
+                goals_per90=0.0,
+                assists_per90=0.05,
+                defensive_actions_per90=0.8,
+                strength=-0.7,
                 latest_observed_at=self.as_of,
             ),
         )
@@ -246,6 +247,43 @@ class SyntheticTraderEngineTests(unittest.TestCase):
         decisions = SocialSentimentStrategyEngine().evaluate(context, config)
 
         self.assertEqual(decisions[0].side.value, "HOLD")
+
+    def test_social_sentiment_engine_buys_a_spike_covered_by_several_sources(self) -> None:
+        config = parse_strategy_config(StrategyEngine.SOCIAL_SENTIMENT, _social_payload())
+        candidate = _candidate(
+            social=_social_spike(),
+            recent_price_values=(Decimal("20"), Decimal("20.2")),
+            recent_trade_sides=(OrderSide.BUY,),
+        )
+
+        decisions = SocialSentimentStrategyEngine().evaluate(
+            _context(self.bot, candidates=(candidate,)), config
+        )
+
+        self.assertEqual(decisions[0].side.value, "BUY")
+        self.assertGreater(decisions[0].reason["mention_spike"], 0.9)
+
+    def test_social_sentiment_engine_treats_injury_reports_as_risk(self) -> None:
+        config = parse_strategy_config(StrategyEngine.SOCIAL_SENTIMENT, _social_payload())
+        healthy = _candidate(social=_social_spike(), recent_price_values=(Decimal("20"), Decimal("20.2")))
+        injured = _candidate(
+            social=_social_spike(injury_count=2),
+            recent_price_values=(Decimal("20"), Decimal("20.2")),
+        )
+
+        decisions = {
+            decision.instrument_id: decision
+            for decision in SocialSentimentStrategyEngine().evaluate(
+                _context(self.bot, candidates=(healthy, injured)), config
+            )
+        }
+
+        penalty = config.signal_weights["negative_news_risk"]
+        self.assertAlmostEqual(
+            decisions[injured.instrument_id].alpha_score,
+            decisions[healthy.instrument_id].alpha_score + penalty,
+        )
+        self.assertNotEqual(decisions[injured.instrument_id].side.value, "BUY")
 
     def test_betting_market_engine_applies_limit_after_selecting_odds_players(
         self,
@@ -417,6 +455,19 @@ def _context(
     )
 
 
+def _social_spike(injury_count: int = 0) -> SocialSignalContext:
+    return SocialSignalContext(
+        mention_count=6,
+        mention_velocity=1.0,
+        mention_spike_zscore=3.0,
+        sentiment_score=0.8,
+        news_count=3,
+        trusted_news_count=3,
+        injury_count=injury_count,
+        source_credibility=0.8,
+    )
+
+
 def _candidate(
     *,
     player_id=None,
@@ -465,7 +516,7 @@ def _candidate(
         market_value_observed_at=now,
         recent_prices=recent_prices,
         recent_trades=recent_trades,
-        stats=stats or PlayerStatsContext(observation_count=1, average_rating=7.0, average_minutes=80.0),
+        stats=stats or PlayerStatsContext(games=10, minutes_per_game=80.0, average_rating=7.0),
         social=social or SocialSignalContext(),
         betting=betting or BettingMarketContext(),
     )
@@ -500,7 +551,7 @@ def _betting_context(
                     decimal_odds=Decimal("1") / probability,
                     implied_probability=probability,
                     observed_at=timestamp,
-                    kickoff_at=observed_at - timedelta(minutes=30),
+                    kickoff_at=observed_at + timedelta(hours=2),
                 )
             )
     return BettingMarketContext(quotes=tuple(quotes))

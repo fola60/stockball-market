@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from hashlib import sha256
 from statistics import fmean, pstdev
-from typing import Iterable, Mapping, Protocol, Sequence
-from uuid import UUID
+from typing import Iterable, Protocol, Sequence
 
 from app.clients.trading_engine import OrderSide
 from app.synthetic_traders.config import CandidateUniverseConfig, StrategyConfig
@@ -13,10 +13,12 @@ from app.synthetic_traders.models import (
     CandidateInstrumentContext,
     DecisionSide,
     MarketTradeSample,
+    PlayerStatsContext,
     PricePoint,
     StrategyDecision,
     StrategyEngine,
 )
+from app.synthetic_traders.ranking import rank_percentiles as rank_percentiles
 
 POSITION_ALIASES = {
     "FW": "FWD",
@@ -59,6 +61,7 @@ class StrategyEngineImplementation(Protocol):
 def filter_candidates(
     candidates: Sequence[CandidateInstrumentContext],
     universe: CandidateUniverseConfig,
+    selection_key: str = "",
 ) -> list[CandidateInstrumentContext]:
     filtered: list[CandidateInstrumentContext] = []
 
@@ -67,16 +70,14 @@ def filter_candidates(
             continue
         filtered.append(candidate)
 
+    # Reserve half the budget for holdings; use a reproducible rotating sample for discovery.
     filtered.sort(
-        key=lambda item: (
-            item.current_holding_value > 0,
-            len(item.recent_trades),
-            item.current_holding_value,
-            item.current_price,
-        ),
-        reverse=True,
+        key=lambda item: sha256(f"{selection_key}:{item.instrument_id}".encode()).digest()
     )
-    return filtered[: universe.max_candidates]
+    held = [item for item in filtered if item.current_holding_quantity > 0]
+    reserved = held[: max(1, universe.max_candidates // 2)]
+    discovery = [item for item in filtered if item.current_holding_quantity <= 0]
+    return (reserved + discovery + held[len(reserved) :])[: universe.max_candidates]
 
 
 def candidate_exclusion_counts(
@@ -119,13 +120,20 @@ def candidate_exclusion_reason(
         return "position_not_included"
     if position_codes.intersection(excluded_positions):
         return "position_excluded"
-    if candidate.club is not None and included_clubs and candidate.club.lower() not in included_clubs:
+    if (
+        candidate.club is not None
+        and included_clubs
+        and candidate.club.lower() not in included_clubs
+    ):
         return "club_not_included"
     if candidate.club is not None and candidate.club.lower() in excluded_clubs:
         return "club_excluded"
     if candidate.current_price < universe.min_current_price:
         return "price_below_minimum"
-    if universe.max_current_price is not None and candidate.current_price > universe.max_current_price:
+    if (
+        universe.max_current_price is not None
+        and candidate.current_price > universe.max_current_price
+    ):
         return "price_above_maximum"
     if len(candidate.recent_trades) < universe.min_recent_trades:
         return "insufficient_recent_trades"
@@ -174,7 +182,8 @@ def breakout_strength(
     points = window_prices(prices, window_start)
     if not points:
         return 0.0
-    historical_high = max(point.price for point in points)
+    historical = points[:-1] if len(points) > 1 and points[-1].price == current_price else points
+    historical_high = max(point.price for point in historical)
     if historical_high <= 0:
         return 0.0
     return float((current_price - historical_high) / historical_high)
@@ -184,7 +193,10 @@ def volatility_pct(
     prices: Sequence[PricePoint],
     window_start: datetime,
 ) -> float:
-    points = window_prices(prices, window_start)
+    bars = {}
+    for point in sorted(window_prices(prices, window_start), key=lambda p: p.captured_at):
+        bars[point.captured_at.replace(minute=0, second=0, microsecond=0)] = point
+    points = list(bars.values())
     if len(points) < 2:
         return 0.0
     returns: list[float] = []
@@ -246,19 +258,6 @@ def sorted_decisions(decisions: Iterable[StrategyDecision]) -> tuple[StrategyDec
     )
 
 
-def rank_percentiles(values: Mapping[UUID, float]) -> dict[UUID, float]:
-    if not values:
-        return {}
-    sorted_items = sorted(values.items(), key=lambda item: item[1])
-    if len(sorted_items) == 1:
-        return {sorted_items[0][0]: 1.0}
-    result: dict[UUID, float] = {}
-    last_index = len(sorted_items) - 1
-    for index, (item_id, _) in enumerate(sorted_items):
-        result[item_id] = index / last_index
-    return result
-
-
 def average(values: Sequence[float]) -> float:
     if not values:
         return 0.0
@@ -273,3 +272,13 @@ def positive_score(value: float, scale: float) -> float:
     if scale <= 0:
         return 0.0
     return clamp(value / scale, -1.0, 1.0)
+
+
+def stats_confirmation(stats: PlayerStatsContext) -> float:
+    """-1..1: how strong a player's stats look. Uses a match rating when the provider supplies
+    one, otherwise the player's league percentile on per-90 contribution."""
+    if stats.average_rating is not None:
+        return clamp((stats.average_rating - 6.5) / 2.0, -1.0, 1.0)
+    if stats.strength is not None:
+        return clamp(stats.strength, -1.0, 1.0)
+    return 0.0

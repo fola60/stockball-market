@@ -48,15 +48,13 @@ ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
         "execution.size_noise_pct",
     ),
     StrategyEngine.STATS_VALUE: (
+        # The stat weights themselves come from a drawn style; see _sample_stats_style.
         "signal_weights.*",
         "stats_inputs.rating_weight",
-        "stats_inputs.goals_weight",
-        "stats_inputs.assists_weight",
-        "stats_inputs.clean_sheet_weight",
-        "stats_inputs.defensive_actions_weight",
-        "stats_inputs.shots_weight",
-        "stats_inputs.key_passes_weight",
         "stats_inputs.cards_penalty_weight",
+        "decision.buy_threshold",
+        "decision.sell_threshold",
+        "decision.min_confidence",
         "valuation.fair_value_blend.*",
         "valuation.min_valuation_gap_to_buy",
         "valuation.min_overvaluation_gap_to_sell",
@@ -87,8 +85,6 @@ ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
     StrategyEngine.PORTFOLIO_REBALANCER: (
         "signal_weights.*",
         "portfolio_targets.target_cash_pct",
-        "portfolio_targets.min_cash_pct",
-        "portfolio_targets.max_cash_pct",
         "rebalance_rules.cash_deploy_threshold_pct",
         "rebalance_rules.cash_raise_threshold_pct",
         "rebalance_rules.player_overweight_threshold_pct",
@@ -150,8 +146,54 @@ def build_random_config_overrides(
             )
         else:
             _sample_path(overrides, base_config, path, spread, random_source)
+    if strategy_engine is StrategyEngine.STATS_VALUE:
+        _sample_stats_style(overrides, base_config, spread, random_source)
     _normalize_fair_value_blend(overrides)
     return overrides
+
+
+# What a stats-value bot can care about, and how each interest splits across stat weights.
+STATS_STYLE_GROUPS: dict[str, dict[str, float]] = {
+    "goal_threat": {"goals_weight": 0.65, "shots_weight": 0.35},
+    "creation": {"assists_weight": 0.7, "key_passes_weight": 0.3},
+    "defence": {"defensive_actions_weight": 0.7, "clean_sheet_weight": 0.3},
+    "reliability": {"minutes_weight": 1.0},
+    "form": {"form_weight": 1.0},
+}
+# Weights a profile predates and the engine used to hard-code.
+_STATS_WEIGHT_DEFAULTS = {"minutes_weight": 0.15, "form_weight": 0.1}
+
+
+def _sample_stats_style(
+    overrides: dict[str, Any],
+    base_config: Mapping[str, Any],
+    spread: float,
+    random_source: Random,
+) -> None:
+    """Give a stats-value bot its own taste in players.
+
+    Jittering each weight around the profile's values leaves every bot with the same
+    priorities, so they all rank players alike. Instead the bot's total stat weight is split
+    across interests (goal threat, creation, defence, reliability, form) by a Dirichlet draw:
+    one bot may be mostly about defending, another mostly about goals. Profiles with a wider
+    spread draw more lopsided styles.
+    """
+    base_inputs = _get_path(base_config, ("stats_inputs",))
+    base_inputs = base_inputs if isinstance(base_inputs, Mapping) else {}
+    total = sum(
+        max(float(base_inputs.get(key, _STATS_WEIGHT_DEFAULTS.get(key, 0.0))), 0.0)
+        for group in STATS_STYLE_GROUPS.values()
+        for key in group
+    )
+    if total <= 0:
+        return
+    concentration = 0.2 / max(spread, 0.05)
+    draws = {name: random_source.gammavariate(concentration, 1.0) for name in STATS_STYLE_GROUPS}
+    draw_total = sum(draws.values())
+    for name, split in STATS_STYLE_GROUPS.items():
+        share = draws[name] / draw_total
+        for key, part in split.items():
+            _set_path(overrides, ("stats_inputs", key), round(total * share * part, 6))
 
 
 def _sample_mapping_section(

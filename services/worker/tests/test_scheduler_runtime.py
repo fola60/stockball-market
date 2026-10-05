@@ -24,7 +24,7 @@ class SchedulerProcessTests(unittest.TestCase):
 
         count = process.run_once()
 
-        self.assertEqual(count, 5)
+        self.assertEqual(count, 6)
 
     def test_run_once_records_scheduler_heartbeat(self) -> None:
         class Reporter:
@@ -47,7 +47,7 @@ class SchedulerProcessTests(unittest.TestCase):
         process.run_once()
 
         self.assertEqual(reporter.event[0], checked_at)
-        self.assertEqual(len(reporter.event[1]), 5)
+        self.assertEqual(len(reporter.event[1]), 6)
 
     def test_run_once_performs_housekeeping_before_scheduling(self) -> None:
         events = []

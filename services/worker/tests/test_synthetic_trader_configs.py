@@ -116,7 +116,8 @@ class SyntheticTraderConfigTests(unittest.TestCase):
 
         self.assertIsInstance(config, SocialSentimentConfig)
         self.assertFalse(config.social_inputs.contrarian_mode)
-        self.assertEqual(config.lookbacks.news_window_hours, 24)
+        self.assertEqual(config.lookbacks.price_momentum_hours, 24)
+        self.assertFalse(hasattr(config.lookbacks, "news_window_hours"))
 
     def test_parse_portfolio_rebalancer_config(self) -> None:
         config = parse_strategy_config(

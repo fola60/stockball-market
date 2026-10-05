@@ -141,6 +141,9 @@ pub async fn execute_order(
         command.quantity,
         PriceImpactDirection::from(command.side),
     )?;
+    if let Some(limits) = &command.execution_limits {
+        limits.check(quote.old_price, portfolio.cash_balance, quote.gross_amount)?;
+    }
     let execution_price = quote.execution_price;
     let gross_amount = quote.gross_amount;
 

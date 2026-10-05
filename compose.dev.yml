@@ -42,11 +42,13 @@ services:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
+      platforms: ["linux/amd64"]
 
   ingestion-worker:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
+      platforms: ["linux/amd64"]
 
   scheduler:
     build:

@@ -170,9 +170,7 @@ class Bet365Client:
         except Bet365IngestionError:
             raise
         except (FetchResponseError, FetchUnavailableError, LookupError, TimeoutError) as exc:
-            raise Bet365IngestionError(
-                f"Bet365 website browser session failed: {exc}"
-            ) from exc
+            raise Bet365IngestionError(f"Bet365 website browser session failed: {exc}") from exc
 
         if failures == len(targets):
             raise Bet365IngestionError("Bet365 could not refresh any active event pages")
@@ -224,9 +222,7 @@ class Bet365Client:
         except Bet365IngestionError:
             raise
         except (FetchResponseError, FetchUnavailableError, LookupError, TimeoutError) as exc:
-            raise Bet365IngestionError(
-                f"Bet365 website browser session failed: {exc}"
-            ) from exc
+            raise Bet365IngestionError(f"Bet365 website browser session failed: {exc}") from exc
 
         if listings and not discovered:
             raise Bet365IngestionError(
@@ -304,15 +300,15 @@ class Bet365Client:
 
     def _open_football_hub(self, browser: Any, competition_labels: tuple[str, ...]) -> None:
         football_xpath = _exact_text_xpath("Football")
-        competition_xpath = " | ".join(
-            _exact_text_xpath(label) for label in competition_labels
-        )
+        competition_xpath = " | ".join(_exact_text_xpath(label) for label in competition_labels)
+        menu_xpath = _exact_text_xpath("Competitions")
         self._navigate(browser, self._homepage_url)
         self._dismiss_cookie_consent(browser)
         browser.wait_for_xpath(football_xpath, timeout=self._timeout_seconds)
         candidate_count = browser.count_xpath(football_xpath)
 
-        for candidate_attempt in range(candidate_count):
+        # Hydration can add navigation links after the first visible Football label.
+        for candidate_attempt in range(max(candidate_count, 4)):
             if candidate_attempt:
                 self._navigate(browser, self._homepage_url)
                 browser.wait_for_xpath(football_xpath, timeout=self._timeout_seconds)
@@ -325,7 +321,13 @@ class Bet365Client:
             try:
                 browser.click_xpath(football_xpath, index=candidate_index)
                 browser.wait_for_url_change(starting_url, timeout=self._timeout_seconds)
-                browser.wait_for_xpath(competition_xpath, timeout=self._timeout_seconds)
+                browser.wait_for_xpath(
+                    competition_xpath + " | " + menu_xpath, timeout=self._timeout_seconds
+                )
+                if not browser.count_xpath(competition_xpath) and browser.count_xpath(menu_xpath):
+                    self._throttle()
+                    browser.click_xpath(menu_xpath)
+                    browser.wait_for_xpath(competition_xpath, timeout=self._timeout_seconds)
             except (LookupError, TimeoutError) as exc:
                 LOGGER.debug(
                     "Bet365 Football candidate %s of %s did not open the hub: %s",
@@ -408,8 +410,7 @@ class Bet365Client:
                 ]
                 if not eligible:
                     LOGGER.info(
-                        "Bet365 competition page contained no fixtures beyond "
-                        "the pre-match cutoff"
+                        "Bet365 competition page contained no fixtures beyond the pre-match cutoff"
                     )
                 return browser.get_current_url(), eligible
         return None

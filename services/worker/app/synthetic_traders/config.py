@@ -53,9 +53,7 @@ def parse_strategy_config(
     try:
         parser = _STRATEGY_PARSERS[engine]
     except KeyError as error:
-        raise SyntheticTraderConfigError(
-            f"unsupported strategy engine: {engine.value}"
-        ) from error
+        raise SyntheticTraderConfigError(f"unsupported strategy engine: {engine.value}") from error
     return parser(payload)
 
 
@@ -65,11 +63,7 @@ def apply_config_overrides(
 ) -> dict[str, Any]:
     merged = _deep_copy_mapping(base_config)
     for key, value in overrides.items():
-        if (
-            key in merged
-            and isinstance(merged[key], Mapping)
-            and isinstance(value, Mapping)
-        ):
+        if key in merged and isinstance(merged[key], Mapping) and isinstance(value, Mapping):
             merged[key] = apply_config_overrides(
                 _mapping(merged[key], f"config.{key}"),
                 _mapping(value, f"overrides.{key}"),
@@ -83,22 +77,32 @@ def _parse_universe(payload: Mapping[str, Any]) -> CandidateUniverseConfig:
     universe = _section(payload, "universe")
     return CandidateUniverseConfig(
         max_candidates=_positive_int(universe.get("max_candidates"), "universe.max_candidates"),
-        included_positions=_string_tuple(universe.get("included_positions"), "universe.included_positions"),
-        excluded_positions=_string_tuple(universe.get("excluded_positions"), "universe.excluded_positions"),
+        included_positions=_string_tuple(
+            universe.get("included_positions"), "universe.included_positions"
+        ),
+        excluded_positions=_string_tuple(
+            universe.get("excluded_positions"), "universe.excluded_positions"
+        ),
         included_clubs=_string_tuple(universe.get("included_clubs"), "universe.included_clubs"),
         excluded_clubs=_string_tuple(universe.get("excluded_clubs"), "universe.excluded_clubs"),
         min_current_price=_non_negative_decimal(
             universe.get("min_current_price"),
             "universe.min_current_price",
         ),
-        max_current_price=_optional_decimal(universe.get("max_current_price"), "universe.max_current_price"),
+        max_current_price=_optional_decimal(
+            universe.get("max_current_price"), "universe.max_current_price"
+        ),
         require_active_instrument=_bool(
             universe.get("require_active_instrument", True),
             "universe.require_active_instrument",
         ),
         favorite_clubs=_string_tuple(universe.get("favorite_clubs", ()), "universe.favorite_clubs"),
-        favorite_player_ids=_uuid_tuple(universe.get("favorite_player_ids", ()), "universe.favorite_player_ids"),
-        min_recent_trades=_non_negative_int(universe.get("min_recent_trades", 0), "universe.min_recent_trades"),
+        favorite_player_ids=_uuid_tuple(
+            universe.get("favorite_player_ids", ()), "universe.favorite_player_ids"
+        ),
+        min_recent_trades=_non_negative_int(
+            universe.get("min_recent_trades", 0), "universe.min_recent_trades"
+        ),
         min_recent_volume_cash=_non_negative_decimal(
             universe.get("min_recent_volume_cash", "0"),
             "universe.min_recent_volume_cash",
@@ -201,7 +205,9 @@ def _parse_market_momentum_lookbacks(payload: Mapping[str, Any]) -> MarketMoment
 def _parse_market_momentum_inputs(payload: Mapping[str, Any]) -> MarketMomentumInputs:
     inputs = _section(payload, "market_inputs")
     return MarketMomentumInputs(
-        min_price_move_pct=_ratio(inputs.get("min_price_move_pct"), "market_inputs.min_price_move_pct"),
+        min_price_move_pct=_ratio(
+            inputs.get("min_price_move_pct"), "market_inputs.min_price_move_pct"
+        ),
         breakout_near_high_pct=_ratio(
             inputs.get("breakout_near_high_pct"),
             "market_inputs.breakout_near_high_pct",
@@ -256,14 +262,6 @@ def _parse_stats_value_lookbacks(payload: Mapping[str, Any]) -> StatsValueLookba
     lookbacks = _section(payload, "lookbacks")
     return StatsValueLookbacks(
         form_matches=_positive_int(lookbacks.get("form_matches"), "lookbacks.form_matches"),
-        baseline_matches=_positive_int(
-            lookbacks.get("baseline_matches"),
-            "lookbacks.baseline_matches",
-        ),
-        minutes_matches=_positive_int(
-            lookbacks.get("minutes_matches"),
-            "lookbacks.minutes_matches",
-        ),
         market_value_days=_positive_int(
             lookbacks.get("market_value_days"),
             "lookbacks.market_value_days",
@@ -302,6 +300,10 @@ def _parse_stats_inputs(payload: Mapping[str, Any]) -> StatsInputsConfig:
             stats_inputs.get("position_baseline_enabled", True),
             "stats_inputs.position_baseline_enabled",
         ),
+        minutes_weight=_float(
+            stats_inputs.get("minutes_weight", 0.15), "stats_inputs.minutes_weight"
+        ),
+        form_weight=_float(stats_inputs.get("form_weight", 0.1), "stats_inputs.form_weight"),
     )
 
 
@@ -364,25 +366,9 @@ def _parse_stats_value_sizing(payload: Mapping[str, Any]) -> StatsValueSizingCon
 def _parse_social_lookbacks(payload: Mapping[str, Any]) -> SocialSentimentLookbacks:
     lookbacks = _section(payload, "lookbacks")
     return SocialSentimentLookbacks(
-        mention_window_minutes=_positive_int(
-            lookbacks.get("mention_window_minutes"),
-            "lookbacks.mention_window_minutes",
-        ),
-        baseline_window_days=_positive_int(
-            lookbacks.get("baseline_window_days"),
-            "lookbacks.baseline_window_days",
-        ),
-        news_window_hours=_positive_int(
-            lookbacks.get("news_window_hours"),
-            "lookbacks.news_window_hours",
-        ),
         price_momentum_hours=_positive_int(
             lookbacks.get("price_momentum_hours"),
             "lookbacks.price_momentum_hours",
-        ),
-        sentiment_window_hours=_positive_int(
-            lookbacks.get("sentiment_window_hours"),
-            "lookbacks.sentiment_window_hours",
         ),
     )
 
@@ -489,9 +475,7 @@ def _parse_betting_market_inputs(
             f"betting_inputs.market_type_weights.{market_type}",
         )
     if not market_type_weights:
-        raise SyntheticTraderConfigError(
-            "betting_inputs.market_type_weights must not be empty"
-        )
+        raise SyntheticTraderConfigError("betting_inputs.market_type_weights must not be empty")
     min_distinct_market_types = _positive_int(
         inputs.get("min_distinct_market_types"),
         "betting_inputs.min_distinct_market_types",
@@ -636,20 +620,8 @@ def _parse_candidate_selection(payload: Mapping[str, Any]) -> CandidateSelection
 def _parse_portfolio_decision(payload: Mapping[str, Any]) -> PortfolioDecisionConfig:
     decision = _section(payload, "decision")
     return PortfolioDecisionConfig(
-        rebalance_threshold=_ratio(
-            decision.get("rebalance_threshold"),
-            "decision.rebalance_threshold",
-        ),
-        min_confidence=_ratio(
-            decision.get("min_confidence"),
-            "decision.min_confidence",
-        ),
         allow_buys=_bool(decision.get("allow_buys", True), "decision.allow_buys"),
         allow_sells=_bool(decision.get("allow_sells", True), "decision.allow_sells"),
-        sell_only_if_position_exists=_bool(
-            decision.get("sell_only_if_position_exists", True),
-            "decision.sell_only_if_position_exists",
-        ),
     )
 
 
@@ -687,10 +659,6 @@ def _parse_alpha_decision(payload: Mapping[str, Any]) -> AlphaDecisionConfig:
         min_confidence=_ratio(decision.get("min_confidence"), "decision.min_confidence"),
         hold_band=_ratio(decision.get("hold_band"), "decision.hold_band"),
         allow_sells=_bool(decision.get("allow_sells", True), "decision.allow_sells"),
-        sell_only_if_position_exists=_bool(
-            decision.get("sell_only_if_position_exists", True),
-            "decision.sell_only_if_position_exists",
-        ),
     )
 
 
@@ -1026,9 +994,7 @@ def _rebalancer_config(payload: Mapping[str, Any]) -> StrategyConfig:
     )
 
 
-_STRATEGY_PARSERS: Mapping[
-    StrategyEngine, Callable[[Mapping[str, Any]], StrategyConfig]
-] = {
+_STRATEGY_PARSERS: Mapping[StrategyEngine, Callable[[Mapping[str, Any]], StrategyConfig]] = {
     StrategyEngine.NOISE: _noise_config,
     StrategyEngine.MARKET_MOMENTUM: _momentum_config,
     StrategyEngine.STATS_VALUE: _stats_config,

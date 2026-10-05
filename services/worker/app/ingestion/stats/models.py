@@ -27,3 +27,4 @@ class PlayerStatsIngestionResult:
     fetched_observations: int
     upserted_observations: int
     matched_players: int
+    snapshots_recorded: int = 0

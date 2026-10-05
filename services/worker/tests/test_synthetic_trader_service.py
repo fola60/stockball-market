@@ -39,8 +39,25 @@ class StubEngine:
 
 
 class FakeTradingEngineClient:
-    def __init__(self) -> None:
+    def __init__(self, portfolio=None) -> None:
+        self.portfolio = portfolio
         self.commands: list[ExecuteOrderCommand] = []
+
+    def quote_order(self, command):
+        from app.clients.trading_engine import OrderQuoteRecord
+
+        gross = Decimal(command.quantity) * Decimal("20")
+        cash = self.portfolio.cash_balance + (-gross if command.side is OrderSide.BUY else gross)
+        quantity = next(
+            (
+                p.quantity
+                for p in self.portfolio.positions
+                if p.instrument_id == command.instrument_id
+            ),
+            Decimal("0"),
+        )
+        quantity += Decimal(command.quantity) * (1 if command.side is OrderSide.BUY else -1)
+        return OrderQuoteRecord(command.quantity, str(gross), str(cash), str(quantity), "20", "20")
 
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
         self.commands.append(command)
@@ -164,7 +181,7 @@ class SyntheticTraderServiceTests(unittest.TestCase):
                 PricePoint(price=Decimal("20"), captured_at=self.as_of),
             ),
             recent_trades=(),
-            stats=PlayerStatsContext(observation_count=1, average_rating=7.0, average_minutes=80.0),
+            stats=PlayerStatsContext(games=10, minutes_per_game=80.0, average_rating=7.0),
             social=SocialSignalContext(),
         )
         self.config = SyntheticTraderBotConfigRecord(
@@ -198,7 +215,7 @@ class SyntheticTraderServiceTests(unittest.TestCase):
             ),
             candidates=(self.candidate,),
         )
-        client = FakeTradingEngineClient()
+        client = FakeTradingEngineClient(repository.portfolio)
         engine = StubEngine(
             (
                 StrategyDecision(
@@ -283,7 +300,7 @@ class SyntheticTraderServiceTests(unittest.TestCase):
             ),
             candidates=(self.candidate,),
         )
-        client = FakeTradingEngineClient()
+        client = FakeTradingEngineClient(repository.portfolio)
         engine = StubEngine(
             (
                 StrategyDecision(
@@ -364,7 +381,7 @@ class SyntheticTraderServiceTests(unittest.TestCase):
             ),
             candidates=(candidate,),
         )
-        client = FakeTradingEngineClient()
+        client = FakeTradingEngineClient(repository.portfolio)
         service = SyntheticTraderService(
             repository=repository,
             trading_engine_client=client,
@@ -408,7 +425,7 @@ class SyntheticTraderServiceTests(unittest.TestCase):
             ),
             candidates=(self.candidate,),
         )
-        client = FakeTradingEngineClient()
+        client = FakeTradingEngineClient(repository.portfolio)
         engine = StubEngine(
             (
                 StrategyDecision(
@@ -440,7 +457,9 @@ class SyntheticTraderServiceTests(unittest.TestCase):
         self.assertEqual(repository.list_due_calls[0]["bot_ids"], (self.bot.id,))
         self.assertNotIn("max_daily_trades", result.diagnostics[0].rejection_reasons)
 
-    def test_service_only_mutates_tick_state_locally_and_uses_trading_engine_for_orders(self) -> None:
+    def test_service_only_mutates_tick_state_locally_and_uses_trading_engine_for_orders(
+        self,
+    ) -> None:
         repository = FakeSyntheticTraderRepository(
             bot=self.bot,
             config=self.config,
@@ -459,7 +478,7 @@ class SyntheticTraderServiceTests(unittest.TestCase):
             ),
             candidates=(self.candidate,),
         )
-        client = FakeTradingEngineClient()
+        client = FakeTradingEngineClient(repository.portfolio)
         engine = StubEngine(
             (
                 StrategyDecision(

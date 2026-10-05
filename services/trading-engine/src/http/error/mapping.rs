@@ -207,6 +207,12 @@ impl From<ProvisioningError> for ApiError {
 
 fn order_error(error: OrderError) -> ApiError {
     match error {
+        OrderError::QuoteChanged => ApiError::new(
+            StatusCode::CONFLICT,
+            "quote_changed",
+            "Quote no longer satisfies execution limits.",
+            None,
+        ),
         OrderError::NotFound(order_id) => ApiError::new(
             StatusCode::NOT_FOUND,
             "order_not_found",

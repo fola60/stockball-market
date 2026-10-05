@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from random import Random
@@ -20,6 +20,7 @@ from app.clients.trading_engine import (
 from .config import (
     BettingMarketValueConfig,
     ExecutionConfig,
+    MarketMomentumConfig,
     PortfolioRebalancerConfig,
     StrategyConfig,
     SyntheticTraderConfigError,
@@ -151,9 +152,7 @@ class SyntheticTraderService:
                     strategy_config=strategy_config,
                     decisions=decisions,
                 )
-                recovery_instruments = {
-                    decision.instrument_id for decision in recovery_decisions
-                }
+                recovery_instruments = {decision.instrument_id for decision in recovery_decisions}
                 planned_decisions = recovery_decisions + tuple(
                     decision
                     for decision in decisions
@@ -168,6 +167,19 @@ class SyntheticTraderService:
                     rejection_reasons=rejection_reasons,
                 )
                 diagnostic_candidates = context.candidates
+                if isinstance(strategy_config, MarketMomentumConfig):
+                    since = as_of - timedelta(
+                        minutes=strategy_config.lookbacks.volume_window_minutes
+                    )
+                    diagnostic_candidates = tuple(
+                        replace(
+                            c,
+                            recent_trades=tuple(
+                                t for t in c.recent_trades if t.executed_at >= since
+                            ),
+                        )
+                        for c in context.candidates
+                    )
                 if isinstance(strategy_config, BettingMarketValueConfig):
                     missing_quotes = sum(
                         1 for candidate in context.candidates if not candidate.betting.quotes
@@ -188,6 +200,7 @@ class SyntheticTraderService:
                     SyntheticTraderTickDiagnostics(
                         bot_id=bot.id,
                         strategy_engine=strategy_engine,
+                        explanation=self._explanation(strategy_config, decisions),
                         candidates_loaded=len(context.candidates),
                         candidates_evaluated=len(decisions),
                         candidate_exclusions=exclusions,
@@ -213,7 +226,11 @@ class SyntheticTraderService:
                         )
                     )
                 else:
-                    outcomes.extend(self._submit_intents(context, intents))
+                    outcomes.extend(
+                        self._submit_intents(
+                            context, intents, strategy_config, force_timing=force_timing
+                        )
+                    )
             except (LookupError, SyntheticTraderConfigError) as exc:
                 outcomes.append(
                     SyntheticTraderTickOutcome(
@@ -237,14 +254,83 @@ class SyntheticTraderService:
             diagnostics=tuple(diagnostics),
         )
 
+    def _explanation(self, config, decisions):
+        if not config.explainability.enabled:
+            return {}
+        details = []
+        for decision in decisions[: config.explainability.record_top_signal_count]:
+            item = {
+                "instrument_id": str(decision.instrument_id),
+                "side": decision.side.value,
+                "alpha": decision.alpha_score,
+                "confidence": decision.confidence,
+            }
+            if config.explainability.include_raw_component_scores:
+                item["components"] = dict(decision.reason)
+            details.append(item)
+        return {
+            "effective_config": json.loads(json.dumps(asdict(config), default=str)),
+            "decisions": details,
+        }
+
     def _submit_intents(
         self,
         context: BotTickContext,
         intents: list[OrderIntent],
+        strategy_config: StrategyConfig,
+        *,
+        force_timing: bool = False,
     ) -> list[SyntheticTraderTickOutcome]:
         outcomes: list[SyntheticTraderTickOutcome] = []
         for intent in intents:
             try:
+                # Re-read after each fill or failure: never spend proceeds from a failed sell.
+                portfolio = self.repository.load_portfolio_context(context.bot)
+                activity = self.repository.load_activity_context(context.bot, context.as_of)
+                fresh = replace(
+                    context,
+                    portfolio=portfolio,
+                    activity=activity,
+                    candidates=_with_portfolio_holdings(context.candidates, portfolio),
+                )
+                decision = StrategyDecision(
+                    intent.instrument_id,
+                    DecisionSide(intent.side.value),
+                    intent.alpha_score,
+                    0.0,
+                    intent.confidence,
+                    float(intent.notional_cash / portfolio.total_equity)
+                    if portfolio.total_equity > 0
+                    else 0.0,
+                    intent.reason,
+                )
+                replanned = self._build_order_intents(
+                    context=fresh,
+                    strategy_config=strategy_config,
+                    decisions=(decision,),
+                    bypass_cooldown=True,
+                    bypass_daily_trade_limit=force_timing,
+                    apply_adjustments=False,
+                    draw_probability=False,
+                )
+                fitted = (
+                    self._fit_quoted_intent(fresh, strategy_config, replanned[0])
+                    if replanned
+                    else None
+                )
+                if fitted is None:
+                    outcomes.append(
+                        SyntheticTraderTickOutcome(
+                            bot_id=context.bot.id,
+                            account_id=context.bot.account_id,
+                            portfolio_id=context.bot.portfolio_id,
+                            status=TickOutcomeStatus.SKIPPED,
+                            instrument_id=intent.instrument_id,
+                            message="fresh portfolio or curve quote failed risk checks",
+                        )
+                    )
+                    continue
+                intent = fitted
                 execution = self.trading_engine_client.execute_order(
                     ExecuteOrderCommand(
                         request_id=intent.request_id,
@@ -253,6 +339,7 @@ class SyntheticTraderService:
                         instrument_id=intent.instrument_id,
                         side=intent.side,
                         quantity=_format_decimal(intent.quantity, places=6),
+                        execution_limits=intent.execution_limits,
                     )
                 )
             except TradingEngineUnavailableError as exc:
@@ -313,6 +400,8 @@ class SyntheticTraderService:
         bypass_cooldown: bool = False,
         bypass_daily_trade_limit: bool = False,
         rejection_reasons: Counter[str] | None = None,
+        apply_adjustments: bool = True,
+        draw_probability: bool = True,
     ) -> list[OrderIntent]:
         rejections = rejection_reasons if rejection_reasons is not None else Counter()
         if context.portfolio.total_equity <= 0:
@@ -342,6 +431,10 @@ class SyntheticTraderService:
         }
 
         intents: list[OrderIntent] = []
+        traded_instruments = set()
+        position_ids = set(positions_by_instrument)
+        # One draw per bot tick; candidate count cannot multiply activity probability.
+        probability_draw = self.random_source.random() if draw_probability else 0.0
         for decision in decisions:
             if decision.side is DecisionSide.HOLD:
                 continue
@@ -350,15 +443,16 @@ class SyntheticTraderService:
                 break
             if (
                 not bypass_daily_trade_limit
-                and existing_trade_count + accepted_orders
-                >= strategy_config.risk.max_daily_trades
+                and existing_trade_count + accepted_orders >= strategy_config.risk.max_daily_trades
             ):
                 rejections["max_daily_trades"] += 1
                 break
             is_recovery = decision.reason.get("engine") == "PORTFOLIO_RECOVERY"
-            if (
-                not is_recovery
-                and self.random_source.random() > strategy_config.execution.trade_probability
+            if not is_recovery and probability_draw >= min(
+                1.0,
+                strategy_config.execution.trade_probability
+                + (1.0 - strategy_config.execution.trade_probability)
+                * float(decision.reason.get("activity_bonus", 0.0)),
             ):
                 rejections["trade_probability"] += 1
                 continue
@@ -366,6 +460,12 @@ class SyntheticTraderService:
             candidate = candidates_by_instrument.get(decision.instrument_id)
             if candidate is None:
                 rejections["candidate_unavailable"] += 1
+                continue
+            if candidate.instrument_id in traded_instruments:
+                rejections["duplicate_instrument"] += 1
+                continue
+            if candidate.trading_status != "ACTIVE":
+                rejections["inactive_instrument"] += 1
                 continue
             if candidate.current_price <= 0:
                 rejections["invalid_price"] += 1
@@ -377,12 +477,56 @@ class SyntheticTraderService:
             if requested_notional <= 0:
                 rejections["non_positive_requested_notional"] += 1
                 continue
-            if not is_recovery:
+            if is_recovery:
+                requested_notional = self._remaining_recovery_notional(
+                    context, strategy_config, candidate, available_cash, team_exposure
+                )
+            if isinstance(strategy_config, PortfolioRebalancerConfig):
+                if decision.side is DecisionSide.BUY:
+                    if (
+                        candidate.instrument_id not in position_ids
+                        and len(position_ids)
+                        >= strategy_config.portfolio_targets.max_position_count
+                    ):
+                        rejections["max_position_count"] += 1
+                        continue
+                    requested_notional = min(
+                        requested_notional,
+                        max(
+                            Decimal("0"),
+                            available_cash
+                            - total_equity
+                            * Decimal(str(strategy_config.portfolio_targets.target_cash_pct)),
+                        ),
+                    )
+                elif not is_recovery and decision.reason.get("cash_raise_pct", 0) > 0:
+                    # Other triggers can still require a sale after the cash target is restored.
+                    other = max(
+                        float(decision.reason.get(k, 0))
+                        for k in (
+                            "overweight_pct",
+                            "team_overweight_pct",
+                            "profit_take",
+                            "loss_reduce",
+                        )
+                    )
+                    if other <= 0:
+                        requested_notional = min(
+                            requested_notional,
+                            max(
+                                Decimal("0"),
+                                total_equity
+                                * Decimal(str(strategy_config.portfolio_targets.target_cash_pct))
+                                - available_cash,
+                            ),
+                        )
+            if not is_recovery and apply_adjustments:
                 requested_notional = self._apply_size_adjustments(
                     strategy_config,
                     decision=decision,
                     candidate=candidate,
                     requested_notional=requested_notional,
+                    total_equity=total_equity,
                 )
             if requested_notional <= 0:
                 rejections["size_adjustment"] += 1
@@ -422,6 +566,11 @@ class SyntheticTraderService:
                 continue
 
             intents.append(intent)
+            traded_instruments.add(intent.instrument_id)
+            if intent.side is OrderSide.BUY:
+                position_ids.add(intent.instrument_id)
+            elif intent.quantity >= positions_by_instrument[intent.instrument_id].quantity:
+                position_ids.discard(intent.instrument_id)
             accepted_orders += 1
             daily_turnover_cash = next_turnover
             if intent.side is OrderSide.BUY:
@@ -440,6 +589,110 @@ class SyntheticTraderService:
                 )
 
         return intents
+
+    def _remaining_recovery_notional(
+        self, context, config, candidate, available_cash, team_exposure
+    ):
+        equity = context.portfolio.total_equity
+        cash = max(
+            Decimal("0"),
+            equity * Decimal(str(self._min_cash_reserve_pct(config) or 0)) - available_cash,
+        )
+        player_limit = self._max_player_position_pct(config)
+        team_limit = self._max_team_exposure_pct(config)
+        player = (
+            max(Decimal("0"), candidate.current_holding_value - equity * Decimal(str(player_limit)))
+            if player_limit is not None
+            else Decimal("0")
+        )
+        team = (
+            max(
+                Decimal("0"),
+                team_exposure.get(candidate.club, Decimal("0")) - equity * Decimal(str(team_limit)),
+            )
+            if team_limit is not None and candidate.club
+            else Decimal("0")
+        )
+        return max(cash, player, team)
+
+    def _fit_quoted_intent(self, context, config, intent):
+        candidate = next(c for c in context.candidates if c.instrument_id == intent.instrument_id)
+        quantity = intent.quantity
+        for _ in range(16):
+            if quantity <= 0:
+                return None
+            command = ExecuteOrderCommand(
+                intent.request_id,
+                context.bot.account_id,
+                context.bot.portfolio_id,
+                intent.instrument_id,
+                intent.side,
+                _format_decimal(quantity, places=6),
+            )
+            try:
+                quote = self.trading_engine_client.quote_order(command)
+            except TradingEngineClientError as exc:
+                # An initial spot-sized buy may exceed available cash or curve capacity.
+                if exc.body.get("code") not in {
+                    "insufficient_cash",
+                    "buy_exceeds_price_curve_limit",
+                    "sell_exceeds_price_curve_limit",
+                }:
+                    raise
+                quantity = _quantize_quantity(quantity / 2)
+                continue
+            gross = Decimal(quote.gross_amount)
+            if gross <= 0:
+                return None
+            quoted_cash_before = Decimal(quote.cash_balance_after) + (
+                gross if intent.side is OrderSide.BUY else -gross
+            )
+            if quoted_cash_before != context.portfolio.cash_balance:
+                return None
+            ratio = min(Decimal("1"), intent.notional_cash / gross)
+            if intent.side is OrderSide.BUY:
+                post_value = Decimal(quote.position_quantity_after) * Decimal(quote.new_price)
+                other_value = (
+                    context.portfolio.total_position_value - candidate.current_holding_value
+                )
+                equity = Decimal(quote.cash_balance_after) + other_value + post_value
+                reserve = self._min_cash_reserve_pct(config) or 0.0
+                cash_ok = Decimal(quote.cash_balance_after) >= equity * Decimal(str(reserve))
+                player_limit = self._max_player_position_pct(config)
+                team_limit = self._max_team_exposure_pct(config)
+                player_ok = player_limit is None or post_value <= equity * Decimal(
+                    str(player_limit)
+                )
+                team_value = (
+                    self._team_exposure(context.portfolio).get(candidate.club, Decimal("0"))
+                    - candidate.current_holding_value
+                    + post_value
+                )
+                team_ok = (
+                    candidate.club is None
+                    or team_limit is None
+                    or team_value <= equity * Decimal(str(team_limit))
+                )
+                if not (cash_ok and player_ok and team_ok):
+                    ratio = min(ratio, Decimal("0.8"))
+            if ratio >= 1:
+                if gross < config.risk.min_trade_cash_amount:
+                    return None
+                return replace(
+                    intent,
+                    quantity=quantity,
+                    notional_cash=gross,
+                    execution_limits={
+                        "expected_price": quote.old_price,
+                        "expected_cash_balance": str(
+                            Decimal(quote.cash_balance_after)
+                            + (gross if intent.side is OrderSide.BUY else -gross)
+                        ),
+                        "max_gross_amount": str(intent.notional_cash),
+                    },
+                )
+            quantity = _quantize_quantity(quantity * ratio * Decimal("0.999"))
+        return None
 
     def _build_recovery_decisions(
         self,
@@ -470,7 +723,11 @@ class SyntheticTraderService:
 
         for position in context.portfolio.positions:
             candidate = candidates.get(position.instrument_id)
-            if candidate is None or candidate.current_price <= 0 or candidate.trading_status != "ACTIVE":
+            if (
+                candidate is None
+                or candidate.current_price <= 0
+                or candidate.trading_status != "ACTIVE"
+            ):
                 continue
             triggers: list[str] = []
             requested_notional = cash_deficit
@@ -507,7 +764,9 @@ class SyntheticTraderService:
                         alpha_score=alpha,
                         expected_return=unrealized_return,
                         confidence=1.0,
-                        suggested_cash_pct=float(min(requested_notional / total_equity, Decimal("1"))),
+                        suggested_cash_pct=float(
+                            min(requested_notional / total_equity, Decimal("1"))
+                        ),
                         reason={
                             "engine": "PORTFOLIO_RECOVERY",
                             "triggers": triggers,
@@ -534,9 +793,7 @@ class SyntheticTraderService:
                 1 for decision in decisions if decision.alpha_score <= sell_threshold
             ),
             "below_zero_above_sell_threshold": sum(
-                1
-                for decision in decisions
-                if sell_threshold < decision.alpha_score < 0
+                1 for decision in decisions if sell_threshold < decision.alpha_score < 0
             ),
         }
 
@@ -642,7 +899,13 @@ class SyntheticTraderService:
         if notional < strategy_config.risk.min_trade_cash_amount:
             rejection_reasons["below_min_trade"] += 1
             return None
-        quantity = min(position.quantity, _quantize_quantity(notional / candidate.current_price))
+        max_quantity = position.quantity
+        if (
+            isinstance(strategy_config, PortfolioRebalancerConfig)
+            and not strategy_config.rebalance_rules.allow_full_exit
+        ):
+            max_quantity = max(Decimal("0"), max_quantity - DECIMAL_QUANTITY_STEP)
+        quantity = min(max_quantity, _quantize_quantity(notional / candidate.current_price))
         if quantity <= 0:
             rejection_reasons["non_positive_quantity"] += 1
             return None
@@ -670,6 +933,7 @@ class SyntheticTraderService:
         decision: StrategyDecision,
         candidate: CandidateInstrumentContext,
         requested_notional: Decimal,
+        total_equity: Decimal,
     ) -> Decimal:
         notional = requested_notional
         if (
@@ -680,10 +944,47 @@ class SyntheticTraderService:
             if threshold > 0:
                 confidence_ratio = max(decision.confidence / threshold, 0.2)
                 notional *= Decimal(str(confidence_ratio))
-        if candidate.current_holding_value > 0 and hasattr(strategy_config, "sizing"):
+        volatility_penalty = getattr(strategy_config.sizing, "volatility_size_penalty", 0.0)
+        overextension_penalty = getattr(strategy_config.sizing, "overextension_size_penalty", 0.0)
+        notional *= Decimal(
+            str(
+                max(
+                    0.0,
+                    1.0 - volatility_penalty * float(decision.reason.get("volatility_risk", 0.0)),
+                )
+            )
+        )
+        notional *= Decimal(
+            str(
+                max(
+                    0.0,
+                    1.0
+                    - overextension_penalty
+                    * min(float(decision.reason.get("hype_overextension", 0.0)), 1.0),
+                )
+            )
+        )
+        if (
+            decision.side is DecisionSide.BUY
+            and candidate.current_holding_value > 0
+            and hasattr(strategy_config, "sizing")
+        ):
             penalty = getattr(strategy_config.sizing, "position_concentration_penalty", None)
             if penalty is not None:
-                notional *= Decimal(str(max(0.2, 1.0 - (0.5 * penalty))))
+                notional *= Decimal(
+                    str(
+                        max(
+                            0.2,
+                            1.0
+                            - penalty
+                            * min(
+                                float(candidate.current_holding_value / total_equity)
+                                / max(self._max_player_position_pct(strategy_config) or 1.0, 0.01),
+                                1.0,
+                            ),
+                        )
+                    )
+                )
         if strategy_config.execution.size_noise_pct > 0:
             noise_factor = 1.0 + self.random_source.uniform(
                 -strategy_config.execution.size_noise_pct,
@@ -709,7 +1010,9 @@ class SyntheticTraderService:
         for position in portfolio.positions:
             if position.club is None:
                 continue
-            exposure[position.club] = exposure.get(position.club, Decimal("0")) + position.market_value
+            exposure[position.club] = (
+                exposure.get(position.club, Decimal("0")) + position.market_value
+            )
         return exposure
 
     def _apply_team_exposure(

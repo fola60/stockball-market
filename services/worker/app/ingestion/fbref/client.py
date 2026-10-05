@@ -9,9 +9,11 @@ from typing import Any, Mapping, Sequence
 import httpx
 from curl_cffi import requests
 from seleniumbase import SB
+
 from app.ingestion.fixtures.models import ExternalFixture
 from app.ingestion.players.models import ExternalPlayer
 from app.ingestion.stats.models import ExternalPlayerStat
+from app.seasons import resolve_season
 
 from .models import (
     DEFAULT_FBREF_BASE_URL,
@@ -274,10 +276,11 @@ class FbrefClient:
     def list_fixtures(
         self,
         league: int = DEFAULT_FBREF_COMPETITION_ID,
-        season: int = 2025,
+        season: int | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[ExternalFixture]:
+        season = resolve_season(season)
         print(f"[DEBUG] list_fixtures: league={league}, season={season}")
         source_url = self._fixture_url(league, season)
         page = self._get_page(source_url)
@@ -301,8 +304,9 @@ class FbrefClient:
     def list_league_players(
         self,
         league: int = DEFAULT_FBREF_COMPETITION_ID,
-        season: int = 2025,
+        season: int | None = None,
     ) -> list[ExternalPlayer]:
+        season = resolve_season(season)
         print(f"[DEBUG] list_league_players: league={league}, season={season}")
         source_url = self._stat_url(league, season, "standard")
         page = self._get_page(source_url)
@@ -316,9 +320,10 @@ class FbrefClient:
     def list_player_stats(
         self,
         league: int = DEFAULT_FBREF_COMPETITION_ID,
-        season: int = 2025,
+        season: int | None = None,
         stat_types: Sequence[str] | None = None,
     ) -> list[ExternalPlayerStat]:
+        season = resolve_season(season)
         print(f"[DEBUG] list_player_stats: league={league}, season={season}")
         observations: list[ExternalPlayerStat] = []
         for stat_type in stat_types or DEFAULT_FBREF_STAT_TYPES:

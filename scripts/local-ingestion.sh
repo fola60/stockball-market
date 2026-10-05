@@ -8,9 +8,9 @@ Run Stockball ingestion commands locally without Docker.
 Usage:
   scripts/local-ingestion.sh setup
   scripts/local-ingestion.sh migrate
-  scripts/local-ingestion.sh seed-players [--season 2025] [stockball-worker args...]
-  scripts/local-ingestion.sh ingest-fixtures [--season 2025] [stockball-worker args...]
-  scripts/local-ingestion.sh ingest-player-stats [--season 2025] [stockball-worker args...]
+  scripts/local-ingestion.sh seed-players [--season 2026] [stockball-worker args...]
+  scripts/local-ingestion.sh ingest-fixtures [--season 2026] [stockball-worker args...]
+  scripts/local-ingestion.sh ingest-player-stats [--season 2026] [stockball-worker args...]
   scripts/local-ingestion.sh import-market-values [stockball-worker args...]
   scripts/local-ingestion.sh seed-player-shares [stockball-worker args...]
   scripts/local-ingestion.sh ingest-bet365-odds [stockball-worker args...]
@@ -30,7 +30,7 @@ Aliases:
 Defaults:
   setup installs the worker into .venv-worker.
   migrate applies infra/postgres/migrations/*.sql to STOCKBALL_WORKER_DATABASE_URL.
-  --season defaults to STOCKBALL_INGESTION_SEASON or 2025 for FBref commands.
+  --season defaults to STOCKBALL_INGESTION_SEASON, or the season in progress when unset or 0.
   import-market-values defaults to MARKET_VALUES_DIR/players.csv and
   MARKET_VALUES_DIR/player_valuations.csv.
 
@@ -213,10 +213,12 @@ case "$command" in
     apply_migrations
     ;;
   seed-players | ingest-fixtures | ingest-player-stats)
-    if has_option "--season" "$@"; then
+    # Without --season or a pinned STOCKBALL_INGESTION_SEASON the command uses the season in
+    # progress.
+    if has_option "--season" "$@" || [[ "${STOCKBALL_INGESTION_SEASON:-0}" == "0" ]]; then
       args=("$@")
     else
-      args=("$@" --season "${STOCKBALL_INGESTION_SEASON:-2025}")
+      args=("$@" --season "$STOCKBALL_INGESTION_SEASON")
     fi
     run_worker_command --check-db "$command" "${args[@]}"
     ;;

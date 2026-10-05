@@ -4,7 +4,8 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from statistics import fmean
+from math import sqrt
+from statistics import median
 from threading import Lock
 from typing import Any, Iterator, Mapping, Protocol
 from uuid import UUID
@@ -13,6 +14,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.database import connection as pooled_connection
+from app.player_stats import load_stat_profiles, stats_value
+from app.seasons import current_season
 
 from .market_history import RollingMarketHistoryCache
 from .models import (
@@ -32,10 +35,14 @@ from .models import (
     SyntheticTraderBotConfigRecord,
     SyntheticTraderBotRecord,
 )
+from .ranking import rank_percentiles as _percentiles
 
 RECENT_MARKET_LOOKBACK_DAYS = 30
-RECENT_STATS_LOOKBACK_DAYS = 180
-MAX_STATS_ROWS_PER_PLAYER = 20
+# A player's usual social attention comes from its latest snapshot covering at least a day,
+# taken within the last week.
+SOCIAL_BASELINE_MIN_LOOKBACK_SECONDS = 24 * 60 * 60
+SOCIAL_BASELINE_MAX_AGE_DAYS = 7
+MIN_EXPECTED_SOCIAL_MENTIONS = 1.0
 
 
 class SyntheticTraderRepository(Protocol):
@@ -332,7 +339,8 @@ class PostgresSyntheticTraderRepository:
                         player.club,
                         p.quantity,
                         i.current_price,
-                        latest_trade.execution_price AS last_trade_price
+                        latest_trade.execution_price AS last_trade_price,
+                        basis.events AS cost_events
                     FROM positions AS p
                     JOIN instruments AS i
                         ON i.id = p.instrument_id
@@ -347,6 +355,18 @@ class PostgresSyntheticTraderRepository:
                         LIMIT 1
                     ) AS latest_trade
                         ON true
+                    LEFT JOIN LATERAL (
+                        SELECT jsonb_agg(jsonb_build_object('side', side, 'quantity', quantity::text,
+                            'gross_amount', gross_amount::text) ORDER BY occurred_at, event_id) AS events
+                        FROM (
+                            SELECT side, shares AS quantity, gross_amount, executed_at AS occurred_at, id AS event_id
+                            FROM trades WHERE portfolio_id = p.portfolio_id AND instrument_id = p.instrument_id
+                            UNION ALL
+                            SELECT 'BUY', quantity, quantity * seed_price, created_at, id
+                            FROM synthetic_portfolio_bootstrap_allocations
+                            WHERE portfolio_id = p.portfolio_id AND instrument_id = p.instrument_id
+                        ) AS events
+                    ) AS basis ON true
                     WHERE p.portfolio_id = %(portfolio_id)s
                       AND p.quantity > 0
                     ORDER BY p.updated_at DESC, p.instrument_id
@@ -417,7 +437,6 @@ class PostgresSyntheticTraderRepository:
         betting_lookback_minutes: int | None = None,
     ) -> tuple[CandidateInstrumentContext, ...]:
         market_since = as_of - timedelta(days=RECENT_MARKET_LOOKBACK_DAYS)
-        stats_since = as_of - timedelta(days=RECENT_STATS_LOOKBACK_DAYS)
         holdings = {position.instrument_id: position for position in portfolio.positions}
 
         with self._connection() as connection:
@@ -428,6 +447,8 @@ class PostgresSyntheticTraderRepository:
                         i.id,
                         i.player_id,
                         i.symbol,
+                        i.reference_price,
+                        upcoming.fixture_count,
                         i.display_name,
                         i.current_price,
                         i.trading_status,
@@ -436,17 +457,23 @@ class PostgresSyntheticTraderRepository:
                     FROM instruments AS i
                     LEFT JOIN players AS player
                         ON player.id = i.player_id
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(DISTINCT (home_team_name, away_team_name, kickoff_at)) AS fixture_count
+                        FROM fixtures
+                        WHERE (lower(home_team_name) = lower(player.club) OR lower(away_team_name) = lower(player.club))
+                          AND kickoff_at > %(as_of)s AND kickoff_at <= %(as_of)s + interval '7 days'
+                          AND COALESCE(status_short, '') NOT IN ('PST', 'CANC', 'ABD')
+                    ) AS upcoming ON true
                     WHERE i.instrument_type = 'PLAYER_SHARE'
                     ORDER BY i.created_at DESC, i.id DESC
-                    """
+                    """,
+                    {"as_of": as_of},
                 )
                 instrument_rows = cursor.fetchall()
 
                 instrument_ids = [str(row["id"]) for row in instrument_rows]
                 player_ids = [
-                    str(row["player_id"])
-                    for row in instrument_rows
-                    if row["player_id"] is not None
+                    str(row["player_id"]) for row in instrument_rows if row["player_id"] is not None
                 ]
                 prices_by_instrument = self._load_prices(
                     cursor, instrument_ids, market_since, as_of
@@ -455,7 +482,7 @@ class PostgresSyntheticTraderRepository:
                     cursor, instrument_ids, market_since, as_of
                 )
                 market_values_by_player = self._load_market_values(cursor, player_ids)
-                stats_by_player = self._load_stats(cursor, player_ids, stats_since)
+                stats_by_player = self._load_stats(cursor, player_ids, as_of)
                 betting_by_player = (
                     {}
                     if betting_lookback_minutes is None
@@ -471,9 +498,7 @@ class PostgresSyntheticTraderRepository:
         candidates: list[CandidateInstrumentContext] = []
         for row in instrument_rows:
             instrument_id = UUID(str(row["id"]))
-            player_id = (
-                None if row["player_id"] is None else UUID(str(row["player_id"]))
-            )
+            player_id = None if row["player_id"] is None else UUID(str(row["player_id"]))
             current_price = _decimal(row["current_price"])
             price_points = list(prices_by_instrument.get(str(instrument_id), ()))
             if not price_points or price_points[-1].price != current_price:
@@ -487,6 +512,12 @@ class PostgresSyntheticTraderRepository:
                     instrument_id=instrument_id,
                     player_id=player_id,
                     symbol=str(row["symbol"]),
+                    fixture_score=max(-1.0, 1.0 - 0.5 * (int(row.get("fixture_count") or 0) - 1))
+                    if row.get("fixture_count")
+                    else 0.0,
+                    reference_price=_decimal(row["reference_price"])
+                    if row.get("reference_price") is not None
+                    else None,
                     display_name=str(row["display_name"]),
                     club=None if row["club"] is None else str(row["club"]),
                     position=None if row["position"] is None else str(row["position"]),
@@ -661,56 +692,41 @@ class PostgresSyntheticTraderRepository:
             {"player_ids": player_ids},
         )
         rows = cursor.fetchall()
-        return {
-            str(row["player_id"]): (_decimal(row["value"]), row["observed_at"])
-            for row in rows
-        }
+        return {str(row["player_id"]): (_decimal(row["value"]), row["observed_at"]) for row in rows}
 
     def _load_stats(
         self,
         cursor,
         player_ids: list[str],
-        stats_since: datetime,
+        as_of: datetime,
     ) -> dict[str, PlayerStatsContext]:
         if not player_ids:
             return {}
-        cursor.execute(
-            """
-            SELECT
-                player_id::text AS player_id,
-                rating,
-                stats,
-                observed_at
-            FROM (
-                SELECT
-                    player_id,
-                    rating,
-                    stats,
-                    observed_at,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY player_id
-                        ORDER BY observed_at DESC, id DESC
-                    ) AS row_number
-                FROM player_stat_observations
-                WHERE player_id = ANY(%(player_ids)s::uuid[])
-                  AND observed_at >= %(stats_since)s
-            ) AS ranked
-            WHERE row_number <= %(max_rows)s
-            ORDER BY player_id, observed_at DESC
-            """,
-            {
-                "player_ids": player_ids,
-                "stats_since": stats_since,
-                "max_rows": MAX_STATS_ROWS_PER_PLAYER,
-            },
+        profiles = load_stat_profiles(cursor, current_season(as_of), as_of.date())
+        strengths = _percentiles(
+            {player_id: stats_value(profile) for player_id, profile in profiles.items()}
         )
-        rows = cursor.fetchall()
-        grouped: dict[str, list[Mapping[str, Any]]] = {}
-        for row in rows:
-            grouped.setdefault(str(row["player_id"]), []).append(row)
+        wanted = set(player_ids)
         return {
-            player_id: _aggregate_stats_context(items)
-            for player_id, items in grouped.items()
+            player_id: PlayerStatsContext(
+                available_rates=profile.available_rates,
+                latest_observed_at=profile.latest_observed_at,
+                games=profile.games,
+                minutes_per_game=profile.minutes_per_game,
+                goals_per90=profile.goals_per90,
+                assists_per90=profile.assists_per90,
+                shots_per90=profile.shots_per90,
+                key_passes_per90=profile.key_passes_per90,
+                defensive_actions_per90=profile.defensive_actions_per90,
+                cards_per90=profile.cards_per90,
+                clean_sheets_per_game=profile.clean_sheets_per_game,
+                recent_minutes=profile.recent_minutes,
+                recent_goal_involvements_per90=profile.recent_goal_involvements_per90,
+                recent_defensive_actions_per90=profile.recent_defensive_actions_per90,
+                strength=strengths[player_id] * 2.0 - 1.0,
+            )
+            for player_id, profile in profiles.items()
+            if player_id in wanted
         }
 
     def _load_social(
@@ -722,6 +738,7 @@ class PostgresSyntheticTraderRepository:
             """
             SELECT DISTINCT ON (player_id)
                 player_id::text AS player_id,
+                lookback_seconds,
                 trusted_mention_count,
                 credibility_weighted_sentiment,
                 injury_confirmation_count,
@@ -731,6 +748,7 @@ class PostgresSyntheticTraderRepository:
                 calculated_at
             FROM player_social_signal_snapshots
             WHERE player_id = ANY(%(player_ids)s::uuid[])
+              AND lookback_seconds = 3600
               AND calculated_at <= %(as_of)s
               AND calculated_at >= %(fresh_after)s
             ORDER BY player_id, calculated_at DESC, lookback_seconds ASC
@@ -741,21 +759,61 @@ class PostgresSyntheticTraderRepository:
                 "fresh_after": as_of - timedelta(seconds=self._social_signal_max_age_seconds),
             },
         )
+        latest_rows = cursor.fetchall()
+        if not latest_rows:
+            return {}
+        # Each player's usual hourly attention, from its most recent long-window snapshot.
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (player_id)
+                player_id::text AS player_id,
+                trusted_mention_count,
+                lookback_seconds
+            FROM player_social_signal_snapshots
+            WHERE player_id = ANY(%(player_ids)s::uuid[])
+              AND lookback_seconds >= %(min_baseline_seconds)s
+              AND calculated_at <= %(as_of)s
+              AND calculated_at >= %(baseline_after)s
+            ORDER BY player_id, calculated_at DESC, lookback_seconds DESC
+            """,
+            {
+                "player_ids": [str(row["player_id"]) for row in latest_rows],
+                "min_baseline_seconds": SOCIAL_BASELINE_MIN_LOOKBACK_SECONDS,
+                "as_of": as_of,
+                "baseline_after": as_of - timedelta(days=SOCIAL_BASELINE_MAX_AGE_DAYS),
+            },
+        )
+        baseline_rates = {
+            str(row["player_id"]): int(row["trusted_mention_count"])
+            / (int(row["lookback_seconds"]) / 3600)
+            for row in cursor.fetchall()
+        }
+        # Players with no history of their own are compared with a typical player.
+        league_rate = median(baseline_rates.values()) if baseline_rates else 0.0
         return {
             str(row["player_id"]): SocialSignalContext(
+                baseline_available=bool(baseline_rates),
                 mention_count=int(row["trusted_mention_count"]),
                 mention_velocity=float(row["mention_velocity"]),
+                mention_spike_zscore=_mention_spike_zscore(
+                    int(row["trusted_mention_count"]),
+                    int(row["lookback_seconds"]) / 3600,
+                    baseline_rates.get(str(row["player_id"]), league_rate),
+                )
+                if baseline_rates
+                else 0.0,
                 sentiment_score=(
                     0.0
                     if row["credibility_weighted_sentiment"] is None
                     else float(row["credibility_weighted_sentiment"])
                 ),
-                news_count=int(row["injury_confirmation_count"]),
+                news_count=int(row["corroborating_source_count"]),
                 trusted_news_count=int(row["corroborating_source_count"]),
+                injury_count=int(row["injury_confirmation_count"]),
                 source_credibility=float(row["signal_confidence"]),
                 latest_observed_at=row["calculated_at"],
             )
-            for row in cursor.fetchall()
+            for row in latest_rows
         }
 
     def _load_betting_markets(
@@ -847,6 +905,14 @@ class PostgresSyntheticTraderRepository:
         }
 
 
+def _mention_spike_zscore(observed: int, window_hours: float, baseline_hourly_rate: float) -> float:
+    """How unusual this window's mentions are for the player, as a Poisson z-score against
+    its usual rate. The expected count is floored so a single mention of a usually-quiet
+    player reads as notable rather than extreme."""
+    expected = baseline_hourly_rate * window_hours
+    return (observed - expected) / sqrt(max(expected, MIN_EXPECTED_SOCIAL_MENTIONS))
+
+
 def _build_bot_record(row: Mapping[str, Any]) -> SyntheticTraderBotRecord:
     return SyntheticTraderBotRecord(
         id=UUID(str(row["id"])),
@@ -882,10 +948,13 @@ def _build_position_context(row: Mapping[str, Any]) -> BotPositionContext:
     quantity = _decimal(row["quantity"])
     current_price = _decimal(row["current_price"])
     market_value = quantity * current_price
-    last_trade_price = None if row["last_trade_price"] is None else _decimal(row["last_trade_price"])
+    last_trade_price = (
+        None if row["last_trade_price"] is None else _decimal(row["last_trade_price"])
+    )
     unrealized_return_pct = None
-    if last_trade_price is not None and last_trade_price > 0:
-        unrealized_return_pct = float((current_price - last_trade_price) / last_trade_price)
+    average_cost = _average_cost(row.get("cost_events") or (), quantity)
+    if average_cost is not None and average_cost > 0:
+        unrealized_return_pct = float((current_price - average_cost) / average_cost)
     return BotPositionContext(
         instrument_id=UUID(str(row["instrument_id"])),
         player_id=None if row["player_id"] is None else UUID(str(row["player_id"])),
@@ -898,76 +967,10 @@ def _build_position_context(row: Mapping[str, Any]) -> BotPositionContext:
     )
 
 
-def _aggregate_stats_context(rows: list[Mapping[str, Any]]) -> PlayerStatsContext:
-    ratings = [_to_float(row["rating"]) for row in rows if row["rating"] is not None]
-    minutes = [_stat_number(row["stats"], "minutes", "mins", "minutes_90s") for row in rows]
-    minutes_values = [value for value in minutes if value is not None]
-    goals = [_stat_number(row["stats"], "goals", "gls") or 0.0 for row in rows]
-    assists = [_stat_number(row["stats"], "assists", "ast") or 0.0 for row in rows]
-    clean_sheets = [
-        _stat_number(row["stats"], "clean_sheets", "cs") or 0.0 for row in rows
-    ]
-    defensive = [
-        (_stat_number(row["stats"], "tackles") or 0.0)
-        + (_stat_number(row["stats"], "interceptions") or 0.0)
-        + (_stat_number(row["stats"], "blocks") or 0.0)
-        for row in rows
-    ]
-    shots = [
-        _stat_number(row["stats"], "shots_total", "shots") or 0.0 for row in rows
-    ]
-    key_passes = [
-        _stat_number(row["stats"], "key_passes", "passes_key") or 0.0 for row in rows
-    ]
-    cards = [
-        (_stat_number(row["stats"], "cards_yellow", "yellow_cards") or 0.0)
-        + 2.0 * (_stat_number(row["stats"], "cards_red", "red_cards") or 0.0)
-        for row in rows
-    ]
-
-    row_count = len(rows)
-    return PlayerStatsContext(
-        observation_count=row_count,
-        average_rating=(None if not ratings else fmean(ratings)),
-        average_minutes=(None if not minutes_values else fmean(minutes_values)),
-        goals_per_match=(0.0 if row_count == 0 else sum(goals) / row_count),
-        assists_per_match=(0.0 if row_count == 0 else sum(assists) / row_count),
-        clean_sheets_per_match=(
-            0.0 if row_count == 0 else sum(clean_sheets) / row_count
-        ),
-        defensive_actions_per_match=(
-            0.0 if row_count == 0 else sum(defensive) / row_count
-        ),
-        shots_per_match=(0.0 if row_count == 0 else sum(shots) / row_count),
-        key_passes_per_match=(
-            0.0 if row_count == 0 else sum(key_passes) / row_count
-        ),
-        cards_per_match=(0.0 if row_count == 0 else sum(cards) / row_count),
-        latest_observed_at=rows[0]["observed_at"] if rows else None,
-    )
-
-
-def _stat_number(stats: Mapping[str, Any], *keys: str) -> float | None:
-    for key in keys:
-        if key not in stats:
-            continue
-        return _to_float(stats[key])
-    return None
-
-
 def _decimal(value: object) -> Decimal:
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))
-
-
-def _to_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(str(value))
-    except (TypeError, ValueError):
-        return None
 
 
 def _mapping_dict(value: object) -> Mapping[str, Any]:
@@ -986,3 +989,19 @@ def _day_start(value: datetime) -> datetime:
     normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     normalized = normalized.astimezone(UTC)
     return normalized.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _average_cost(events, expected_quantity):
+    quantity = Decimal("0")
+    cost = Decimal("0")
+    for event in events:
+        amount = Decimal(str(event["quantity"]))
+        if event["side"] == "BUY":
+            quantity += amount
+            cost += Decimal(str(event["gross_amount"]))
+        elif quantity >= amount and quantity > 0:
+            cost *= (quantity - amount) / quantity
+            quantity -= amount
+        else:
+            return None
+    return cost / quantity if quantity > 0 and quantity == expected_quantity else None

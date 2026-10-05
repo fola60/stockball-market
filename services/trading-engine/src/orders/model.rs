@@ -9,6 +9,8 @@ use super::error::OrderError;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExecuteOrderCommand {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_limits: Option<ExecutionLimits>,
     pub request_id: String,
     pub account_id: Uuid,
     pub portfolio_id: Uuid,
@@ -16,6 +18,28 @@ pub struct ExecuteOrderCommand {
     pub side: OrderSide,
     #[serde(with = "rust_decimal::serde::str")]
     pub quantity: Decimal,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionLimits {
+    #[serde(with = "rust_decimal::serde::str")]
+    pub expected_price: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub expected_cash_balance: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub max_gross_amount: Decimal,
+}
+
+impl ExecutionLimits {
+    pub fn check(&self, price: Decimal, cash: Decimal, gross: Decimal) -> Result<(), OrderError> {
+        if price != self.expected_price
+            || cash != self.expected_cash_balance
+            || gross > self.max_gross_amount
+        {
+            return Err(OrderError::QuoteChanged);
+        }
+        Ok(())
+    }
 }
 
 impl ExecuteOrderCommand {
@@ -36,14 +60,23 @@ impl ExecuteOrderCommand {
     }
 
     pub fn request_fingerprint(&self) -> String {
-        format!(
+        let base = format!(
             "account_id={};portfolio_id={};instrument_id={};side={};quantity={}",
             self.account_id,
             self.portfolio_id,
             self.instrument_id,
             self.side,
             self.quantity.round_dp(6).normalize()
-        )
+        );
+        match &self.execution_limits {
+            None => base,
+            Some(limits) => format!(
+                "{base};expected_price={};expected_cash={};max_gross={}",
+                limits.expected_price.normalize(),
+                limits.expected_cash_balance.normalize(),
+                limits.max_gross_amount.normalize()
+            ),
+        }
     }
 }
 
@@ -183,6 +216,7 @@ mod tests {
     #[test]
     fn rejects_non_positive_quantity() {
         let command = ExecuteOrderCommand {
+            execution_limits: None,
             request_id: "req_1".to_owned(),
             account_id: Uuid::new_v4(),
             portfolio_id: Uuid::new_v4(),
@@ -204,6 +238,7 @@ mod tests {
         let instrument_id = Uuid::new_v4();
 
         let left = ExecuteOrderCommand {
+            execution_limits: None,
             request_id: "req_1".to_owned(),
             account_id,
             portfolio_id,
@@ -212,6 +247,7 @@ mod tests {
             quantity: Decimal::new(10, 0),
         };
         let right = ExecuteOrderCommand {
+            execution_limits: None,
             request_id: "req_1".to_owned(),
             account_id,
             portfolio_id,
@@ -221,5 +257,31 @@ mod tests {
         };
 
         assert_eq!(left.request_fingerprint(), right.request_fingerprint());
+    }
+}
+
+#[cfg(test)]
+mod execution_limit_tests {
+    use super::*;
+
+    #[test]
+    fn quote_limits_reject_price_cash_and_budget_changes() {
+        let limits = ExecutionLimits {
+            expected_price: Decimal::from(20),
+            expected_cash_balance: Decimal::from(1000),
+            max_gross_amount: Decimal::from(100),
+        };
+        assert!(limits
+            .check(Decimal::from(20), Decimal::from(1000), Decimal::from(100))
+            .is_ok());
+        assert!(limits
+            .check(Decimal::from(21), Decimal::from(1000), Decimal::from(100))
+            .is_err());
+        assert!(limits
+            .check(Decimal::from(20), Decimal::from(999), Decimal::from(100))
+            .is_err());
+        assert!(limits
+            .check(Decimal::from(20), Decimal::from(1000), Decimal::from(101))
+            .is_err());
     }
 }

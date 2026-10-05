@@ -228,6 +228,13 @@ class PostgresInstrumentsRepository:
                         FROM player_stat_observations AS observation
                         WHERE observation.provider = 'FBREF'
                           AND observation.player_id IS NOT NULL
+                          -- Only the player's most recent season, so tables never mix seasons.
+                          AND split_part(observation.provider_fixture_id, ':', 2)::integer = (
+                              SELECT MAX(split_part(other.provider_fixture_id, ':', 2)::integer)
+                              FROM player_stat_observations AS other
+                              WHERE other.provider = 'FBREF'
+                                AND other.player_id = observation.player_id
+                          )
                         ORDER BY
                             observation.player_id,
                             split_part(observation.provider_fixture_id, ':', 3),

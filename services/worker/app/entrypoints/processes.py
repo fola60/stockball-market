@@ -30,6 +30,7 @@ from app.jobs import (
 )
 from app.jobs.admin_handlers import (
     bootstrap_portfolios_handler,
+    league_roster_handler,
     market_value_import_handler,
     seed_player_shares_handler,
     set_bot_status_handler,
@@ -51,6 +52,7 @@ from app.topups import PostgresTopupRepository, TopupService
 from .factories import (
     build_bet365_ingestion_service,
     build_fixture_ingestion_service,
+    build_league_roster_service,
     build_market_value_import_service,
     build_match_freeze_service,
     build_player_seed_service,
@@ -213,6 +215,10 @@ def _ingestion_handlers(settings: Settings) -> dict:
             source_handler=social_source_handler,
         ),
         JobType.PROCESS_SOCIAL_DOCUMENTS: ProcessSocialDocumentsJobHandler(social_repository),
+        JobType.SYNC_LEAGUE_ROSTER: FunctionJobHandler(
+            JobType.SYNC_LEAGUE_ROSTER,
+            league_roster_handler(build_league_roster_service(settings, fbref)),
+        ),
         JobType.AGGREGATE_SOCIAL_SIGNALS: AggregateSocialSignalsJobHandler(social_repository),
     }
     if settings.twitter_search_query:

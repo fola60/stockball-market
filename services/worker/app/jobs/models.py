@@ -6,6 +6,7 @@ from enum import StrEnum
 from typing import Any, Mapping
 from uuid import UUID
 
+from app.seasons import CURRENT_SEASON, resolve_season
 from app.topups.models import TopupCadence
 
 
@@ -27,6 +28,7 @@ class JobType(StrEnum):
     SPAWN_SYNTHETIC_TRADERS = "SPAWN_SYNTHETIC_TRADERS"
     BOOTSTRAP_SYNTHETIC_PORTFOLIOS = "BOOTSTRAP_SYNTHETIC_PORTFOLIOS"
     SET_SYNTHETIC_TRADER_STATUS = "SET_SYNTHETIC_TRADER_STATUS"
+    SYNC_LEAGUE_ROSTER = "SYNC_LEAGUE_ROSTER"
 
 
 class Bet365IngestionMode(StrEnum):
@@ -104,16 +106,18 @@ class SyntheticTraderTickJobPayload:
 @dataclass(frozen=True)
 class IngestPlayersJobPayload:
     league: int = 9
-    season: int = 2025
+    # 0 means the season in progress; see app.seasons.
+    season: int = CURRENT_SEASON
 
     def to_payload(self) -> dict[str, int]:
         return {"league": self.league, "season": self.season}
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "IngestPlayersJobPayload":
-        if "league" in payload and "season" in payload:
-            return cls(league=int(payload["league"]), season=int(payload["season"]))
-        return cls(league=9, season=int(payload.get("season", 2025)))
+        return cls(
+            league=int(payload.get("league", 9)),
+            season=resolve_season(int(payload.get("season") or CURRENT_SEASON)),
+        )
 
 
 @dataclass(frozen=True)
@@ -147,7 +151,8 @@ class IngestFixturesJobPayload:
 @dataclass(frozen=True)
 class IngestPlayerStatsJobPayload:
     league: int = 9
-    season: int = 2025
+    # 0 means the season in progress; see app.seasons.
+    season: int = CURRENT_SEASON
     stat_types: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, object]:
@@ -170,7 +175,7 @@ class IngestPlayerStatsJobPayload:
             stat_types = tuple(str(stat_type) for stat_type in raw_stat_types)
         return cls(
             league=int(payload.get("league", 9)),
-            season=int(payload.get("season", 2025)),
+            season=resolve_season(int(payload.get("season") or CURRENT_SEASON)),
             stat_types=stat_types,
         )
 
@@ -329,6 +334,10 @@ class WorkerJob:
     @classmethod
     def ingest_players(cls, payload: IngestPlayersJobPayload) -> "WorkerJob":
         return cls(job_type=JobType.INGEST_PLAYERS, payload=payload.to_payload())
+
+    @classmethod
+    def sync_league_roster(cls, payload: IngestPlayersJobPayload) -> "WorkerJob":
+        return cls(job_type=JobType.SYNC_LEAGUE_ROSTER, payload=payload.to_payload())
 
     @classmethod
     def ingest_fixtures(cls, payload: IngestFixturesJobPayload) -> "WorkerJob":

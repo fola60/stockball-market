@@ -50,6 +50,7 @@ async fn match_day_freeze_inner() {
 
     // Orders are rejected while frozen.
     let order = ExecuteOrderCommand {
+        execution_limits: None,
         request_id: format!("frozen-buy-{}", Uuid::new_v4()),
         account_id,
         portfolio_id,
@@ -104,6 +105,7 @@ async fn match_day_freeze_inner() {
     assert_eq!(again.released_count, 0);
 
     let order = ExecuteOrderCommand {
+        execution_limits: None,
         request_id: format!("thawed-buy-{}", Uuid::new_v4()),
         ..order
     };

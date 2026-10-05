@@ -37,6 +37,7 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
 
     let buy_request_id = format!("buy-{}", Uuid::new_v4());
     let buy_command = ExecuteOrderCommand {
+        execution_limits: None,
         request_id: buy_request_id.clone(),
         account_id: fixture.account_id,
         portfolio_id: fixture.portfolio_id,
@@ -86,6 +87,7 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
     let sell = execute_order(
         &pool,
         ExecuteOrderCommand {
+            execution_limits: None,
             request_id: format!("sell-{}", Uuid::new_v4()),
             account_id: fixture.account_id,
             portfolio_id: fixture.portfolio_id,

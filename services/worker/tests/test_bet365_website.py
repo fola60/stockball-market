@@ -438,3 +438,51 @@ class Bet365ClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CompetitionMenuBrowser(FootballHubBrowser):
+    def __init__(self):
+        super().__init__()
+        self.menu_opened = False
+        self.football_clicks = 0
+
+    def count_xpath(self, xpath):
+        if self.current_url == FOOTBALL_HUB_URL:
+            if "Competitions" in xpath and "self::button" in xpath:
+                return 1
+            return int(self.menu_opened and "England Premier League" in xpath)
+        return super().count_xpath(xpath)
+
+    def click_xpath(self, xpath, index=0):
+        if self.current_url == HOME_URL and "normalize-space(text())='Football'" in xpath:
+            self.football_clicks += 1
+            # First visible label is a homepage tab; a later hydrated link opens the hub.
+            if self.football_clicks == 1:
+                return
+        if self.current_url == FOOTBALL_HUB_URL and "Competitions" in xpath:
+            if "self::button" not in xpath:
+                raise LookupError("Competitions is a button")
+            self.menu_opened = True
+            return
+        super().click_xpath(xpath, index=index)
+
+    def wait_for_xpath(self, xpath, timeout=15):
+        if self.current_url == FOOTBALL_HUB_URL:
+            if self.count_xpath(xpath):
+                return
+            raise TimeoutError("League is behind Competitions menu")
+        super().wait_for_xpath(xpath, timeout=timeout)
+
+
+def test_football_navigation_handles_hydration_and_competitions_button():
+    browser = CompetitionMenuBrowser()
+    client = Bet365Client(
+        browser_enabled=True,
+        request_interval_seconds=0,
+        browser_idle_seconds=0,
+        browser_factory=lambda: browser_context(browser),
+        utc_clock=lambda: datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+    )
+    observations = client.list_pre_match_1x2("PL")
+    assert browser.menu_opened and browser.football_clicks == 2
+    assert len(observations) == 3

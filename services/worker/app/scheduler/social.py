@@ -41,9 +41,8 @@ class DueSocialSubscriptionDispatcher:
         scheduled: list[str] = []
         window = as_of.replace(second=0, microsecond=0).isoformat()
         due = self.repository.list_due_subscriptions(as_of, limit=1)
-        has_in_flight_run = (
-            self.run_repository is not None
-            and self.run_repository.has_in_flight(SOCIAL_INGESTION_SCHEDULE_NAME)
+        has_in_flight_run = self.run_repository is not None and self.run_repository.has_in_flight(
+            SOCIAL_INGESTION_SCHEDULE_NAME
         )
         if (
             due
@@ -85,6 +84,14 @@ class DueSocialSubscriptionDispatcher:
             )
             scheduled.append(processing_name)
         if as_of.minute % 15 == 0:
+            baseline_name = "social-signal-baseline"
+            if self.claim_store.claim(baseline_name, window):
+                self.queue.enqueue(
+                    WorkerJob.aggregate_social_signals(
+                        AggregateSocialSignalsJobPayload(lookback_seconds=7 * 24 * 3600)
+                    )
+                )
+                scheduled.append(baseline_name)
             aggregation_name = "social-signal-aggregation"
             if self.claim_store.claim(aggregation_name, window):
                 self.queue.enqueue(

@@ -22,6 +22,7 @@ class LedgerReason(StrEnum):
 
 @dataclass(frozen=True)
 class TradingEngineEndpoints:
+    quote_order: str = "/internal/v1/orders/quote"
     execute_order: str = "/internal/v1/orders/execute"
     seed_player_shares: str = "/internal/v1/instruments/player-shares/seed"
     apply_topup: str = "/internal/v1/ledger/topups/apply"
@@ -39,8 +40,9 @@ class ExecuteOrderCommand:
     instrument_id: UUID
     side: OrderSide
     quantity: str
+    execution_limits: Mapping[str, str] | None = None
 
-    def to_payload(self) -> dict[str, str]:
+    def to_payload(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
             "account_id": str(self.account_id),
@@ -48,6 +50,11 @@ class ExecuteOrderCommand:
             "instrument_id": str(self.instrument_id),
             "side": self.side.value,
             "quantity": self.quantity,
+            **(
+                {"execution_limits": dict(self.execution_limits)}
+                if self.execution_limits is not None
+                else {}
+            ),
         }
 
 
@@ -152,8 +159,7 @@ class SeedPlayerSharesRecord:
             market_value_priced_count=int(payload["market_value_priced_count"]),
             fallback_priced_count=int(payload["fallback_priced_count"]),
             created_instrument_ids=tuple(
-                UUID(str(instrument_id))
-                for instrument_id in payload["created_instrument_ids"]
+                UUID(str(instrument_id)) for instrument_id in payload["created_instrument_ids"]
             ),
         )
 
@@ -259,7 +265,23 @@ class ReleaseFreezeRecord:
         )
 
 
+@dataclass(frozen=True)
+class OrderQuoteRecord:
+    quantity: str
+    gross_amount: str
+    cash_balance_after: str
+    position_quantity_after: str
+    old_price: str
+    new_price: str
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "OrderQuoteRecord":
+        return cls(**{name: str(payload[name]) for name in cls.__dataclass_fields__})
+
+
 class TradingEngineClient(Protocol):
+    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord: ...
+
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
 
     def seed_player_shares(self) -> SeedPlayerSharesRecord: ...
@@ -317,6 +339,11 @@ class HttpTradingEngineClient:
     def close(self) -> None:
         if not self._client.is_closed:
             self._client.close()
+
+    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord:
+        return OrderQuoteRecord.from_payload(
+            self._post(self._endpoints.quote_order, command.to_payload())
+        )
 
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
         payload = self._post(self._endpoints.execute_order, command.to_payload())

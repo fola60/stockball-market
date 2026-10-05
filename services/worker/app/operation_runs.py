@@ -14,6 +14,7 @@ SCHEDULE_OPERATION_TYPES = {
     "synthetic-trader-ticks": "TICK_SYNTHETIC_TRADERS",
     "market-freezes": "CHECK_MARKET_FREEZES",
     "daily-player-stats": "INGEST_PLAYER_STATS",
+    "daily-league-roster": "SYNC_LEAGUE_ROSTER",
     "bet365-odds": "INGEST_BETTING_MARKETS",
     "bet365-live-odds": "INGEST_BETTING_MARKETS",
     "twitter-injury-intelligence": "INGEST_TWITTER_INJURIES",
@@ -331,6 +332,7 @@ class PostgresOperationRunReporter:
                             AND current.schedule_name IN (
                                 'synthetic-trader-ticks',
                                 'daily-player-stats',
+                                'daily-league-roster',
                                 'bet365-odds',
                                 'bet365-live-odds',
                                 'twitter-injury-intelligence'

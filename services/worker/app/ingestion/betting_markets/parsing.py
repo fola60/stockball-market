@@ -87,7 +87,8 @@ def parse_competition_fixture_listings(
                 date_label=date_label,
                 kickoff_time_label=kickoff_time_label,
                 kickoff_at=_parse_fixture_kickoff(
-                    date_label, kickoff_time_label,
+                    date_label,
+                    kickoff_time_label,
                     reference_time=reference_time,
                 ),
                 fractional_odds=(odds[0], odds[1], odds[2]),
@@ -302,9 +303,7 @@ def _semantic_market_token_sets(
 ) -> list[list[str]]:
     title_nodes = [
         text.parent
-        for text in soup.find_all(
-            string=lambda value: _normalized_text(value) == provider_label
-        )
+        for text in soup.find_all(string=lambda value: _normalized_text(value) == provider_label)
         if isinstance(text.parent, Tag)
     ]
     token_sets: list[list[str]] = []
@@ -403,9 +402,7 @@ def _player_market_observation(
     if decimal_odds is None:
         raise ValueError(f"invalid Bet365 player odds: {displayed_odds}")
     participants = (BettingMarketParticipant(provider_player_name),)
-    provider_selection_label = (
-        f"{provider_player_name} {outcome_type.value} {line.normalize()}"
-    )
+    provider_selection_label = f"{provider_player_name} {outcome_type.value} {line.normalize()}"
     return BettingMarketObservation(
         selection=BettingMarketSelection(
             provider=BET365_PROVIDER,
@@ -451,9 +448,10 @@ def _canonical_selection_key(
     participants: tuple[BettingMarketParticipant, ...],
 ) -> str:
     line_key = "-" if line is None else format(line.normalize(), "f")
-    participant_key = "&".join(
-        _key_component(participant.provider_player_name) for participant in participants
-    ) or "-"
+    participant_key = (
+        "&".join(_key_component(participant.provider_player_name) for participant in participants)
+        or "-"
+    )
     return "|".join(
         (
             market_type,
@@ -536,7 +534,7 @@ def _competition_navigation_labels(competition_name: str) -> tuple[str, ...]:
 
 def _exact_text_xpath(text: str) -> str:
     return (
-        "//*[self::span or self::div]"
+        "//*[self::span or self::div or self::button or self::a]"
         f"[normalize-space(text())={_xpath_literal(text)}]"
     )
 
@@ -556,7 +554,7 @@ def _xpath_literal(value: str) -> str:
     if '"' not in value:
         return f'"{value}"'
     parts = value.split("'")
-    return "concat(" + ", \"'\", ".join(f"'{part}'" for part in parts) + ")"
+    return "concat(" + ', "\'", '.join(f"'{part}'" for part in parts) + ")"
 
 
 def _matches_fixture_time(value: str | None) -> bool:
@@ -593,10 +591,14 @@ def _parse_fixture_ancestor(
             if _is_team_name_candidate(token)
         )
         if len(team_names) == 2:
-            return ancestor, (team_names[0], team_names[1]), (
-                odd_values[0],
-                odd_values[1],
-                odd_values[2],
+            return (
+                ancestor,
+                (team_names[0], team_names[1]),
+                (
+                    odd_values[0],
+                    odd_values[1],
+                    odd_values[2],
+                ),
             )
     return None
 

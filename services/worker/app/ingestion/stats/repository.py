@@ -96,6 +96,47 @@ class PostgresPlayerStatsRepository:
 
         return len(observations), matched_players
 
+    def record_season_snapshots(self, provider: str, season: int) -> int:
+        """Freeze today's copy of every player's season tables (see migration 0028)."""
+        with pooled_connection(self._database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH per_table AS (
+                        SELECT player_id, provider, season, stat_type,
+                               jsonb_agg(stats ORDER BY team_name NULLS LAST) AS rows
+                        FROM player_stat_observations
+                        WHERE provider = %(provider)s AND season = %(season)s
+                          AND player_id IS NOT NULL AND stat_type IS NOT NULL
+                        GROUP BY player_id, provider, season, stat_type
+                    ),
+                    teams AS (
+                        SELECT player_id,
+                               array_agg(DISTINCT team_name)
+                                   FILTER (WHERE team_name IS NOT NULL) AS teams
+                        FROM player_stat_observations
+                        WHERE provider = %(provider)s AND season = %(season)s
+                          AND player_id IS NOT NULL
+                        GROUP BY player_id
+                    )
+                    INSERT INTO player_season_stat_snapshots
+                        (player_id, provider, season, snapshot_date, teams, tables)
+                    SELECT per_table.player_id, per_table.provider, per_table.season,
+                           current_date, COALESCE(teams.teams, '{}'),
+                           jsonb_object_agg(per_table.stat_type, per_table.rows)
+                    FROM per_table
+                    LEFT JOIN teams USING (player_id)
+                    GROUP BY per_table.player_id, per_table.provider, per_table.season,
+                             teams.teams
+                    ON CONFLICT (player_id, provider, season, snapshot_date) DO UPDATE
+                    SET teams = EXCLUDED.teams, tables = EXCLUDED.tables, captured_at = now()
+                    """,
+                    {"provider": provider, "season": season},
+                )
+                recorded = cursor.rowcount
+            connection.commit()
+        return recorded
+
 
 def _get_fixture_id(cursor: object, provider: str, provider_fixture_id: str) -> UUID | None:
     cursor.execute(

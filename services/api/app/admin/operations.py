@@ -6,6 +6,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 from uuid import UUID
 
+from app.common.seasons import current_season
+
 Normalizer = Callable[[dict[str, Any]], None]
 
 
@@ -33,7 +35,7 @@ class OperationDefinition:
 
 def _ingestion(values: dict[str, Any]) -> None:
     values.setdefault("league", 9)
-    values.setdefault("season", 2025)
+    values.setdefault("season", current_season())
 
 
 def _freeze_check(values: dict[str, Any]) -> None:
@@ -129,6 +131,7 @@ OPERATION_DEFINITIONS = tuple(
         _definition("INGEST_PLAYERS", normalizer=_ingestion),
         _definition("INGEST_FIXTURES", normalizer=_ingestion),
         _definition("INGEST_PLAYER_STATS", normalizer=_ingestion),
+        _definition("SYNC_LEAGUE_ROSTER", normalizer=_ingestion),
         _definition("IMPORT_MARKET_VALUES", normalizer=_market_values),
         _definition("SEED_PLAYER_SHARES"),
         _definition("INGEST_BETTING_MARKETS", "INGEST_BET365_ODDS"),

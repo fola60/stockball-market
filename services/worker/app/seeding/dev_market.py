@@ -18,6 +18,9 @@ from app.clients import (
     TradingEngineClientError,
 )
 from app.database import connection as pooled_connection
+from app.league_roster.models import RosterSyncResult
+from app.player_stats import load_stat_profiles, stats_value
+from app.seasons import CURRENT_SEASON, current_season, resolve_season
 from app.synthetic_traders.models import (
     SpawnSyntheticTraderBatchResult,
     SpawnSyntheticTraderCommand,
@@ -207,6 +210,8 @@ class DevMarketBootstrapOptions:
     min_holders_per_instrument: int = 5
     max_positions_per_bot: int = 500
     commit: bool = False
+    # Players outside this season's roster are halted before the market is sized and seeded.
+    season: int = CURRENT_SEASON
 
     @property
     def dry_run(self) -> bool:
@@ -237,6 +242,8 @@ class DevMarketBootstrapReport:
     funding: FundingResult
     portfolio: PortfolioResult
     valuation_weights: Mapping[str, float]
+    roster_halted: int = 0
+    roster_season: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -296,6 +303,7 @@ class DevMarketBootstrapReport:
                 "positions": self.portfolio.positions,
                 "skipped": self.portfolio.skipped,
             },
+            "roster": {"season": self.roster_season, "halted_not_in_league": self.roster_halted},
         }
 
 
@@ -326,6 +334,10 @@ class FleetFundService(Protocol):
     def fund(self, amount: Decimal) -> FundingResult: ...
 
 
+class RosterReconciler(Protocol):
+    def reconcile(self, season: int) -> RosterSyncResult: ...
+
+
 class PortfolioBootstrapper(Protocol):
     def initialize(
         self,
@@ -343,13 +355,18 @@ class DevMarketBootstrapService:
     spawner: FleetSpawner
     funder: FleetFundService
     portfolio_bootstrapper: PortfolioBootstrapper
+    roster: RosterReconciler | None = None
 
     def run(self, options: DevMarketBootstrapOptions) -> DevMarketBootstrapReport:
         options.validate()
         instruments_created = 0
         instruments_reused = 0
+        season = resolve_season(options.season)
+        roster_halted = 0
         if options.commit:
             instruments_created, instruments_reused = self.instrument_seeder.seed()
+            if self.roster is not None:
+                roster_halted = self.roster.reconcile(season).halted
 
         snapshot = self.repository.load_snapshot()
         if snapshot.projected_instrument_count <= 0:
@@ -417,6 +434,8 @@ class DevMarketBootstrapService:
                 "player_stats": options.valuation.stats_weight,
                 "social_sentiment": options.valuation.social_weight,
             },
+            roster_halted=roster_halted,
+            roster_season=season,
         )
 
 
@@ -707,13 +726,24 @@ class PostgresDevMarketBootstrapRepository:
         specs = {item.config_key: item for item in DEFAULT_ACTIVITY_PROFILES}
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("SELECT COUNT(*) AS count FROM players")
+                # Only the latest ingested season's players count towards the market's size.
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS count FROM players
+                    WHERE metadata ->> 'season' = (SELECT MAX(metadata ->> 'season') FROM players)
+                    """
+                )
                 player_row = cursor.fetchone()
                 if player_row is None:
                     raise DevMarketBootstrapError("could not count players")
                 player_count = int(player_row["count"])
                 cursor.execute(_INSTRUMENT_SIGNAL_SQL)
-                instruments = tuple(_instrument_signal(row) for row in cursor.fetchall())
+                signal_rows = cursor.fetchall()
+                values = _stats_values(cursor)
+                instruments = tuple(
+                    _instrument_signal(row, values.get(str(row["player_id"])))
+                    for row in signal_rows
+                )
                 cursor.execute(
                     """
                     SELECT c.config_key, c.config, COUNT(b.id) FILTER (
@@ -933,14 +963,23 @@ def _utc_now():
     return datetime.now(UTC)
 
 
-def _instrument_signal(row: Mapping[str, Any]) -> InstrumentSignal:
+def _stats_values(cursor: Any) -> dict[str, float]:
+    """Each player's per-90 contribution this season (see app.player_stats)."""
+    now = _utc_now()
+    return {
+        player_id: stats_value(profile)
+        for player_id, profile in load_stat_profiles(cursor, current_season(now), now.date()).items()
+    }
+
+
+def _instrument_signal(row: Mapping[str, Any], player_stats_value: float | None) -> InstrumentSignal:
     return InstrumentSignal(
         instrument_id=UUID(str(row["id"])),
         symbol=str(row["symbol"]),
         position=None if row["position"] is None else str(row["position"]),
         current_price=Decimal(str(row["current_price"])),
         market_value=None if row["market_value"] is None else float(row["market_value"]),
-        stats_value=None if row["stats_value"] is None else float(row["stats_value"]),
+        stats_value=player_stats_value,
         social_value=None if row["social_value"] is None else float(row["social_value"]),
         recent_trade_count=int(row["recent_trade_count"]),
         has_activity=bool(row["has_activity"]),
@@ -952,7 +991,7 @@ def _instrument_signal(row: Mapping[str, Any]) -> InstrumentSignal:
 _INSTRUMENT_SIGNAL_SQL = """
     SELECT i.id, i.symbol, i.current_price, p.position,
            mv.value AS market_value,
-           stats.stats_value,
+           i.player_id::text AS player_id,
            social.social_value,
            COALESCE(activity.recent_trade_count, 0) AS recent_trade_count,
            EXISTS (SELECT 1 FROM orders WHERE instrument_id = i.id)
@@ -969,16 +1008,6 @@ _INSTRUMENT_SIGNAL_SQL = """
         WHERE player_id = i.player_id AND currency = 'EUR'
         ORDER BY observed_at DESC, imported_at DESC, id DESC LIMIT 1
     ) AS mv ON true
-    LEFT JOIN LATERAL (
-        SELECT AVG(
-            COALESCE(rating::double precision / 10.0, 0.0)
-            + CASE WHEN (stats ->> 'goals') ~ '^-?[0-9]+([.][0-9]+)?$'
-                THEN (stats ->> 'goals')::double precision ELSE 0.0 END
-            + CASE WHEN (stats ->> 'assists') ~ '^-?[0-9]+([.][0-9]+)?$'
-                THEN (stats ->> 'assists')::double precision * 0.7 ELSE 0.0 END
-        ) AS stats_value
-        FROM player_stat_observations WHERE player_id = i.player_id
-    ) AS stats ON true
     LEFT JOIN LATERAL (
         SELECT credibility_weighted_sentiment::double precision AS social_value
         FROM player_social_signal_snapshots WHERE player_id = i.player_id

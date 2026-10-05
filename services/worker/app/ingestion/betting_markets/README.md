@@ -42,7 +42,9 @@ The ingestion client uses a real rendered Chrome session because Bet365 navigati
 are client-side hash routes and are not present as `href` values in saved HTML. The flow is:
 
 1. Open `#/HO/` and use a direct competition link when one is visible.
-2. Otherwise click `Football`, then select the configured competition from the football hub.
+2. Otherwise click `Football`, open the `Competitions` menu when leagues are not yet visible,
+   then select the configured competition. Navigation recognizes buttons and links as well as
+   text labels and retries links added during page hydration.
 3. Read the resulting competition URL and parse rendered pre-match fixture rows.
 4. Exclude fixtures at or inside the configured pre-match cutoff.
 5. Re-open the competition and click each remaining team-vs-team row.

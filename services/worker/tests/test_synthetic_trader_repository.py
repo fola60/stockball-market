@@ -171,6 +171,8 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
                 [],
                 [],
                 [],
+                [],
+                [],
             ]
         )
         portfolio = BotPortfolioContext(
@@ -249,6 +251,8 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
                 ],
                 [],
                 [],
+                [],
+                [],
             ]
         )
         delta_cursor = SequencedCursor(
@@ -288,6 +292,8 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
                         "executed_at": delta_market_at,
                     }
                 ],
+                [],
+                [],
                 [],
                 [],
             ]
@@ -334,3 +340,15 @@ class SyntheticTraderRepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MentionSpikeTests(unittest.TestCase):
+    def test_spike_is_a_poisson_z_score_against_the_players_usual_rate(self) -> None:
+        from app.synthetic_traders.repository import _mention_spike_zscore
+
+        # Usually 2 mentions an hour; 8 this hour is three standard deviations up.
+        self.assertAlmostEqual(_mention_spike_zscore(8, 1.0, 2.0), 6 / 2**0.5)
+        # Exactly the usual rate is no spike.
+        self.assertAlmostEqual(_mention_spike_zscore(2, 1.0, 2.0), 0.0)
+        # A usually silent player is scored against a floor of one expected mention.
+        self.assertAlmostEqual(_mention_spike_zscore(3, 1.0, 0.0), 3.0)

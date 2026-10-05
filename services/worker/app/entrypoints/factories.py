@@ -31,11 +31,13 @@ from app.ingestion.social.twitter import (
 )
 from app.ingestion.stats import PlayerStatsIngestionService, PostgresPlayerStatsRepository
 from app.jobs import IngestSocialSourceJobHandler
+from app.league_roster import LeagueRosterService, PostgresLeagueRosterRepository
 from app.match_freezes import (
     MatchFreezeService,
     MatchFreezeWindow,
     PostgresMatchFreezeRepository,
 )
+from app.seeding.dev_market import TradingEngineInstrumentSeeder
 from app.synthetic_traders import (
     PostgresSyntheticTraderRepository,
     SyntheticTraderService,
@@ -195,4 +197,16 @@ def build_fbref_client(settings: FbrefIngestionSettings) -> FbrefClient:
         request_interval_seconds=settings.request_interval_seconds,
         cache_ttl_seconds=settings.cache_ttl_seconds,
         page_cache=PostgresFbrefRawPageRepository(settings.database_url),
+    )
+
+
+def build_league_roster_service(
+    settings: Settings, fbref: FbrefIngestionSettings
+) -> LeagueRosterService:
+    engine = trading_engine_client(settings)
+    return LeagueRosterService(
+        repository=PostgresLeagueRosterRepository(settings.database_url),
+        engine=engine,
+        players=build_player_seed_service(fbref),
+        instruments=TradingEngineInstrumentSeeder(engine),
     )

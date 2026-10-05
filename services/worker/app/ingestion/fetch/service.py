@@ -62,11 +62,7 @@ _HOST_CHROME_CANDIDATES = (
 
 
 class ContentFetchService:
-    """Fetches bounded content from an explicitly allowlisted web source.
-
-    Provider modules own authentication, parsing, persistence, and retry policy. This
-    boundary only performs a safe GET and never follows a redirect without validating
-    its destination against the original request's host policy.
+    """
 
     When ``browser_enabled`` is set and the allowlisted source answers a direct request
     with a bot-detection / access-denied response, the service transparently retries the

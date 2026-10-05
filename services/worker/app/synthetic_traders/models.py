@@ -89,27 +89,42 @@ class MarketTradeSample:
 
 @dataclass(frozen=True)
 class PlayerStatsContext:
-    observation_count: int = 0
+    """A player's per-90 output this season (see `app.player_stats`), steadied early in a
+    season with last season's rates. FBref supplies no match ratings, so `average_rating` is
+    usually None; `strength` is the player's league percentile on overall contribution,
+    scaled to -1..1."""
+
+    available_rates: frozenset[str] | None = None
+    games: float = 0.0
+    minutes_per_game: float | None = None
+    goals_per90: float = 0.0
+    assists_per90: float = 0.0
+    shots_per90: float = 0.0
+    key_passes_per90: float = 0.0
+    defensive_actions_per90: float = 0.0
+    cards_per90: float = 0.0
+    clean_sheets_per_game: float | None = None
+    # Output over the minutes played since a snapshot about three weeks old, when there is
+    # enough of it to mean something.
+    recent_minutes: float = 0.0
+    recent_goal_involvements_per90: float | None = None
+    recent_defensive_actions_per90: float | None = None
+    strength: float | None = None
     average_rating: float | None = None
-    average_minutes: float | None = None
-    goals_per_match: float = 0.0
-    assists_per_match: float = 0.0
-    clean_sheets_per_match: float = 0.0
-    defensive_actions_per_match: float = 0.0
-    shots_per_match: float = 0.0
-    key_passes_per_match: float = 0.0
-    cards_per_match: float = 0.0
     latest_observed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
 class SocialSignalContext:
+    baseline_available: bool = True
     mention_count: int = 0
     mention_velocity: float = 0.0
     mention_spike_zscore: float = 0.0
     sentiment_score: float = 0.0
+    # Independent sources reporting on the player in the window.
     news_count: int = 0
     trusted_news_count: int = 0
+    injury_count: int = 0
     source_credibility: float = 0.0
     hype_overextension: float = 0.0
     latest_observed_at: datetime | None = None
@@ -188,6 +203,8 @@ class CandidateInstrumentContext:
     stats: PlayerStatsContext
     social: SocialSignalContext
     betting: BettingMarketContext = field(default_factory=BettingMarketContext)
+    reference_price: Decimal | None = None
+    fixture_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -216,6 +233,7 @@ class OrderIntent:
     confidence: float
     reason: Mapping[str, Any]
     request_id: str
+    execution_limits: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -254,6 +272,7 @@ class SyntheticTraderTickDiagnostics:
     rejection_reasons: Mapping[str, int]
     recovery_decisions: int = 0
     recovery_orders: int = 0
+    explanation: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

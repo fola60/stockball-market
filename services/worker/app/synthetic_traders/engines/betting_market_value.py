@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from statistics import fmean
+from statistics import fmean, median
 from typing import Mapping
 from uuid import UUID
 
@@ -16,7 +16,7 @@ from app.synthetic_traders.models import (
     StrategyEngine,
 )
 
-from .base import clamp, filter_candidates, sorted_decisions
+from .base import clamp, filter_candidates, rank_percentiles, sorted_decisions
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,7 @@ class BettingMarketValueStrategyEngine:
         candidates = filter_candidates(
             tuple(candidate for candidate in context.candidates if candidate.betting.quotes),
             config.universe,
+            f"{context.bot.id}:{context.as_of.date()}",
         )
         snapshots = {
             candidate.instrument_id: self._market_snapshots(candidate, context.as_of, config)
@@ -46,6 +47,9 @@ class BettingMarketValueStrategyEngine:
         }
         ranks = self._probability_ranks(snapshots)
         decisions: list[StrategyDecision] = []
+        fallback_anchor = (
+            median([float(c.current_price) for c in candidates]) if candidates else 0.0
+        )
 
         for candidate in candidates:
             candidate_snapshots = snapshots[candidate.instrument_id]
@@ -73,13 +77,34 @@ class BettingMarketValueStrategyEngine:
 
             probability_rank = _weighted_average(weighted_ranks)
             probability_movement = _weighted_average(weighted_movements)
-            confirmation = _confirmation_score(component_scores)
+            # Goals, assists and score-or-assist share evidence; count that family once.
+            families = {}
+            for market_type, score in zip(candidate_snapshots, component_scores):
+                family = (
+                    "shots" if market_type in {"SHOTS", "SHOTS_ON_TARGET"} else "goal_involvement"
+                )
+                families.setdefault(family, []).append(score)
+            confirmation = _confirmation_score(
+                [fmean(scores) for scores in families.values()]
+            ) * min(len(families) / 2, 1.0)
+            anchor = (
+                float(candidate.reference_price)
+                if candidate.reference_price is not None
+                else fallback_anchor
+            )
+            fair_price = anchor * max(
+                0.1, 1.0 + 0.5 * probability_rank + 0.25 * probability_movement
+            )
+            valuation_gap = (
+                fair_price / float(candidate.current_price) - 1.0
+                if candidate.current_price > 0
+                else 0.0
+            )
+            value_score = clamp(valuation_gap / 0.25, -1.0, 1.0)
             alpha = (
-                config.signal_weights.get("implied_probability_rank", 0.0) * probability_rank
-                + config.signal_weights.get("probability_movement", 0.0)
-                * probability_movement
-                + config.signal_weights.get("cross_market_confirmation", 0.0)
-                * confirmation
+                config.signal_weights.get("implied_probability_rank", 0.0) * value_score
+                + config.signal_weights.get("probability_movement", 0.0) * probability_movement
+                + config.signal_weights.get("cross_market_confirmation", 0.0) * confirmation
             )
             freshness = _freshness_score(
                 context.as_of,
@@ -102,12 +127,13 @@ class BettingMarketValueStrategyEngine:
                 abs(alpha) > config.decision.hold_band
                 and confidence >= config.decision.min_confidence
             ):
-                if alpha >= config.decision.buy_threshold:
+                if alpha >= config.decision.buy_threshold and valuation_gap >= 0.05:
                     side = DecisionSide.BUY
                 elif (
                     config.decision.allow_sells
                     and candidate.current_holding_quantity > 0
                     and alpha <= config.decision.sell_threshold
+                    and valuation_gap <= -0.05
                 ):
                     side = DecisionSide.SELL
 
@@ -121,12 +147,15 @@ class BettingMarketValueStrategyEngine:
                     instrument_id=candidate.instrument_id,
                     side=side,
                     alpha_score=alpha,
-                    expected_return=probability_movement,
+                    expected_return=valuation_gap,
                     confidence=confidence,
                     suggested_cash_pct=suggested_cash_pct,
                     reason={
                         "engine": self.strategy_engine.value,
                         "implied_probability_rank": probability_rank,
+                        "fair_price": fair_price,
+                        "valuation_gap": valuation_gap,
+                        "independent_market_families": len(families),
                         "probability_movement": probability_movement,
                         "cross_market_confirmation": confirmation,
                         "market_type_count": len(candidate_snapshots),
@@ -150,6 +179,12 @@ class BettingMarketValueStrategyEngine:
             for quote in candidate.betting.quotes
             if quote.market_type in configured_types
             and _as_utc(quote.observed_at) <= _as_utc(as_of)
+            and (quote.kickoff_at is not None and _as_utc(quote.kickoff_at) > _as_utc(as_of))
+            and _as_utc(quote.observed_at)
+            >= _as_utc(as_of)
+            - timedelta(
+                minutes=config.lookbacks.max_quote_age_minutes + config.lookbacks.movement_minutes
+            )
         ]
         event_quotes = _nearest_event_quotes(eligible_quotes, as_of)
         grouped: dict[str, list[BettingMarketQuote]] = {}
@@ -157,26 +192,35 @@ class BettingMarketValueStrategyEngine:
             grouped.setdefault(quote.canonical_selection_key, []).append(quote)
 
         movement_start = _as_utc(as_of) - timedelta(minutes=config.lookbacks.movement_minutes)
-        fresh_after = _as_utc(as_of) - timedelta(
-            minutes=config.lookbacks.max_quote_age_minutes
-        )
+        fresh_after = _as_utc(as_of) - timedelta(minutes=config.lookbacks.max_quote_age_minutes)
         by_market_type: dict[str, list[tuple[float, float, float, datetime]]] = {}
         for quotes in grouped.values():
             ordered = sorted(quotes, key=lambda quote: _as_utc(quote.observed_at))
             latest = ordered[-1]
             if _as_utc(latest.observed_at) < fresh_after:
                 continue
-            latest_probability = float(latest.implied_probability)
+            # Only compare the probability of at least one event; never average different lines.
+            if not _comparable_selection(latest):
+                continue
+            latest_probability = _normalized_probability(latest, event_quotes)
             if latest_probability < config.betting_inputs.min_implied_probability:
                 continue
             history = [quote for quote in ordered if _as_utc(quote.observed_at) >= movement_start]
+            # Repository contexts retain the first/last observation and carry the full
+            # window count. Explicit contexts may instead contain every observation.
             observation_count = max(
-                len(history),
-                max(quote.observation_count for quote in history),
+                len({quote.observed_at for quote in history}),
+                max((quote.observation_count for quote in history), default=0),
             )
-            if observation_count < config.betting_inputs.min_observations_per_selection:
+            if observation_count < max(2, config.betting_inputs.min_observations_per_selection):
                 continue
-            previous_probability = float(history[0].implied_probability)
+            if len({quote.observed_at for quote in history}) < 2:
+                continue
+            if (
+                _as_utc(history[-1].observed_at) - _as_utc(history[0].observed_at)
+            ).total_seconds() < 60:
+                continue
+            previous_probability = _normalized_probability(history[0], event_quotes)
             movement = 0.0
             if len(history) > 1 and previous_probability > 0:
                 movement = clamp(
@@ -186,7 +230,7 @@ class BettingMarketValueStrategyEngine:
                     1.0,
                 )
             observation_depth = min(
-                observation_count / config.betting_inputs.min_observations_per_selection,
+                observation_count / max(4, config.betting_inputs.min_observations_per_selection),
                 1.0,
             )
             by_market_type.setdefault(latest.market_type, []).append(
@@ -203,7 +247,7 @@ class BettingMarketValueStrategyEngine:
                 probability=fmean(item[0] for item in values),
                 movement=fmean(item[1] for item in values),
                 observation_depth=fmean(item[2] for item in values),
-                latest_observed_at=max(item[3] for item in values),
+                latest_observed_at=min(item[3] for item in values),
             )
             for market_type, values in by_market_type.items()
         }
@@ -217,8 +261,7 @@ class BettingMarketValueStrategyEngine:
             for market_type, snapshot in candidate_snapshots.items():
                 values_by_type.setdefault(market_type, {})[instrument_id] = snapshot.probability
         return {
-            market_type: _centered_ranks(values)
-            for market_type, values in values_by_type.items()
+            market_type: _centered_ranks(values) for market_type, values in values_by_type.items()
         }
 
     def _hold_without_coverage(
@@ -239,6 +282,37 @@ class BettingMarketValueStrategyEngine:
                 "signal_present": bool(snapshots),
             },
         )
+
+
+def _comparable_selection(quote: BettingMarketQuote) -> bool:
+    from decimal import Decimal
+
+    if quote.outcome_type == "ANYTIME":
+        return quote.market_type in {"GOALSCORER", "ASSIST", "SCORE_OR_ASSIST"} and quote.line in {
+            None,
+            Decimal("1"),
+        }
+    return (quote.outcome_type == "AT_LEAST" and quote.line == Decimal("1")) or (
+        quote.outcome_type == "OVER" and quote.line == Decimal("0.5")
+    )
+
+
+def _normalized_probability(quote: BettingMarketQuote, quotes: list[BettingMarketQuote]) -> float:
+    probability = float(quote.implied_probability)
+    if quote.outcome_type != "OVER":
+        return probability
+    opposite = [
+        q
+        for q in quotes
+        if q.market_type == quote.market_type
+        and q.line == quote.line
+        and q.outcome_type == "UNDER"
+        and q.observed_at == quote.observed_at
+    ]
+    if not opposite:
+        return probability
+    total = probability + float(opposite[-1].implied_probability)
+    return probability / total if total > 0 else probability
 
 
 def _nearest_event_quotes(
@@ -268,22 +342,7 @@ def _nearest_event_quotes(
 
 
 def _centered_ranks(values: Mapping[UUID, float]) -> dict[UUID, float]:
-    if len(values) <= 1:
-        return {key: 0.0 for key in values}
-    ordered = sorted(values.items(), key=lambda item: item[1])
-    result: dict[UUID, float] = {}
-    index = 0
-    denominator = len(ordered) - 1
-    while index < len(ordered):
-        end = index + 1
-        while end < len(ordered) and ordered[end][1] == ordered[index][1]:
-            end += 1
-        average_index = (index + end - 1) / 2
-        score = (average_index / denominator) * 2.0 - 1.0
-        for item_index in range(index, end):
-            result[ordered[item_index][0]] = score
-        index = end
-    return result
+    return {key: value * 2.0 - 1.0 for key, value in rank_percentiles(values).items()}
 
 
 def _weighted_average(values: list[tuple[float, float]]) -> float:

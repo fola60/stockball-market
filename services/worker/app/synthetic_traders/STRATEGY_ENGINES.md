@@ -13,6 +13,40 @@ profile config = bot personality and parameter values
 
 Signals should influence bot orders only. They must not directly mutate Stockball prices. All bot orders still go through the trading engine.
 
+## Current implementation (October 2026)
+
+The ten shipped profiles use six engines: `NOISE`, `MARKET_MOMENTUM`, `STATS_VALUE`,
+`SOCIAL_SENTIMENT`, `PORTFOLIO_REBALANCER`, and `BETTING_MARKET_VALUE`. Other engine
+names below are design proposals, not registered implementations.
+
+- Equal signals share a midpoint percentile; a singleton is neutral. Candidate sampling is
+  reproducible for each bot and UTC date, reserves capacity for holdings, and includes discovery.
+- Trade probability is drawn once per bot tick. Noise activity floors increase participation
+  without changing trade direction. Portfolio recovery bypasses that participation gate.
+- The worker refreshes portfolio state before each order, obtains a curve quote, and fits the
+  quantity to actual cost and post-trade exposure limits. Optional execution limits bind the quote's
+  price, cash balance, and maximum gross amount under the trading engine's database locks.
+- Recovery consumes only the remaining cash or exposure deficit. A failed sale cannot fund a buy.
+- Stats profiles distinguish unavailable data from observed zero, use position peer groups,
+  reject snapshots older than 30 days, and default recent-form weight to 0.1. Fixture context
+  measures upcoming opportunity and congestion over seven days; it is not opponent difficulty.
+- Social aggregation uses shared one-hour current and seven-day baseline windows, scheduled
+  every 15 minutes. No baseline means no invented spike and reduced confidence. Per-profile
+  social aggregation lookbacks have been retired. Price-momentum lookback remains configurable.
+- Contrarians buy pessimism with positive fundamentals and stable prices, fade rising hype,
+  and penalize injury risk. Their weights are `pessimism_recovery`, `hype_fade`, and
+  `hype_overextension`; migration 0029 updates stored profiles and legacy overrides.
+- Rebalancer cash and exposure bands trigger action directly. Profit/loss uses weighted-average
+  acquisition cost, including bootstrap allocations. Selling removes proportional cost basis.
+- Enabled explainability records the effective configuration and the requested number of
+  decisions in job metrics, with raw component scores only when requested.
+
+Migration `0029_synthetic_profile_corrections.sql` supplies defaults and removes retired
+controls. Deploy the trading engine first so atomic execution guards are available. Pause the worker,
+apply migrations, deploy the updated worker, then resume it; the old parser may still require
+retired fields removed by migration 0029. Existing bots retain their
+supported personalized overrides; no respawn is necessary.
+
 ## Engine Interface
 
 Each engine should produce a comparable decision output:
@@ -76,7 +110,12 @@ Config schema:
 {
   "universe": {
     "max_candidates": 80,
-    "included_positions": ["FWD", "MID", "DEF", "GK"],
+    "included_positions": [
+      "FWD",
+      "MID",
+      "DEF",
+      "GK"
+    ],
     "excluded_positions": [],
     "included_clubs": [],
     "excluded_clubs": [],
@@ -86,8 +125,6 @@ Config schema:
   },
   "lookbacks": {
     "form_matches": 5,
-    "baseline_matches": 20,
-    "minutes_matches": 8,
     "market_value_days": 180,
     "price_momentum_days": 7
   },
@@ -111,7 +148,9 @@ Config schema:
     "shots_weight": 0.06,
     "key_passes_weight": 0.05,
     "cards_penalty_weight": -0.08,
-    "position_baseline_enabled": true
+    "position_baseline_enabled": true,
+    "minutes_weight": 0.15,
+    "form_weight": 0.1
   },
   "valuation": {
     "fair_value_blend": {
@@ -128,8 +167,7 @@ Config schema:
     "sell_threshold": -0.45,
     "min_confidence": 0.6,
     "hold_band": 0.08,
-    "allow_sells": true,
-    "sell_only_if_position_exists": true
+    "allow_sells": true
   },
   "risk": {
     "max_trade_cash_pct": 0.05,
@@ -169,7 +207,7 @@ Config schema:
 Config field intent:
 
 - `universe`: limits which instruments the engine is allowed to evaluate before scoring.
-- `lookbacks`: controls how much historical data the engine uses for form, baseline, minutes, market value, and recent Stockball price context.
+- `lookbacks`: controls form confidence depth, market-value freshness, and Stockball price context. Season/prior blending and recent-form snapshots use the shared player-stat pipeline.
 - `signal_weights`: combines normalized component scores into one `alpha_score`. Negative weights represent risk penalties.
 - `stats_inputs`: controls the internal football-performance score before it is combined with valuation and risk signals.
 - `valuation`: controls how the engine estimates fair value and how large a valuation gap must be before trading.
@@ -243,7 +281,12 @@ Config schema:
 {
   "universe": {
     "max_candidates": 100,
-    "included_positions": ["FWD", "MID", "DEF", "GK"],
+    "included_positions": [
+      "FWD",
+      "MID",
+      "DEF",
+      "GK"
+    ],
     "excluded_positions": [],
     "included_clubs": [],
     "excluded_clubs": [],
@@ -252,11 +295,7 @@ Config schema:
     "require_active_instrument": true
   },
   "lookbacks": {
-    "mention_window_minutes": 180,
-    "baseline_window_days": 14,
-    "news_window_hours": 24,
-    "price_momentum_hours": 24,
-    "sentiment_window_hours": 24
+    "price_momentum_hours": 24
   },
   "signal_weights": {
     "mention_spike": 0.3,
@@ -283,8 +322,7 @@ Config schema:
     "sell_threshold": -0.5,
     "min_confidence": 0.55,
     "hold_band": 0.1,
-    "allow_sells": true,
-    "sell_only_if_position_exists": true
+    "allow_sells": true
   },
   "risk": {
     "max_trade_cash_pct": 0.04,
@@ -335,27 +373,32 @@ Primary inputs:
 - agreement across distinct player market types
 - quote recency and observation depth
 
-`kickoff_at` is used only to avoid combining quotes from different fixtures. Current
-Stockball price and portfolio state are handled by the universal risk/sizing layer, not by
-the engine's external alpha calculation.
+Quotes must belong to an upcoming fixture with a known kickoff. Only comparable affirmative
+selections (including over 0.5 lines) enter the cross-player comparison. Complementary outcomes
+from the same event, market, line, and observation time are de-vigged when available.
+
+The engine compares current Stockball price with a heuristic fair price anchored to the
+instrument reference price and adjusted by probability rank and movement. Goals/assists/
+score-or-assist form one confirmation family; shots/shots-on-target form another. This is a
+simulation heuristic, not a calibrated prediction of investment returns.
 
 Formula style:
 
 ```text
 alpha =
-  implied_probability_rank_weight * cross_player_probability_rank
+  implied_probability_rank_weight * normalized_valuation_gap
   + probability_movement_weight * relative_probability_movement
   + cross_market_confirmation_weight * direction_agreement
 ```
 
-The engine holds when quotes are stale, when too few observations exist, or when too few
+Observations must be at least a minute apart. The engine holds when quotes are stale, when too few observations exist, or when too few
 distinct market types confirm the signal. Negative alpha can produce a sell only when the
 bot already owns the player and profile sell rules allow it.
 
 Seeded profiles:
 
 - `BETTING_MARKET_CONSERVATIVE`: requires three market types and two observations per selection; checks every 10 minutes and applies a 30% execution probability after a decision passes risk checks.
-- `BETTING_MARKET_AGGRESSIVE`: requires two market types and one observation per selection; checks every 3 minutes and applies a 60% execution probability after a decision passes risk checks.
+- `BETTING_MARKET_AGGRESSIVE`: requires two market types and at least two distinct observations per selection; checks every 3 minutes and applies a 60% execution probability after a decision passes risk checks.
 
 Config schema:
 
@@ -363,7 +406,12 @@ Config schema:
 {
   "universe": {
     "max_candidates": 120,
-    "included_positions": ["FWD", "MID", "DEF", "GK"],
+    "included_positions": [
+      "FWD",
+      "MID",
+      "DEF",
+      "GK"
+    ],
     "excluded_positions": [],
     "included_clubs": [],
     "excluded_clubs": [],
@@ -377,7 +425,7 @@ Config schema:
   },
   "signal_weights": {
     "implied_probability_rank": 0.55,
-    "probability_movement": 0.30,
+    "probability_movement": 0.3,
     "cross_market_confirmation": 0.15
   },
   "betting_inputs": {
@@ -386,10 +434,10 @@ Config schema:
     "min_implied_probability": 0.05,
     "movement_scale": 0.25,
     "market_type_weights": {
-      "GOALSCORER": 0.30,
-      "ASSIST": 0.20,
+      "GOALSCORER": 0.3,
+      "ASSIST": 0.2,
       "SCORE_OR_ASSIST": 0.25,
-      "SHOTS": 0.10,
+      "SHOTS": 0.1,
       "SHOTS_ON_TARGET": 0.15
     }
   },
@@ -397,34 +445,33 @@ Config schema:
     "buy_threshold": 0.55,
     "sell_threshold": -0.55,
     "min_confidence": 0.65,
-    "hold_band": 0.10,
-    "allow_sells": true,
-    "sell_only_if_position_exists": true
+    "hold_band": 0.1,
+    "allow_sells": true
   },
   "risk": {
     "max_trade_cash_pct": 0.025,
     "min_trade_cash_amount": "25.0000",
     "max_trade_cash_amount": "1000.0000",
-    "max_player_position_pct": 0.10,
+    "max_player_position_pct": 0.1,
     "max_team_exposure_pct": 0.25,
     "min_cash_reserve_pct": 0.12,
     "max_daily_trades": 8,
-    "max_daily_turnover_pct": 0.20,
-    "volatility_tolerance": 0.50,
-    "reduce_size_when_confidence_below": 0.70
+    "max_daily_turnover_pct": 0.2,
+    "volatility_tolerance": 0.5,
+    "reduce_size_when_confidence_below": 0.7
   },
   "sizing": {
     "base_cash_pct": 0.015,
-    "confidence_multiplier": 0.80,
-    "movement_multiplier": 0.50,
-    "position_concentration_penalty": 0.80
+    "confidence_multiplier": 0.8,
+    "movement_multiplier": 0.5,
+    "position_concentration_penalty": 0.8
   },
   "execution": {
     "tick_cadence_minutes": 10,
     "cooldown_minutes": 45,
     "decision_jitter_minutes": 5,
-    "trade_probability": 0.30,
-    "size_noise_pct": 0.10,
+    "trade_probability": 0.3,
+    "size_noise_pct": 0.1,
     "max_orders_per_tick": 1
   },
   "explainability": {
@@ -470,7 +517,12 @@ Config schema:
 {
   "universe": {
     "max_candidates": 120,
-    "included_positions": ["FWD", "MID", "DEF", "GK"],
+    "included_positions": [
+      "FWD",
+      "MID",
+      "DEF",
+      "GK"
+    ],
     "excluded_positions": [],
     "included_clubs": [],
     "excluded_clubs": [],
@@ -510,8 +562,7 @@ Config schema:
     "sell_threshold": -0.5,
     "min_confidence": 0.55,
     "hold_band": 0.08,
-    "allow_sells": true,
-    "sell_only_if_position_exists": true
+    "allow_sells": true
   },
   "risk": {
     "max_trade_cash_pct": 0.04,
@@ -702,11 +753,8 @@ Config schema:
     "volatility_risk": -0.15
   },
   "decision": {
-    "rebalance_threshold": 0.12,
-    "min_confidence": 0.5,
     "allow_buys": true,
-    "allow_sells": true,
-    "sell_only_if_position_exists": true
+    "allow_sells": true
   },
   "risk": {
     "max_trade_cash_pct": 0.035,
@@ -774,7 +822,12 @@ Config schema:
 {
   "universe": {
     "max_candidates": 150,
-    "included_positions": ["FWD", "MID", "DEF", "GK"],
+    "included_positions": [
+      "FWD",
+      "MID",
+      "DEF",
+      "GK"
+    ],
     "excluded_positions": [],
     "included_clubs": [],
     "excluded_clubs": [],
@@ -808,8 +861,7 @@ Config schema:
     "sell_threshold": -0.3,
     "min_confidence": 0.2,
     "hold_band": 0.15,
-    "allow_sells": true,
-    "sell_only_if_position_exists": true
+    "allow_sells": true
   },
   "risk": {
     "max_trade_cash_pct": 0.015,

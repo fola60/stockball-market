@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import UUID
 
-from app.jobs.models import JobExecutionResult, JobType
+from app.jobs.models import IngestPlayersJobPayload, JobExecutionResult, JobType
 from app.synthetic_traders import (
     BotStatus,
     SpawnNameStyle,
@@ -76,6 +76,15 @@ def bootstrap_portfolios_handler(service):
             max_player_supply_per_bot=Decimal(str(payload.get("max_player_supply_per_bot", 20))),
             reserve_supply_percent=Decimal(str(payload.get("reserve_supply_percent", 10))),
             max_positions_per_bot=int(payload.get("max_positions_per_bot", 100)),
+            top_player_holder_percent=Decimal(str(payload.get("top_player_holder_percent", 40))),
+            target_seed_value_per_bot=Decimal(
+                str(payload.get("target_seed_value_per_bot", 250000))
+            ),
+            seed_value_jitter_percent=Decimal(str(payload.get("seed_value_jitter_percent", 25))),
+            holder_price_exponent=float(payload.get("holder_price_exponent", 1.0)),
+            risk_limit_headroom_percent=Decimal(
+                str(payload.get("risk_limit_headroom_percent", 75))
+            ),
             dry_run=dry_run,
         )
         projected_positions = result.created_positions
@@ -92,6 +101,7 @@ def bootstrap_portfolios_handler(service):
                      "bot_positions": result.bot_positions,
                      "reserve_positions": result.reserve_positions,
                      "distribution": result.bot_distribution(),
+                     "holders_by_price_quintile": result.holders_by_price_quintile(),
                      "skipped_instruments": [
                          {"symbol": symbol, "reason": reason}
                          for symbol, reason in result.skipped_instruments[:25]
@@ -107,5 +117,24 @@ def set_bot_status_handler(repository):
         return JobExecutionResult(
             JobType.SET_SYNTHETIC_TRADER_STATUS, datetime.now(UTC), count,
             len(bot_ids) - count, 0, metrics={"status": str(payload["status"])},
+        )
+    return execute
+
+
+def league_roster_handler(service):
+    def execute(payload: Mapping[str, Any]) -> JobExecutionResult:
+        request = IngestPlayersJobPayload.from_payload(payload)
+        result = service.sync(request.league, request.season)
+        return JobExecutionResult(
+            JobType.SYNC_LEAGUE_ROSTER, datetime.now(UTC),
+            result.halted + result.released + result.instruments_created,
+            0 if result.skipped_reason is None else 1,
+            len(result.failures),
+            metrics={"season": result.season, "fetched_players": result.fetched_players,
+                     "clubs_seen": result.clubs_seen,
+                     "instruments_created": result.instruments_created,
+                     "halted": result.halted, "released": result.released,
+                     "skipped_reason": result.skipped_reason,
+                     "failures": list(result.failures[:25])},
         )
     return execute

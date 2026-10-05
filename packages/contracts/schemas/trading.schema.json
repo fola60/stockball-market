@@ -356,6 +356,17 @@
         "quantity"
       ],
       "properties": {
+        "execution_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_price", "expected_cash_balance", "max_gross_amount"],
+          "properties": {
+            "expected_price": {"$ref": "./common.schema.json#/$defs/DecimalString"},
+            "expected_cash_balance": {"$ref": "./common.schema.json#/$defs/DecimalString"},
+            "max_gross_amount": {"$ref": "./common.schema.json#/$defs/DecimalString"}
+          },
+          "description": "Optional execution-time quote preconditions checked atomically before any trade."
+        },
         "request_id": {
           "type": "string",
           "minLength": 1,

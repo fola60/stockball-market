@@ -9,6 +9,7 @@ from app.jobs.models import (
     Bet365IngestionMode,
     CheckMarketFreezesJobPayload,
     IngestBet365OddsJobPayload,
+    IngestPlayersJobPayload,
     IngestPlayerStatsJobPayload,
     IngestSocialSourceJobPayload,
     IngestTwitterInjuriesJobPayload,
@@ -17,6 +18,7 @@ from app.jobs.models import (
     TopupJobPayload,
     WorkerJob,
 )
+from app.seasons import CURRENT_SEASON, resolve_season
 from app.topups.models import TopupCadence, TopupWindow
 
 
@@ -93,7 +95,8 @@ class SyntheticTraderTickPlan:
 class DailyPlayerStatsIngestionPlan:
     name: str = "daily-player-stats"
     league: int = 9
-    season: int = 2025
+    # 0 means the season in progress, resolved each time a run is scheduled.
+    season: int = CURRENT_SEASON
     run_hour_utc: int = 3
     enabled: bool = True
     supersede_pending: bool = True
@@ -101,8 +104,8 @@ class DailyPlayerStatsIngestionPlan:
     def __post_init__(self) -> None:
         if self.league <= 0:
             raise ValueError("player stats league must be positive")
-        if self.season <= 0:
-            raise ValueError("player stats season must be positive")
+        if self.season < 0:
+            raise ValueError("player stats season must be 0 (current) or a season year")
         if not 0 <= self.run_hour_utc <= 23:
             raise ValueError("player stats run_hour_utc must be between 0 and 23")
 
@@ -111,7 +114,51 @@ class DailyPlayerStatsIngestionPlan:
 
     def build_job(self, effective_at: datetime) -> WorkerJob:
         return WorkerJob.ingest_player_stats(
-            IngestPlayerStatsJobPayload(league=self.league, season=self.season)
+            IngestPlayerStatsJobPayload(
+                league=self.league, season=resolve_season(self.season, effective_at)
+            )
+        )
+
+    def _window_start(self, effective_at: datetime) -> datetime:
+        normalized = _normalize_timestamp(effective_at)
+        start = normalized.replace(
+            hour=self.run_hour_utc,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        return start if normalized >= start else start - timedelta(days=1)
+
+
+@dataclass(frozen=True)
+class DailyLeagueRosterPlan:
+    """Daily, before the stats import: refresh the season's players, list newcomers, and halt
+    players who have left the league."""
+
+    name: str = "daily-league-roster"
+    league: int = 9
+    # 0 means the season in progress, resolved each time a run is scheduled.
+    season: int = CURRENT_SEASON
+    run_hour_utc: int = 2
+    enabled: bool = True
+    supersede_pending: bool = True
+
+    def __post_init__(self) -> None:
+        if self.league <= 0:
+            raise ValueError("league roster league must be positive")
+        if self.season < 0:
+            raise ValueError("league roster season must be 0 (current) or a season year")
+        if not 0 <= self.run_hour_utc <= 23:
+            raise ValueError("league roster run_hour_utc must be between 0 and 23")
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        return self._window_start(effective_at).date().isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob.sync_league_roster(
+            IngestPlayersJobPayload(
+                league=self.league, season=resolve_season(self.season, effective_at)
+            )
         )
 
     def _window_start(self, effective_at: datetime) -> datetime:
@@ -230,7 +277,7 @@ def default_scheduler_plans(
     player_stats_enabled: bool = True,
     player_stats_run_hour_utc: int = 3,
     player_stats_league: int = 9,
-    player_stats_season: int = 2025,
+    player_stats_season: int = CURRENT_SEASON,
     bet365_enabled: bool = False,
     bet365_interval_minutes: int = 15,
     bet365_live_enabled: bool = False,
@@ -245,6 +292,13 @@ def default_scheduler_plans(
         RecurringTopupPlan(name="monthly-topups", cadence=TopupCadence.MONTHLY),
         MarketFreezeCheckPlan(enabled=market_freezes_enabled),
         SyntheticTraderTickPlan(),
+        # The roster runs an hour before the stats import so new players have records first.
+        DailyLeagueRosterPlan(
+            enabled=player_stats_enabled,
+            run_hour_utc=(player_stats_run_hour_utc - 1) % 24,
+            league=player_stats_league,
+            season=player_stats_season,
+        ),
         DailyPlayerStatsIngestionPlan(
             enabled=player_stats_enabled,
             run_hour_utc=player_stats_run_hour_utc,
