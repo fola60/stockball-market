@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import tempfile
 import time
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from app.jobs import (
@@ -106,6 +108,46 @@ class SleepingHandler:
 
 
 class WorkerProcessTests(unittest.TestCase):
+    def test_drain_finishes_current_job_without_consuming_the_next(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            drain_file = Path(directory) / "drain"
+
+            class DrainHandler(SuccessHandler):
+                def handle(self, job):
+                    drain_file.touch()
+                    return super().handle(job)
+
+            job = WorkerJob(JobType.APPLY_TOPUPS, {})
+            queue = FakeQueue([job, job])
+            active_reporter = FakeActiveJobReporter()
+            process = WorkerProcess(
+                queue=queue,
+                retry_queue=FakeRetryQueue(),
+                runner=WorkerJobRunner({JobType.APPLY_TOPUPS: DrainHandler()}),
+                retry_delay_seconds=30,
+                max_attempts=5,
+                active_job_reporter=active_reporter,
+                drain_file=str(drain_file),
+            )
+            process.run_forever(0)
+
+            self.assertEqual(len(queue.jobs), 1)
+            self.assertEqual([event[0] for event in active_reporter.events], ["started", "finished"])
+
+    def test_existing_drain_request_prevents_consumption(self) -> None:
+        with tempfile.NamedTemporaryFile() as drain_file:
+            queue = FakeQueue([WorkerJob(JobType.APPLY_TOPUPS, {})])
+            process = WorkerProcess(
+                queue=queue,
+                retry_queue=FakeRetryQueue(),
+                runner=WorkerJobRunner({JobType.APPLY_TOPUPS: SuccessHandler()}),
+                retry_delay_seconds=30,
+                max_attempts=5,
+                drain_file=drain_file.name,
+            )
+            process.run_forever(0)
+            self.assertEqual(len(queue.jobs), 1)
+
     def test_active_job_is_reported_and_cleared(self) -> None:
         active_reporter = FakeActiveJobReporter()
         job = WorkerJob(JobType.APPLY_TOPUPS, {})

@@ -2,6 +2,8 @@
 
 **A virtual-cash stock market for Premier League players.**
 
+Deployment: [Run ingestion locally with OVH scheduling](docs/LOCAL_INGESTION.md).
+
 Stockball turns every Premier League player into a tradable share. Fans buy and sell player
 stocks with virtual cash, watch prices move with demand, and track how their portfolio performs
 across the season. There is no order book and no real money: users trade against a platform

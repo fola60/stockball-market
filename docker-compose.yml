@@ -102,12 +102,14 @@ services:
       ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24", "stockball-worker", "worker"]
     init: true
     platform: linux/amd64
-    profiles: ["worker"]
+    profiles: ["worker", "server"]
     environment:
       STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
       STOCKBALL_WORKER_REDIS_URL: ${STOCKBALL_WORKER_REDIS_URL:-redis://redis:6379/0}
       STOCKBALL_WORKER_QUEUE_NAME: ${STOCKBALL_WORKER_TRADING_QUEUE_NAME:-stockball:worker:trading}
       STOCKBALL_WORKER_RETRY_QUEUE_NAME: ${STOCKBALL_WORKER_TRADING_RETRY_QUEUE_NAME:-stockball:worker:trading:retry}
+      STOCKBALL_WORKER_INGESTION_QUEUE_NAME: ${STOCKBALL_WORKER_INGESTION_QUEUE_NAME:-stockball:worker:ingestion}
+      STOCKBALL_WORKER_INGESTION_RETRY_QUEUE_NAME: ${STOCKBALL_WORKER_INGESTION_RETRY_QUEUE_NAME:-stockball:worker:ingestion:retry}
       STOCKBALL_WORKER_TRADING_ENGINE_URL: ${STOCKBALL_WORKER_TRADING_ENGINE_URL:-http://trading-engine:3000}
       STOCKBALL_WORKER_LOG_LEVEL: ${STOCKBALL_WORKER_LOG_LEVEL:-INFO}
       STOCKBALL_WORKER_BLOCK_SECONDS: ${STOCKBALL_WORKER_BLOCK_SECONDS:-5}
@@ -169,7 +171,8 @@ services:
     cpu_shares: 256
     mem_limit: 3g
     # Also in the bootstrap profile: bootstrap-dev-market queues its FBref ingestion here.
-    profiles: ["worker", "bootstrap"]
+    # Do not inherit the server profile from worker through extends.
+    profiles: !override ["worker", "bootstrap"]
     environment:
       STOCKBALL_WORKER_QUEUE_NAME: ${STOCKBALL_WORKER_INGESTION_QUEUE_NAME:-stockball:worker:ingestion}
       STOCKBALL_WORKER_RETRY_QUEUE_NAME: ${STOCKBALL_WORKER_INGESTION_RETRY_QUEUE_NAME:-stockball:worker:ingestion:retry}
@@ -178,7 +181,7 @@ services:
     cpu_shares: 512
     mem_limit: 256m
     command: ["stockball-worker", "scheduler"]
-    profiles: ["worker"]
+    profiles: ["worker", "server"]
     environment:
       STOCKBALL_WORKER_DATABASE_URL: ${STOCKBALL_WORKER_DATABASE_URL:-postgresql://stockball:stockball@postgres:5432/stockball}
       STOCKBALL_WORKER_REDIS_URL: ${STOCKBALL_WORKER_REDIS_URL:-redis://redis:6379/0}

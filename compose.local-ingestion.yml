@@ -1,0 +1,22 @@
+# Standalone file: do not merge with docker-compose.yml or compose.prod.yml.
+# scripts/remote-ingestion.sh supplies runtime environment values from OVH.
+services:
+  ingestion-worker:
+    image: ${LOCAL_INGESTION_IMAGE:?Use scripts/remote-ingestion.sh}
+    platform: linux/amd64
+    init: true
+    # Desktop's host gateway on macOS; host networking on native Linux.
+    network_mode: ${LOCAL_INGESTION_NETWORK_MODE:-host}
+    # The launcher owns restarts and the SSH connection, not Docker.
+    restart: "no"
+    command: ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24", "stockball-worker", "worker"]
+    mem_limit: 3g
+    shm_size: 1g
+    labels:
+      com.stockball.role: remote-ingestion
+    volumes:
+      - ${MARKET_VALUES_DIR:-./services/worker/app/ingestion/market_values/archive (1)}:/data/market-values:ro
+      - ingestion-cache:/home/appuser/.cache
+
+volumes:
+  ingestion-cache:

@@ -172,6 +172,7 @@ class Settings:
     trading_engine_timeout_seconds: float = DEFAULT_TRADING_ENGINE_TIMEOUT_SECONDS
     scheduler_poll_seconds: int = DEFAULT_SCHEDULER_POLL_SECONDS
     worker_block_seconds: int = DEFAULT_WORKER_BLOCK_SECONDS
+    drain_file: str | None = None
     retry_delay_seconds: int = DEFAULT_RETRY_DELAY_SECONDS
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
     schedule_claim_ttl_seconds: int = DEFAULT_SCHEDULE_CLAIM_TTL_SECONDS
@@ -321,6 +322,7 @@ class Settings:
                 WORKER_BLOCK_SECONDS_ENV,
                 DEFAULT_WORKER_BLOCK_SECONDS,
             ),
+            drain_file=os.getenv("STOCKBALL_WORKER_DRAIN_FILE") or None,
             retry_delay_seconds=_int_env(
                 RETRY_DELAY_SECONDS_ENV,
                 DEFAULT_RETRY_DELAY_SECONDS,

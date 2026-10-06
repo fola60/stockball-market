@@ -34,12 +34,15 @@ API_PORT="${API_PORT:-8000}"
 : "${DOMAIN:?DOMAIN must be set in .env}"
 
 exec 9>"$repo_root/.deploy.lock"
-if ! flock -n 9; then
-  echo "another production deployment is already running" >&2
+# Allow a short, read-only ingestion configuration fetch to finish first.
+if ! flock -w 30 9; then
+  echo "timed out waiting for the production deployment lock" >&2
   exit 1
 fi
 
-compose=(docker compose --profile worker -f docker-compose.yml -f compose.prod.yml)
+# Never inherit a profile that could start ingestion on OVH.
+export COMPOSE_PROFILES=server
+compose=(docker compose --profile server -f docker-compose.yml -f compose.prod.yml)
 current_release_file="$repo_root/.current-release"
 previous_release_file="$repo_root/.previous-release"
 previous_tag=""
@@ -90,6 +93,10 @@ trap rollback_on_error ERR
 export IMAGE_TAG="$new_tag"
 "${compose[@]}" config --quiet
 "${compose[@]}" pull
+# Profile changes do not reliably remove an already-running service. Explicitly
+# stop and remove the old OVH scraper, including on upgrades from the worker profile.
+"${compose[@]}" stop ingestion-worker
+"${compose[@]}" rm --force ingestion-worker
 "${compose[@]}" up -d postgres redis
 
 if [[ -f "$current_release_file" ]]; then
