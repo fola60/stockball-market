@@ -173,6 +173,21 @@ class DailyLeagueRosterPlan:
 
 
 @dataclass(frozen=True)
+class FotMobRatingsIngestionPlan:
+    name: str = "fotmob-post-match-ratings"
+    enabled: bool = False
+    supersede_pending: bool = True
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        normalized = _normalize_tick_time(effective_at)
+        return normalized.replace(minute=normalized.minute // 15 * 15).isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob(JobType.INGEST_FOTMOB_RATINGS,
+                         {"league": 47, "season": resolve_season(0, effective_at), "limit": 40})
+
+
+@dataclass(frozen=True)
 class Bet365OddsIngestionPlan:
     name: str = "bet365-odds"
     interval_minutes: int = 15
@@ -286,6 +301,7 @@ def default_scheduler_plans(
     twitter_injury_interval_minutes: int = 5,
     twitter_query_key: str | None = None,
     market_freezes_enabled: bool = True,
+    fotmob_enabled: bool = False,
 ) -> tuple[SchedulePlan, ...]:
     return (
         RecurringTopupPlan(name="weekly-topups", cadence=TopupCadence.WEEKLY),
@@ -305,6 +321,7 @@ def default_scheduler_plans(
             league=player_stats_league,
             season=player_stats_season,
         ),
+        FotMobRatingsIngestionPlan(enabled=fotmob_enabled),
         Bet365OddsIngestionPlan(
             enabled=bet365_enabled,
             interval_minutes=bet365_interval_minutes,

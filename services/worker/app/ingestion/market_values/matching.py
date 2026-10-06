@@ -21,11 +21,13 @@ _CLUB_ALIASES = {
     "aston villa": "aston villa",
     "aston villa football club": "aston villa",
     "association football club bournemouth": "bournemouth",
+    "afc bournemouth": "bournemouth",
     "bournemouth": "bournemouth",
     "brentford": "brentford",
     "brentford football club": "brentford",
     "brighton": "brighton",
     "brighton and hove albion": "brighton",
+    "brighton hove albion": "brighton",
     "brighton and hove albion football club": "brighton",
     "burnley": "burnley",
     "burnley football club": "burnley",
@@ -43,15 +45,19 @@ _CLUB_ALIASES = {
     "liverpool football club": "liverpool",
     "manchester city": "manchester city",
     "manchester city football club": "manchester city",
+    "man city": "manchester city",
     "manchester united": "manchester united",
     "manchester united football club": "manchester united",
+    "man united": "manchester united",
     "manchester utd": "manchester united",
+    "man utd": "manchester united",
     "newcastle": "newcastle united",
     "newcastle united": "newcastle united",
     "newcastle united football club": "newcastle united",
     "nottingham": "nottingham forest",
     "nottingham forest": "nottingham forest",
     "nottingham forest football club": "nottingham forest",
+    "nottm forest": "nottingham forest",
     "sunderland": "sunderland",
     "sunderland association football club": "sunderland",
     "tottenham": "tottenham hotspur",
@@ -82,6 +88,25 @@ def match_market_value_row(
     candidates: list[PlayerCandidate],
     source_name_occurrences: int | None = None,
 ) -> PlayerMatch:
+    return match_player_identity(
+        source_player_name=row.source_player_name,
+        source_club=row.source_club,
+        source_date_of_birth=row.source_date_of_birth,
+        existing_ref_player_id=existing_ref_player_id,
+        candidates=candidates,
+        source_name_occurrences=source_name_occurrences,
+    )
+
+
+def match_player_identity(
+    *,
+    source_player_name: str | None,
+    source_club: str | None,
+    source_date_of_birth: date | None,
+    existing_ref_player_id: UUID | None,
+    candidates: list[PlayerCandidate],
+    source_name_occurrences: int | None = None,
+) -> PlayerMatch:
     if existing_ref_player_id is not None:
         return PlayerMatch(
             player_id=existing_ref_player_id,
@@ -90,7 +115,7 @@ def match_market_value_row(
             reason="existing_provider_ref",
         )
 
-    name = normalize_name(row.source_player_name)
+    name = normalize_name(source_player_name)
     if not name:
         return PlayerMatch(
             player_id=None,
@@ -100,11 +125,39 @@ def match_market_value_row(
         )
 
     name_matches = [
-        candidate
-        for candidate in candidates
-        if normalize_name(candidate.display_name) == name
+        candidate for candidate in candidates if normalize_name(candidate.display_name) == name
     ]
     if not name_matches:
+        # A source can use the formal first name while FBref uses a nickname, or
+        # omit/add a surname. Require a shared name token *and* two independent
+        # facts before considering this spelling-variant path.
+        club = normalize_club(source_club)
+        if source_date_of_birth is not None and club:
+            source_tokens = set(name.split())
+            variant_matches = [
+                candidate
+                for candidate in candidates
+                if candidate.date_of_birth == source_date_of_birth
+                and (
+                    normalize_club(candidate.club) == club
+                    or normalize_club(_metadata_string(candidate.metadata, "team_name")) == club
+                )
+                and source_tokens.intersection(normalize_name(candidate.display_name).split())
+            ]
+            if len(variant_matches) == 1:
+                return PlayerMatch(
+                    player_id=variant_matches[0].player_id,
+                    status=MarketValueMatchStatus.MATCHED,
+                    confidence=MATCHED_CONFIDENCE,
+                    reason="name_variant_date_of_birth_and_club",
+                )
+            if len(variant_matches) > 1:
+                return PlayerMatch(
+                    player_id=None,
+                    status=MarketValueMatchStatus.AMBIGUOUS,
+                    confidence=None,
+                    reason="multiple_name_variant_date_of_birth_and_club_matches",
+                )
         return PlayerMatch(
             player_id=None,
             status=MarketValueMatchStatus.UNMATCHED,
@@ -112,11 +165,11 @@ def match_market_value_row(
             reason="no_name_match",
         )
 
-    if row.source_date_of_birth is not None:
+    if source_date_of_birth is not None:
         dob_matches = [
             candidate
             for candidate in name_matches
-            if candidate.date_of_birth == row.source_date_of_birth
+            if candidate.date_of_birth == source_date_of_birth
         ]
         if len(dob_matches) == 1:
             return PlayerMatch(
@@ -133,7 +186,7 @@ def match_market_value_row(
                 reason="multiple_name_and_date_of_birth_matches",
             )
 
-    club = normalize_club(row.source_club)
+    club = normalize_club(source_club)
     if club:
         club_matches = [
             candidate
@@ -201,6 +254,29 @@ def normalize_club(value: str | None) -> str:
 
 
 def _ascii(value: str) -> str:
+    value = value.translate(
+        str.maketrans(
+            {
+                "ø": "o",
+                "Ø": "O",
+                "ı": "i",
+                "İ": "I",
+                "đ": "d",
+                "Đ": "D",
+                "ł": "l",
+                "Ł": "L",
+                "ð": "d",
+                "Ð": "D",
+                "æ": "ae",
+                "Æ": "Ae",
+                "œ": "oe",
+                "Œ": "Oe",
+                "ß": "ss",
+                "þ": "th",
+                "Þ": "Th",
+            }
+        )
+    )
     return "".join(
         character
         for character in unicodedata.normalize("NFKD", value)

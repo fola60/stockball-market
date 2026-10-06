@@ -21,6 +21,9 @@ Schedules recurring background work.
   frozen from lineup lock until post-match settlement, based on the fixtures table.
 - Player-stat ingestion once per day at `03:00 UTC` for configured league `9` and season `2025`.
 - Optional Bet365 pre-match and live-market ingestion.
+- Optional FotMob final player ratings every 15 minutes (`STOCKBALL_FOTMOB_SCHEDULE_ENABLED`).
+  Waits 15 minutes after first observing final status, retries missing ratings, and refreshes
+  matches from the last two days every six hours. See [FotMob ingestion](../ingestion/fotmob/README.md).
 - Social feed discovery every scheduler cycle. When any subscription is due, one correlated
   `INGEST_SOCIAL_FEEDS` batch is queued so its aggregate metrics appear in the admin console Runs
   ledger. The process can be started or paused from the Processes tab.

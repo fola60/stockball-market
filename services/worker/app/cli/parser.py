@@ -72,6 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off ingestion command, default: INFO",
     )
+    fotmob = subcommands.add_parser("ingest-fotmob-ratings", help="ingest final FotMob player match ratings")
+    fotmob.add_argument("--league", type=_positive_int, default=47, help="FotMob league ID; 47 is Premier League")
+    fotmob.add_argument("--season", type=int, default=0, help="season start year, 0 means current")
+    fotmob.add_argument("--backfill", action="store_true", help="all finished matches, resuming completed work")
+    fotmob.add_argument("--refresh", action="store_true", help="refetch already ingested matches")
+    fotmob.add_argument("--max-matches", type=_positive_int)
+    fotmob.add_argument("--archive-dir", help="resumable match JSON archive (backfill only)")
+    fotmob.add_argument("--log-level", default="INFO")
     ingest_bet365 = subcommands.add_parser(
         "ingest-bet365-odds",
         help="ingest Bet365 pre-match or live match and player markets",

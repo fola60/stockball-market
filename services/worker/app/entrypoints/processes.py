@@ -36,6 +36,7 @@ from app.jobs.admin_handlers import (
     set_bot_status_handler,
     spawn_traders_handler,
 )
+from app.jobs.fotmob import FotMobRatingsJobHandler
 from app.operation_runs import PostgresOperationRunReporter, PostgresScheduledRunRepository
 from app.process_state import RedisProcessState
 from app.queue import JobRoutingQueue, RedisJobQueue, RedisRetryQueue, RedisScheduleClaimStore
@@ -52,6 +53,7 @@ from app.topups import PostgresTopupRepository, TopupService
 from .factories import (
     build_bet365_ingestion_service,
     build_fixture_ingestion_service,
+    build_fotmob_ingestion_service,
     build_league_roster_service,
     build_market_value_import_service,
     build_match_freeze_service,
@@ -86,6 +88,7 @@ def build_scheduler_process(settings: Settings) -> SchedulerProcess:
     def scheduler_plans():
         values = runtime_settings.values()
         return default_scheduler_plans(
+            fotmob_enabled=settings.fotmob_schedule_enabled,
             player_stats_enabled=settings.player_stats_schedule_enabled,
             player_stats_run_hour_utc=int(values.get("player_stats_schedule_hour_utc", settings.player_stats_schedule_hour_utc)),
             player_stats_league=int(values.get("player_stats_schedule_league", settings.player_stats_schedule_league)),
@@ -206,6 +209,9 @@ def _ingestion_handlers(settings: Settings) -> dict:
         ),
         JobType.INGEST_PLAYER_STATS: IngestPlayerStatsJobHandler(
             stats_ingestion_service=build_player_stats_ingestion_service(fbref)
+        ),
+        JobType.INGEST_FOTMOB_RATINGS: FotMobRatingsJobHandler(
+            lambda: build_fotmob_ingestion_service(settings)
         ),
         JobType.INGEST_BET365_ODDS: IngestBet365OddsJobHandler(
             betting_market_ingestion_service=build_bet365_ingestion_service(settings)

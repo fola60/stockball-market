@@ -53,3 +53,6 @@ services/worker/app/ingestion/*
 
 # Local ingestion setup guide
 /docs/LOCAL_INGESTION.md
+!services/worker/app/ingestion/fotmob/
+!services/worker/app/ingestion/fotmob/*.py
+!services/worker/app/ingestion/fotmob/*.md

@@ -13,6 +13,7 @@ Usage:
   scripts/local-ingestion.sh ingest-player-stats [--season 2026] [stockball-worker args...]
   scripts/local-ingestion.sh import-market-values [stockball-worker args...]
   scripts/local-ingestion.sh seed-player-shares [stockball-worker args...]
+  scripts/local-ingestion.sh ingest-fotmob-ratings [--season 2025] [--backfill]
   scripts/local-ingestion.sh ingest-bet365-odds [stockball-worker args...]
   scripts/local-ingestion.sh sync-twitter-injury-registry --registry /path/to/registry.json
   scripts/local-ingestion.sh ingest-twitter-injuries [stockball-worker args...]
@@ -23,6 +24,7 @@ Aliases:
   stats          ingest-player-stats
   market-values  import-market-values
   shares         seed-player-shares
+  fotmob         ingest-fotmob-ratings
   bet365         ingest-bet365-odds
   twitter-sources      sync-twitter-injury-registry
   twitter-injuries     ingest-twitter-injuries
@@ -96,6 +98,7 @@ case "$command" in
   stats) command="ingest-player-stats" ;;
   market-values) command="import-market-values" ;;
   shares) command="seed-player-shares" ;;
+  fotmob) command="ingest-fotmob-ratings" ;;
   bet365) command="ingest-bet365-odds" ;;
   twitter-sources) command="sync-twitter-injury-registry" ;;
   twitter-injuries) command="ingest-twitter-injuries" ;;
@@ -222,7 +225,7 @@ case "$command" in
     fi
     run_worker_command --check-db "$command" "${args[@]}"
     ;;
-  ingest-bet365-odds | sync-twitter-injury-registry | ingest-twitter-injuries)
+  ingest-fotmob-ratings | ingest-bet365-odds | sync-twitter-injury-registry | ingest-twitter-injuries)
     run_worker_command --check-db "$command" "$@"
     ;;
   import-market-values)

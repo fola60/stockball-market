@@ -227,3 +227,15 @@ writers = ["worker"]
 [tables.dev_market_bootstrap_instrument_valuations]
 owner = "worker"
 writers = ["worker"]
+
+[tables.fotmob_matches]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_match_ratings]
+owner = "worker"
+writers = ["worker"]
+
+[tables.fotmob_player_identity_matches]
+owner = "worker"
+writers = ["worker"]
