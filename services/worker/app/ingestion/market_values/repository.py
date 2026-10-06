@@ -25,7 +25,17 @@ class PostgresMarketValueRepository:
                         id::text,
                         display_name,
                         club,
-                        metadata->>'date_of_birth',
+                        COALESCE(
+                            metadata->>'date_of_birth',
+                            (
+                                SELECT ref.raw_identity->>'source_date_of_birth'
+                                FROM player_provider_refs AS ref
+                                WHERE ref.player_id = players.id
+                                  AND ref.raw_identity->>'source_date_of_birth' IS NOT NULL
+                                ORDER BY ref.confidence DESC NULLS LAST, ref.last_seen_at DESC
+                                LIMIT 1
+                            )
+                        ),
                         metadata->>'nationality',
                         metadata
                     FROM players
@@ -57,7 +67,9 @@ class PostgresMarketValueRepository:
                     (source,),
                 )
                 rows = cursor.fetchall()
-        return {str(provider_player_id): UUID(str(player_id)) for provider_player_id, player_id in rows}
+        return {
+            str(provider_player_id): UUID(str(player_id)) for provider_player_id, player_id in rows
+        }
 
     def save_import(
         self,
@@ -125,7 +137,10 @@ class PostgresMarketValueRepository:
                         ),
                     )
 
-                    if match.status is MarketValueMatchStatus.MATCHED and match.player_id is not None:
+                    if (
+                        match.status is MarketValueMatchStatus.MATCHED
+                        and match.player_id is not None
+                    ):
                         self._upsert_provider_ref(cursor, row)
                         self._upsert_market_value_observation(cursor, row)
 

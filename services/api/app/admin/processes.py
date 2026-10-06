@@ -57,6 +57,13 @@ def configured_processes(
             _bool_env("STOCKBALL_PLAYER_STATS_SCHEDULE_ENABLED", True),
         ),
         ProcessDefinition(
+            "fotmob-post-match-ratings",
+            "FotMob player ratings",
+            "INGEST_FOTMOB_RATINGS",
+            "Every 15 minutes · final matches · 15-minute publication delay",
+            _bool_env("STOCKBALL_FOTMOB_SCHEDULE_ENABLED", False),
+        ),
+        ProcessDefinition(
             "bet365-odds",
             "Bet365 pre-match markets",
             "INGEST_BET365_ODDS",

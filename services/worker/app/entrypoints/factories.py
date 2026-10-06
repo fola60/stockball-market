@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import timedelta
 
 from app.clients import HttpApiClient, HttpTradingEngineClient
@@ -209,4 +210,16 @@ def build_league_roster_service(
         engine=engine,
         players=build_player_seed_service(fbref),
         instruments=TradingEngineInstrumentSeeder(engine),
+    )
+
+
+def build_fotmob_ingestion_service(settings, *, archive_dir=None):
+    from app.ingestion.fotmob import FotMobClient, FotMobIngestionService, FotMobRepository
+
+    interval = getattr(settings, "fotmob_request_interval_seconds", None)
+    if interval is None:
+        interval = float(os.getenv("STOCKBALL_FOTMOB_REQUEST_INTERVAL_SECONDS", "2"))
+    return FotMobIngestionService(
+        FotMobClient(interval_seconds=interval, archive_dir=archive_dir),
+        FotMobRepository(settings.database_url),
     )

@@ -127,6 +127,8 @@ class Settings:
     fbref_request_interval_seconds: float = DEFAULT_FBREF_REQUEST_INTERVAL_SECONDS
     fbref_user_agent: str = DEFAULT_FBREF_USER_AGENT
     fbref_cache_ttl_seconds: int = DEFAULT_FBREF_CACHE_TTL_SECONDS
+    fotmob_schedule_enabled: bool = False
+    fotmob_request_interval_seconds: float = 2.0
     bet365_schedule_enabled: bool = False
     bet365_live_schedule_enabled: bool = False
     bet365_live_schedule_interval_minutes: int = DEFAULT_BET365_LIVE_SCHEDULE_INTERVAL_MINUTES
@@ -201,6 +203,8 @@ class Settings:
                 FBREF_CACHE_TTL_SECONDS_ENV,
                 DEFAULT_FBREF_CACHE_TTL_SECONDS,
             ),
+            fotmob_schedule_enabled=_bool_env("STOCKBALL_FOTMOB_SCHEDULE_ENABLED", False),
+            fotmob_request_interval_seconds=_float_env("STOCKBALL_FOTMOB_REQUEST_INTERVAL_SECONDS", 2.0),
             bet365_schedule_enabled=_bool_env(BET365_SCHEDULE_ENABLED_ENV, False),
             bet365_live_schedule_enabled=_bool_env(
                 BET365_LIVE_SCHEDULE_ENABLED_ENV,

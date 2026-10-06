@@ -60,6 +60,8 @@ scripts/local-ingestion.sh players
 scripts/local-ingestion.sh fixtures --from-date 2025-08-01 --to-date 2025-08-31
 scripts/local-ingestion.sh stats --stat-type standard --stat-type shooting
 scripts/local-ingestion.sh market-values
+scripts/local-ingestion.sh fotmob --season 2025 --backfill
+scripts/local-ingestion.sh fotmob --season 2026 --backfill
 scripts/local-ingestion.sh shares
 scripts/local-ingestion.sh twitter-sources --registry /path/to/reviewed-registry.json
 scripts/local-ingestion.sh twitter-injuries
@@ -297,3 +299,7 @@ Behavioral regression tests live in `tests/test_profile_regressions.py`. The end
 trading engine connected to that same database. Set `STOCKBALL_PROFILE_TEST_DATABASE_URL` and
 `STOCKBALL_PROFILE_TEST_ENGINE_URL` to run them; they insert test records and must not target a
 shared or production database.
+
+Final FotMob match ratings are stored separately in `player_match_ratings`, with season averages
+in `player_season_ratings`. They are not yet consumed by the engine. See
+[the ingestion guide](app/ingestion/fotmob/README.md) for scheduling, backfills and coverage queries.

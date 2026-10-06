@@ -15,6 +15,7 @@ SCHEDULE_OPERATION_TYPES = {
     "market-freezes": "CHECK_MARKET_FREEZES",
     "daily-player-stats": "INGEST_PLAYER_STATS",
     "daily-league-roster": "SYNC_LEAGUE_ROSTER",
+    "fotmob-post-match-ratings": "INGEST_FOTMOB_RATINGS",
     "bet365-odds": "INGEST_BETTING_MARKETS",
     "bet365-live-odds": "INGEST_BETTING_MARKETS",
     "twitter-injury-intelligence": "INGEST_TWITTER_INJURIES",
@@ -38,7 +39,7 @@ class PostgresScheduledRunRepository:
         operation_type = SCHEDULE_OPERATION_TYPES[schedule_name]
         with pooled_connection(self._database_url) as connection:
             with connection.cursor() as cursor:
-                single_flight = schedule_name == "social-feed-ingestion"
+                single_flight = schedule_name in {"social-feed-ingestion", "fotmob-post-match-ratings"}
                 if supersede_pending or single_flight:
                     cursor.execute(
                         "SELECT pg_advisory_xact_lock(hashtext(%(schedule_name)s))",

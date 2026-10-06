@@ -179,3 +179,20 @@ def _optional_date_arg(raw_value: str | None) -> date | None:
     if raw_value is None:
         return None
     return date.fromisoformat(raw_value)
+
+
+def ingest_fotmob_ratings(args) -> int:
+    import json
+
+    from app.entrypoints.factories import build_fotmob_ingestion_service
+    from app.seasons import resolve_season
+
+    settings = DatabaseSettings.from_env()
+    configure_logging(args.log_level)
+    service = build_fotmob_ingestion_service(
+        settings, archive_dir=Path(args.archive_dir) if args.archive_dir else None,
+    )
+    result = service.ingest(league=args.league, season=resolve_season(args.season),
+                            backfill=args.backfill, refresh=args.refresh, limit=args.max_matches)
+    print(json.dumps(result, sort_keys=True))
+    return 1 if result['failed_matches'] else 0
