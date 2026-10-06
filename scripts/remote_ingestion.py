@@ -133,7 +133,10 @@ class Launcher:
 
     def snapshot(self):
         helper = self.args.remote_dir.rstrip("/") + "/scripts/ingestion-connection.sh"
-        output = run([*self.ssh, self.args.ssh_host, shlex.quote(helper)])
+        remote_command = shlex.quote(helper)
+        if self.args.remote_sudo:
+            remote_command = "sudo -n " + remote_command
+        output = run([*self.ssh, self.args.ssh_host, remote_command])
         try:
             return validate_snapshot(json.loads(output))
         except (ValueError, TypeError):
@@ -303,6 +306,8 @@ def main():
     parser.add_argument("--ssh-host", default=os.getenv("STOCKBALL_OVH_SSH_HOST"),
                         help="SSH config alias or user@host (or STOCKBALL_OVH_SSH_HOST)")
     parser.add_argument("--remote-dir", default="/opt/stockball")
+    parser.add_argument("--remote-sudo", action="store_true",
+                        help="use noninteractive sudo for the OVH connection helper")
     parser.add_argument("--poll-seconds", type=int, default=60)
     parser.add_argument("--drain-timeout", type=int, default=900)
     parser.add_argument("--check", action="store_true", help="verify connections without consuming jobs")

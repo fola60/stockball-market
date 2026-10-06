@@ -41,6 +41,7 @@ def snapshot():
 def args(**overrides):
     return argparse.Namespace(**{
         "ssh_host": "stockball-ovh", "remote_dir": "/opt/stockball", "check": False,
+        "remote_sudo": False,
         "poll_seconds": 1, "drain_timeout": 1, "local_ports": launcher.LOCAL_PORTS,
         **overrides,
     })
@@ -99,6 +100,14 @@ class ConnectionTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_remote_sudo_only_applies_to_the_connection_helper(self):
+        instance = launcher.Launcher(args(remote_sudo=True, remote_dir="/opt/project space"))
+        with patch.object(launcher, "run", return_value=json.dumps(snapshot())) as run:
+            self.assertEqual(instance.snapshot(), snapshot())
+        self.assertEqual(run.call_args.args[0][-1],
+                         "sudo -n '/opt/project space/scripts/ingestion-connection.sh'")
+        self.assertNotIn("sudo", instance.ssh)
+
     def test_macos_container_uses_desktop_gateway_for_all_tunnels(self):
         instance = launcher.Launcher(args())
         with patch.object(launcher.sys, "platform", "darwin"), \
