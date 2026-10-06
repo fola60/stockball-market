@@ -60,6 +60,7 @@ class WorkerProcess:
     operation_reporter: OperationRunReporter | None = None
     active_job_reporter: ActiveJobReporter | None = None
     isolated_job_timeouts: Mapping[JobType, float] = field(default_factory=dict)
+    drain_file: str | None = None
 
     def run_once(self, block_seconds: int) -> bool:
         moved_retry_count = self.retry_queue.move_due()
@@ -150,8 +151,9 @@ class WorkerProcess:
         return True
 
     def run_forever(self, block_seconds: int) -> None:
-        while True:
+        while not (self.drain_file and os.path.exists(self.drain_file)):
             self.run_once(block_seconds)
+        self.logger.info("worker drained; stopped accepting jobs")
 
     def _handle_retryable_failure(self, job: WorkerJob, error: RetryableJobError) -> None:
         next_attempt = job.attempt + 1

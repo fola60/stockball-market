@@ -50,3 +50,6 @@ services/worker/app/ingestion/*
 .codex
 # Local scratch output (scraper debug pages, screenshots)
 /tmp/
+
+# Local ingestion setup guide
+/docs/LOCAL_INGESTION.md

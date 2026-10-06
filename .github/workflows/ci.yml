@@ -121,10 +121,16 @@ jobs:
       DOMAIN: example.com
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: bash -n scripts/deploy-production.sh scripts/backup-postgres.sh
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: bash -n scripts/deploy-production.sh scripts/backup-postgres.sh scripts/ingestion-connection.sh scripts/remote-ingestion.sh
       - run: sh -n scripts/migrate.sh
+      - run: python -m unittest discover -s scripts/tests -v
       - run: docker compose -f docker-compose.yml -f compose.dev.yml config --quiet
       - run: docker compose --profile worker -f docker-compose.yml -f compose.prod.yml config --quiet
+      - run: docker compose --profile server -f docker-compose.yml -f compose.prod.yml config --quiet
+      - run: LOCAL_INGESTION_IMAGE=stockball-worker:validation-only docker compose --env-file /dev/null -f compose.local-ingestion.yml config --quiet
       - run: docker compose --profile bootstrap -f docker-compose.yml -f compose.prod.yml config --quiet
 
   contracts:
@@ -223,6 +229,7 @@ jobs:
             infra/systemd \
             scripts/migrate.sh \
             scripts/backup-postgres.sh \
+            scripts/ingestion-connection.sh \
             scripts/deploy-production.sh
       - name: Upload deployment files
         env:

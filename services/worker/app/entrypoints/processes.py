@@ -149,6 +149,7 @@ def build_worker_process(settings: Settings) -> WorkerProcess:
         runner=runner,
         retry_delay_seconds=settings.retry_delay_seconds,
         max_attempts=settings.max_attempts,
+        drain_file=settings.drain_file,
         operation_reporter=PostgresOperationRunReporter(
             settings.database_url,
             scheduled_realtime_max_lag_seconds=(

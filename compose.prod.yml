@@ -4,11 +4,15 @@ x-worker-image: &worker-image ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-w
 services:
   postgres:
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${INGESTION_POSTGRES_PORT:-15432}:5432"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
 
   redis:
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${INGESTION_REDIS_PORT:-16379}:6379"
 
   migrate:
     environment:
@@ -17,6 +21,8 @@ services:
   trading-engine:
     image: ${IMAGE_PREFIX:-ghcr.io/fola60/stockball-market}-trading-engine:${IMAGE_TAG:?Set IMAGE_TAG}
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${INGESTION_ENGINE_PORT:-13000}:3000"
     environment:
       STOCKBALL_TRADING_ENGINE_DATABASE_URL: *database-url
 
