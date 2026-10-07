@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AuthTrigger } from "../components/auth-dialog";
 import { Label, Shell, panel } from "../components/market-shell";
+import { ClubBadge, PlayerAvatar } from "../components/player-media";
 import { getPortfolioPageData, playerName, type Instrument } from "@/lib/api";
 import { formatCurrency, formatPercent } from "@/lib/format";
 
@@ -103,7 +104,7 @@ export default async function PortfolioPage() {
                   <thead className="border-y border-[#202832] bg-black/10 text-[11px] uppercase tracking-wider text-[#65707d]"><tr><th className="py-2.5 pl-5">Player</th><th>Shares</th><th>Current</th><th>Market value</th><th>24h</th><th>Allocation</th></tr></thead>
                   <tbody>{holdings.map((holding) => (
                     <tr key={holding.instrument.id} className="border-b border-[#202832] text-[11px] text-[#9ba5b2] hover:bg-white/[0.018]">
-                      <td className="py-3 pl-5"><strong className="block text-xs text-white">{playerName(holding.instrument)}</strong><small className="mt-0.5 block text-[11px] text-[#697481]">{holding.instrument.player_club ?? "Club unavailable"} · {holding.instrument.player_position ?? "—"}</small></td>
+                      <td className="py-3 pl-5"><div className="flex items-center gap-3"><PlayerAvatar instrument={holding.instrument} name={playerName(holding.instrument)} className="size-8" /><div className="min-w-0"><strong className="block text-xs text-white">{playerName(holding.instrument)}</strong><small className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#697481]"><ClubBadge instrument={holding.instrument} className="size-3" />{holding.instrument.player_club ?? "Club unavailable"} · {holding.instrument.player_position ?? "—"}</small></div></div></td>
                       <td className="font-mono">{holding.quantity.toLocaleString("en-GB", { maximumFractionDigits: 4 })}</td>
                       <td className="font-mono font-bold text-white">{formatCurrency(holding.instrument.current_price)}</td>
                       <td className="font-mono font-bold text-white">{formatCurrency(holding.value)}</td>

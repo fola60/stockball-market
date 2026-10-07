@@ -207,4 +207,4 @@ def ingest_fotmob_images(args) -> int:
     configure_logging(args.log_level)
     result = build_fotmob_ingestion_service(settings).ingest_images(limit=args.max_images)
     print(json.dumps(result, sort_keys=True))
-    return 1 if result["failed"] else 0
+    return 1 if result["failed"] or result["team_logos"]["failed"] else 0

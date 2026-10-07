@@ -4,7 +4,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from app.instruments.models import InstrumentRecord, PlayerStatsRecord, PriceSnapshotRecord
+from app.instruments.models import (
+    ImageRecord,
+    InstrumentRecord,
+    PlayerStatsRecord,
+    PriceSnapshotRecord,
+)
 from app.instruments.repository import InstrumentsRepository
 
 
@@ -47,3 +52,9 @@ class InstrumentsService:
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
         self.get_instrument(instrument_id)
         return self._repository.get_player_stats(instrument_id)
+
+    def get_player_image(self, instrument_id: UUID) -> ImageRecord | None:
+        return self._repository.get_player_image(instrument_id)
+
+    def get_club_badge(self, instrument_id: UUID) -> ImageRecord | None:
+        return self._repository.get_club_badge(instrument_id)

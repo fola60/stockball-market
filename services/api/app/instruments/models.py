@@ -56,6 +56,16 @@ class InstrumentRecord:
     price_change_24h: str = "0.0000"
     volume_24h: str = "0.000000"
     freeze: InstrumentFreezeRecord | None = None
+    # Content-hash prefixes of the stored portrait and club badge, or None when absent.
+    player_image_version: str | None = None
+    club_badge_version: str | None = None
+
+
+@dataclass(frozen=True)
+class ImageRecord:
+    data: bytes
+    content_type: str
+    content_sha256: str
 
 
 @dataclass(frozen=True)

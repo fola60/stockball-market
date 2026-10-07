@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell, panel } from "../../components/market-shell";
+import { ClubBadge, PlayerAvatar } from "../../components/player-media";
 import { getInstrumentPageData, playerName, type InstrumentFreeze } from "@/lib/api";
 import { formatCompact, formatCurrency, formatPercent } from "@/lib/format";
 import { PriceChart } from "./price-chart";
@@ -63,13 +64,16 @@ export default async function InstrumentPage({ params }: PageProps) {
         </Link>
 
         <header className="mb-7 flex flex-col justify-between gap-6 md:flex-row md:items-end">
-          <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#7f8995]">
-              <span>{instrument.player_club ?? "Club unavailable"}</span><span aria-hidden="true">·</span><span>{positionName}</span>
-              <span className={`rounded-md border px-2 py-1 text-[11px] ${instrument.status === "ACTIVE" ? "border-[#35d07f]/25 bg-[#35d07f]/[0.07] text-[#35d07f]" : "border-[#f4bb55]/25 bg-[#f4bb55]/[0.07] text-[#f4bb55]"}`}>{instrument.status}</span>
+          <div className="flex min-w-0 items-center gap-4 md:gap-5">
+            <PlayerAvatar instrument={instrument} name={name} className="size-16 md:size-24" />
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#7f8995]">
+                <span className="inline-flex items-center gap-1.5"><ClubBadge instrument={instrument} className="size-4" />{instrument.player_club ?? "Club unavailable"}</span><span aria-hidden="true">·</span><span>{positionName}</span>
+                <span className={`rounded-md border px-2 py-1 text-[11px] ${instrument.status === "ACTIVE" ? "border-[#35d07f]/25 bg-[#35d07f]/[0.07] text-[#35d07f]" : "border-[#f4bb55]/25 bg-[#f4bb55]/[0.07] text-[#f4bb55]"}`}>{instrument.status}</span>
+              </div>
+              <h1 className="text-3xl font-semibold leading-tight tracking-[-0.03em] md:text-[42px]">{name}</h1>
+              <p className="mt-2 break-all text-[11px] font-medium text-[#818b97]">{instrument.symbol}</p>
             </div>
-            <h1 className="text-3xl font-semibold leading-tight tracking-[-0.03em] md:text-[42px]">{name}</h1>
-            <p className="mt-2 break-all text-[11px] font-medium text-[#818b97]">{instrument.symbol}</p>
           </div>
           <div className="md:text-right">
             <strong className="block text-3xl font-semibold tabular-nums slashed-zero md:text-[42px]">{formatCurrency(price)}</strong>

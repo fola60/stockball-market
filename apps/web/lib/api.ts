@@ -23,6 +23,10 @@ export type Instrument = {
   updated_at: string;
   /** Present on the instrument detail endpoint while the instrument is frozen. */
   freeze?: InstrumentFreeze | null;
+  /** Content-hash prefix of the stored player portrait; null when there is none. */
+  player_image_version: string | null;
+  /** Content-hash prefix of the stored club badge; null when there is none. */
+  club_badge_version: string | null;
 };
 
 export type InstrumentFreeze = {

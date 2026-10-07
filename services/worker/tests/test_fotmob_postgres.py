@@ -14,7 +14,7 @@ from psycopg2 import sql
 from psycopg2.extensions import make_dsn
 
 from app.database import connection
-from app.ingestion.fotmob.client import FotMobPlayerImage
+from app.ingestion.fotmob.client import FotMobImage
 from app.ingestion.fotmob.parsing import PlayerRating
 from app.ingestion.fotmob.repository import FotMobRepository
 
@@ -40,6 +40,8 @@ def repository():
         cur.execute((migrations / "0030_fotmob_player_ratings.sql").read_text())
         cur.execute((migrations / "0031_fotmob_player_identity_matches.sql").read_text())
         cur.execute((migrations / "0034_fotmob_player_images.sql").read_text())
+        cur.execute((migrations / "0035_fotmob_team_logos.sql").read_text())
+        cur.execute((migrations / "0036_fotmob_club_teams.sql").read_text())
     try:
         yield FotMobRepository(make_dsn(url, options=f"-c search_path={schema},public"))
     finally:
@@ -207,7 +209,7 @@ def test_player_images_are_binary_resumable_and_preserved_on_refresh_failure(rep
         "url",
     )
     assert repository.due_images(limit=10, now=now) == ["10", "11"]
-    image = FotMobPlayerImage(
+    image = FotMobImage(
         "https://images.fotmob.com/image_resources/playerimages/10.png", b"png-data", 192, 192
     )
     repository.save_image("10", image)
@@ -232,3 +234,63 @@ def test_player_images_are_binary_resumable_and_preserved_on_refresh_failure(rep
         assert len(digest) == 64
         assert error == "timeout"
     assert repository.due_images(limit=10, now=now + timedelta(days=2)) == ["10"]
+
+
+def test_team_logos_cover_both_sides_of_every_match_and_keep_ready_logos(repository):
+    now = datetime.now(UTC)
+    repository.discover([fixture()], 47, 2025)
+    assert repository.due_team_logos(limit=10, now=now) == ["1", "2"]
+    logo = FotMobImage(
+        "https://images.fotmob.com/image_resources/logo/teamlogo/1.png", b"logo", 96, 96
+    )
+    repository.save_team_logo("1", logo)
+    repository.record_team_logo_failure("2", missing=True, error="not found")
+    assert repository.due_team_logos(limit=10, now=now + timedelta(days=1)) == []
+    assert repository.team_logo_coverage() == {
+        "source_teams": 2,
+        "ready": 1,
+        "missing": 1,
+        "failed": 0,
+        "pending": 0,
+    }
+    repository.record_team_logo_failure("1", missing=False, error="timeout")
+    with connection(repository.database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT status,image_data FROM fotmob_team_logos WHERE provider_team_id='1'"
+        )
+        status, stored = cur.fetchone()
+        assert status == "READY"
+        assert bytes(stored) == b"logo"
+
+
+def test_club_teams_follow_the_majority_of_each_clubs_latest_appearances(repository):
+    earlier = fixture("123")
+    later = fixture("124")
+    later["status"] = {**later["status"], "utcTime": "2025-08-22T19:00:00Z"}
+    repository.discover([earlier, later], 47, 2025)
+    repository.save_ratings(earlier, [PlayerRating("10", "A", "2", "Away", None, 90, {})], "url")
+    repository.save_ratings(
+        later,
+        [
+            PlayerRating("10", "A", "1", "Home", None, 90, {}),
+            PlayerRating("11", "B", "1", "Home", None, 90, {}),
+            PlayerRating("12", "C", "2", "Away", None, 90, {}),
+        ],
+        "url",
+    )
+    with connection(repository.database_url) as conn, conn.cursor() as cur:
+        for provider_id in ("10", "11", "12"):
+            cur.execute(
+                "INSERT INTO players(provider,provider_player_id,display_name,club,position) "
+                "VALUES ('FBREF',%s,%s,'Home Club','FW') RETURNING id",
+                (provider_id, provider_id),
+            )
+            cur.execute(
+                "UPDATE player_match_ratings SET player_id=%s WHERE provider_player_id=%s",
+                (cur.fetchone()[0], provider_id),
+            )
+    assert repository.refresh_club_teams() == 1
+    assert repository.refresh_club_teams() == 1
+    with connection(repository.database_url) as conn, conn.cursor() as cur:
+        cur.execute("SELECT club,provider_team_id,linked_players FROM fotmob_club_teams")
+        assert cur.fetchall() == [("Home Club", "1", 2)]

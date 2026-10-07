@@ -68,6 +68,7 @@ class FotMobIngestionService:
             if fetched_profiles:
                 identity_matches = self.repository.reconcile_player_matches()
             images = self._ingest_images(limit=20, now=now)
+            team_logos = self._ingest_team_logos(limit=20, now=now)
             return {
                 "season": season,
                 "processed_matches": processed,
@@ -77,14 +78,19 @@ class FotMobIngestionService:
                 "identity_matches": identity_matches,
                 "fetched_profiles": fetched_profiles,
                 "images": images,
+                "team_logos": team_logos,
                 **self.repository.coverage(league, season),
             }
         finally:
             self.client.close()
 
     def ingest_images(self, *, limit: int = 200, now: datetime | None = None) -> dict:
+        now = now or datetime.now(UTC)
         try:
-            return self._ingest_images(limit=limit, now=now or datetime.now(UTC))
+            return {
+                **self._ingest_images(limit=limit, now=now),
+                "team_logos": self._ingest_team_logos(limit=limit, now=now),
+            }
         finally:
             self.client.close()
 
@@ -107,4 +113,27 @@ class FotMobIngestionService:
             "missing": missing,
             "failed": failed,
             **self.repository.image_coverage(),
+        }
+
+    def _ingest_team_logos(self, *, limit: int, now: datetime) -> dict:
+        clubs = self.repository.refresh_club_teams()
+        fetched = missing = failed = 0
+        for team_id in self.repository.due_team_logos(limit=limit, now=now):
+            try:
+                logo = self.client.team_logo(team_id)
+                self.repository.save_team_logo(team_id, logo)
+                fetched += 1
+            except FotMobImageMissing as error:
+                self.repository.record_team_logo_failure(team_id, missing=True, error=str(error))
+                missing += 1
+            except Exception as error:
+                self.repository.record_team_logo_failure(team_id, missing=False, error=str(error))
+                logger.warning("FotMob team logo %s unavailable: %s", team_id, error)
+                failed += 1
+        return {
+            "fetched": fetched,
+            "missing": missing,
+            "failed": failed,
+            "mapped_clubs": clubs,
+            **self.repository.team_logo_coverage(),
         }

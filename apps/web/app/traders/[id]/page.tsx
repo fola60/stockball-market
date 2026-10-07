@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Label, Shell, panel } from "../../components/market-shell";
+import { ClubBadge, PlayerAvatar } from "../../components/player-media";
 import { YouBadge } from "../../components/trader-identity";
 import { getTraderPageData } from "@/lib/api";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -27,6 +28,8 @@ export default async function TraderPage({ params }: PageProps) {
   const isViewer = account?.id === trader.account_id;
   const holdingsValue = Number(trader.holdings_value);
   const netWorth = Number(trader.net_worth);
+  // Holdings come from the traders API; portraits and badges come from the instrument list.
+  const instrumentsById = new Map(searchInstruments.map((instrument) => [instrument.id, instrument]));
 
   return (
     <Shell active="leaderboard" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
@@ -73,10 +76,11 @@ export default async function TraderPage({ params }: PageProps) {
                   <thead className="border-y border-[#202832] bg-black/10 text-[11px] uppercase tracking-wider text-[#65707d]"><tr><th className="py-2.5 pl-5">Player</th><th className="text-right">Shares</th><th className="text-right">Price</th><th className="text-right">Value</th><th className="text-right">24h</th><th className="pr-5 text-right">Share</th></tr></thead>
                   <tbody>{holdings.map((holding) => {
                     const change = Number(holding.price_change_24h);
+                    const media = instrumentsById.get(holding.instrument_id) ?? { id: holding.instrument_id, player_image_version: null, club_badge_version: null };
                     const allocation = holdingsValue > 0 ? (Number(holding.market_value) / holdingsValue) * 100 : 0;
                     return (
                       <tr key={holding.instrument_id} className="border-b border-[#202832] text-[11px] text-[#9ba5b2] last:border-b-0 hover:bg-white/[0.018]">
-                        <td className="py-3 pl-5"><Link href={`/instrument/${holding.instrument_id}`} className="block text-xs font-bold text-white hover:text-[#dce7ff]">{holding.player_name}</Link><small className="mt-0.5 block text-[11px] text-[#697481]">{holding.player_club ?? "Club unavailable"} · {holding.player_position ?? "—"}</small></td>
+                        <td className="py-3 pl-5"><div className="flex items-center gap-3"><PlayerAvatar instrument={media} name={holding.player_name} className="size-8" /><div className="min-w-0"><Link href={`/instrument/${holding.instrument_id}`} className="block text-xs font-bold text-white hover:text-[#dce7ff]">{holding.player_name}</Link><small className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#697481]"><ClubBadge instrument={media} className="size-3" />{holding.player_club ?? "Club unavailable"} · {holding.player_position ?? "—"}</small></div></div></td>
                         <td className="text-right font-mono">{Number(holding.quantity).toLocaleString("en-GB", { maximumFractionDigits: 4 })}</td>
                         <td className="text-right font-mono">{formatCurrency(holding.current_price)}</td>
                         <td className="text-right font-mono font-bold text-white">{formatCurrency(holding.market_value)}</td>

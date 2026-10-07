@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     fotmob.add_argument("--archive-dir", help="resumable match JSON archive (backfill only)")
     fotmob.add_argument("--log-level", default="INFO")
     fotmob_images = subcommands.add_parser(
-        "ingest-fotmob-images", help="store FotMob player portraits in Postgres"
+        "ingest-fotmob-images", help="store FotMob player portraits and club badges in Postgres"
     )
     fotmob_images.add_argument("--max-images", type=_positive_int, default=200)
     fotmob_images.add_argument("--log-level", default="INFO")
