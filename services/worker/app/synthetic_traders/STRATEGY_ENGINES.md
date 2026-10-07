@@ -15,9 +15,30 @@ Signals should influence bot orders only. They must not directly mutate Stockbal
 
 ## Current implementation (October 2026)
 
-The ten shipped profiles use six engines: `NOISE`, `MARKET_MOMENTUM`, `STATS_VALUE`,
-`SOCIAL_SENTIMENT`, `PORTFOLIO_REBALANCER`, and `BETTING_MARKET_VALUE`. Other engine
-names below are design proposals, not registered implementations.
+The fourteen shipped profiles use seven engines: `NOISE`, `MARKET_MOMENTUM`, `STATS_VALUE`,
+`SOCIAL_SENTIMENT`, `PORTFOLIO_REBALANCER`, `BETTING_MARKET_VALUE`, and `EVENT_REACTION`.
+Other engine names below are design proposals, not registered implementations.
+`FORM_MOMENTUM` ships as the `STATS_VALUE_FORM_CHASER` profile rather than its own engine.
+
+### FotMob match ratings (migration 0032)
+
+Behind `STOCKBALL_MATCH_RATING_SIGNALS_ENABLED` (default off), FotMob final ratings feed
+`PlayerStatsContext` through `app.player_stats.ratings`:
+
+- Ratings are weighted by nineties played (cameos rate near 6.3 almost regardless) and
+  steadied with a prior worth eight full matches: last season's rating, itself steadied toward
+  the league, or the league median. Eight comes from the 2025-26 data: regulars' season
+  ratings spread with an SD of 0.28, and one match deviates from a player's norm by 0.77.
+- `rating_strength` is the league percentile of that rating. `STATS_VALUE` scores the rating
+  by percentile, and `stats_confirmation` averages it with the per-90 percentile. A rating
+  never replaces per-90 strength, so players with and without ratings share one scale.
+- `rating_form` (last five appearances against the season) joins `form_score`, weighted by
+  `rating_weight`. It needs two nineties on each side, so it appears from about round eight.
+- Players FotMob rates before FBref lists them are judged on rating alone.
+- The general stats profiles' dormant 0.35 `rating_weight` became 0.2. Existing bots'
+  randomized copies were scaled by the same factor. `STATS_VALUE_RATINGS` (0.9) is the
+  ratings-led profile. Stats-style randomization now centres each bot's draw on its profile's
+  mix, so a form chaser's bots keep chasing form.
 
 - Equal signals share a midpoint percentile; a singleton is neutral. Candidate sampling is
   reproducible for each bot and UTC date, reserves capacity for holdings, and includes discovery.
@@ -658,33 +679,48 @@ Example profiles:
 
 ### `EVENT_REACTION`
 
-Trades discrete football events and availability changes.
+Implemented. Trades the surprise in a player's latest FotMob-rated match, confirmed by betting
+markets. Profiles: `EVENT_REACTION_MEASURED` (default) and `EVENT_REACTION_FAST`.
 
-Primary inputs:
+Inputs per candidate (`MatchEventContext`, loaded over the last 72 hours):
 
-- fixture schedule
-- lineup status
-- match start/freeze windows
-- injury news
-- suspension news
-- return-from-injury signals
-- fixture difficulty
+- the match rating and minutes, and the player's steadied rating before that match
+- `known_at`: when the ratings were first observed. Replays never react before then, and a
+  match must also have kicked off within the window, so backfills never read as fresh events.
+- closing quotes: the player's last pre-kickoff quote per selection for a bookmaker event
+  kicking off within three hours of the match. Providers are matched by linked player and
+  kickoff time, never by a guessed fixture id.
+- next-fixture quotes over `lookbacks.betting_movement_minutes`
+- Stockball prices since `known_at`
 
-Formula style:
+Formula:
 
 ```text
-alpha =
-  availability_weight * availability_delta_score
-  + fixture_weight * fixture_opportunity_score
-  + lineup_weight * lineup_confirmation_score
-  - timing_weight * stale_event_penalty
+surprise       = clamp((rating - baseline) / 0.77 / surprise_scale) * minutes_share
+                 (0 below min_minutes)
+match_surprise = surprise - expectation_weight * expectation * |surprise|
+                 (expectation: -1..1 rank of closing involvement probabilities)
+alpha = 0.5^(age / half_life) * (w_surprise * match_surprise + w_odds * next_match_movement)
+      + direction * w_price_already_moved * max(price move with the surprise / priced_in_move_pct, 0)
+      + w_season_quality * stats_confirmation
 ```
 
-Example profiles:
+A big game from an outsider is a bigger surprise than one from the favourite, and a
+favourite's flop is a deeper disappointment. Confidence rises with minutes, the depth of the
+baseline, and each betting signal present. The measured profile's 0.6 floor effectively
+requires betting confirmation.
 
-- `FIXTURE_SPECIALIST`: buys players with favorable upcoming match context.
-- `INJURY_AVAILABILITY_REACTOR`: sells injury/suspension risk and buys return-to-play signals.
-- `LINEUP_REACTOR`: trades confirmed starts or benchings when markets are open.
+Herding controls: each bot waits `reaction_delay_minutes`, jittered from 0.5x to 1.5x per
+bot and match. Delays, half-lives, surprise scales and holding periods are randomized per
+bot at spawn.
+
+Exits: a position the bot itself traded is sold (`unwind_fraction`) once
+`holding_period_hours` have passed since its last trade, unless a fresh match is still
+within its reaction delay. Positions the bot was only allocated at bootstrap are never
+unwound, because they were never a reaction. Ordinary sells follow poor matches.
+
+Still proposals for this family: lineup confirmations, injury and suspension news, and
+return-to-play signals.
 
 ### `PORTFOLIO_REBALANCER`
 
@@ -905,11 +941,13 @@ Config schema:
 4. `SOCIAL_SENTIMENT`
 5. `PORTFOLIO_REBALANCER`
 6. `BETTING_MARKET_VALUE`
+7. `EVENT_REACTION`
 
 These engines provide baseline market activity, price-following behavior, fundamental
-behavior, hype behavior, betting-probability behavior, and portfolio maintenance. Add
-`EVENT_REACTION`, `FORM_MOMENTUM`, `MEAN_REVERSION`, and `UPSIDE_HUNTER` after the
-relevant signal feeds and decision traces are in place.
+behavior, hype behavior, betting-probability behavior, post-match reaction, and portfolio
+maintenance. Add `MEAN_REVERSION` and `UPSIDE_HUNTER` after the relevant signal feeds and
+decision traces are in place. Promote `FORM_MOMENTUM` from a profile to an engine only if it
+needs mechanics `STATS_VALUE` lacks.
 
 ## Diversity Rules
 

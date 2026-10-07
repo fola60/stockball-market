@@ -6,6 +6,7 @@ from app.synthetic_traders.models import StrategyEngine
 
 from .base import StrategyEngineImplementation
 from .betting_market_value import BettingMarketValueStrategyEngine
+from .event_reaction import EventReactionStrategyEngine
 from .market_momentum import MarketMomentumStrategyEngine
 from .noise import NoiseStrategyEngine
 from .portfolio_rebalancer import PortfolioRebalancerStrategyEngine
@@ -25,11 +26,13 @@ def default_engine_registry(
         StrategyEngine.SOCIAL_SENTIMENT: SocialSentimentStrategyEngine(),
         StrategyEngine.PORTFOLIO_REBALANCER: PortfolioRebalancerStrategyEngine(),
         StrategyEngine.BETTING_MARKET_VALUE: BettingMarketValueStrategyEngine(),
+        StrategyEngine.EVENT_REACTION: EventReactionStrategyEngine(),
     }
 
 
 __all__ = [
     "BettingMarketValueStrategyEngine",
+    "EventReactionStrategyEngine",
     "MarketMomentumStrategyEngine",
     "NoiseStrategyEngine",
     "PortfolioRebalancerStrategyEngine",

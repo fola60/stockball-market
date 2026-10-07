@@ -96,6 +96,11 @@ only when `STOCKBALL_SOCIAL_SIGNALS_ENABLED=true`; snapshots older than
 `STOCKBALL_SOCIAL_SIGNAL_MAX_AGE_SECONDS` (default `3600`) are ignored. See
 `app/ingestion/social/OPERATIONS.md` for source approval and replay procedures.
 
+FotMob match ratings reach synthetic traders only when
+`STOCKBALL_MATCH_RATING_SIGNALS_ENABLED=true` (migrations 0030–0032). They feed stats
+confirmation and `STATS_VALUE` scoring, and drive the `EVENT_REACTION` profiles. See
+`app/synthetic_traders/STRATEGY_ENGINES.md`.
+
 ### Direct Worker CLI
 
 Seed current Premier League players from FBref:

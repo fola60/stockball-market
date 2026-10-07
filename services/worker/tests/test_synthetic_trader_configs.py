@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+import re
 import unittest
+from pathlib import Path
+from random import Random
 from uuid import uuid4
 
 from app.synthetic_traders import (
     BettingMarketValueConfig,
+    EventReactionConfig,
     MarketMomentumConfig,
     NoiseConfig,
     PortfolioRebalancerConfig,
@@ -12,8 +17,12 @@ from app.synthetic_traders import (
     StatsValueConfig,
     StrategyEngine,
     SyntheticTraderConfigError,
+    apply_config_overrides,
     parse_strategy_config,
 )
+from app.synthetic_traders.randomization import build_random_config_overrides
+
+MIGRATIONS = Path(__file__).resolve().parents[3] / "infra/postgres/migrations"
 
 
 class SyntheticTraderConfigTests(unittest.TestCase):
@@ -152,6 +161,43 @@ class SyntheticTraderConfigTests(unittest.TestCase):
 
         with self.assertRaises(SyntheticTraderConfigError):
             parse_strategy_config(StrategyEngine.BETTING_MARKET_VALUE, payload)
+
+    def test_parse_event_reaction_config(self) -> None:
+        config = parse_strategy_config(StrategyEngine.EVENT_REACTION, _event_reaction_payload())
+
+        self.assertIsInstance(config, EventReactionConfig)
+        self.assertEqual(config.lookbacks.event_window_hours, 48)
+        self.assertEqual(config.event_inputs.min_minutes, 60)
+        self.assertIn("SCORE_OR_ASSIST", config.event_inputs.market_type_weights)
+
+    def test_event_window_cannot_outrun_the_loaded_events(self) -> None:
+        payload = _event_reaction_payload()
+        payload["lookbacks"]["event_window_hours"] = 96
+
+        with self.assertRaises(SyntheticTraderConfigError):
+            parse_strategy_config(StrategyEngine.EVENT_REACTION, payload)
+
+    def test_event_reaction_config_rejects_unknown_market_type(self) -> None:
+        payload = _event_reaction_payload()
+        payload["event_inputs"]["market_type_weights"]["CORNERS"] = 0.1
+
+        with self.assertRaisesRegex(SyntheticTraderConfigError, "event_inputs"):
+            parse_strategy_config(StrategyEngine.EVENT_REACTION, payload)
+
+    def test_seeded_rating_profiles_parse_with_randomized_overrides(self) -> None:
+        random_source = Random(20261007)
+        profiles = _migration_profiles("0032_match_rating_trader_profiles.sql")
+        self.assertEqual(len(profiles), 4)
+        for config_key, engine, payload in profiles:
+            parse_strategy_config(engine, payload)
+            for _ in range(50):
+                overrides = build_random_config_overrides(
+                    config_key=config_key,
+                    strategy_engine=engine,
+                    base_config=payload,
+                    random_source=random_source,
+                )
+                parse_strategy_config(engine, apply_config_overrides(payload, overrides))
 
     def test_invalid_execution_probability_raises(self) -> None:
         payload = _market_momentum_payload()
@@ -547,3 +593,20 @@ def _betting_market_payload() -> dict[str, object]:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _migration_profiles(name: str) -> list[tuple[str, StrategyEngine, dict]]:
+    text = (MIGRATIONS / name).read_text()
+    pattern = re.compile(r"'([A-Z_]+)',\s*'[^']*',\s*'([A-Z_]+)',\s*\d+,\s*\$\$(.*?)\$\$", re.S)
+    return [
+        (key, StrategyEngine(engine), json.loads(body))
+        for key, engine, body in pattern.findall(text)
+    ]
+
+
+def _event_reaction_payload() -> dict:
+    return next(
+        payload
+        for key, _, payload in _migration_profiles("0032_match_rating_trader_profiles.sql")
+        if key == "EVENT_REACTION_MEASURED"
+    )

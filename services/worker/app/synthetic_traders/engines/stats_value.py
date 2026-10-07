@@ -20,6 +20,7 @@ from .base import (
     filter_candidates,
     price_change_pct,
     rank_percentiles,
+    rating_score,
     sorted_decisions,
     volatility_pct,
 )
@@ -36,6 +37,9 @@ ELITE_CARDS_PER90 = 0.5
 # Change in per-90 output between recent matches and the season that counts as full form.
 FORM_GOAL_INVOLVEMENT_SWING = 0.4
 FORM_DEFENSIVE_SWING = 1.5
+# Rating over the latest five appearances against the season. One match deviates by about 0.77,
+# so a five-match average by about 0.35; 0.5 is a clear run of form.
+FORM_RATING_SWING = 0.5
 
 
 @dataclass(frozen=True)
@@ -145,7 +149,9 @@ class StatsValueStrategyEngine:
                 1.0,
             )
             availability_risk = 0.0
-            if candidate.stats.games == 0:
+            # Rated FotMob minutes show a player is playing even before FBref lists him.
+            games_played = max(candidate.stats.games, candidate.stats.rated_nineties)
+            if games_played == 0:
                 availability_risk = 1.0
             elif (
                 candidate.stats.minutes_per_game is not None
@@ -166,7 +172,7 @@ class StatsValueStrategyEngine:
                 + config.signal_weights.get("volatility_risk", 0.0) * volatility_risk
             )
             confidence = clamp(
-                min(candidate.stats.games / max(config.lookbacks.form_matches, 1), 1.0) * 0.5
+                min(games_played / max(config.lookbacks.form_matches, 1), 1.0) * 0.5
                 + (0.25 if candidate.market_value_observation is not None else 0.0)
                 + min(abs(valuation_gap) * 1.5, 0.25),
                 0.0,
@@ -209,6 +215,8 @@ class StatsValueStrategyEngine:
                         "fixture_context": candidate.fixture_score,
                         "form_weight": config.stats_inputs.form_weight,
                         "performance_score": performance_raw[candidate.instrument_id],
+                        "rating_score": rating_score(candidate.stats),
+                        "rating_form": candidate.stats.rating_form,
                         "minutes_security": minutes_security,
                         "market_value_gap": market_value_gap,
                         "availability_risk": availability_risk,
@@ -225,11 +233,12 @@ class StatsValueStrategyEngine:
         A weighted average over the stats that apply to the player, so a bot that cares mostly
         about defending and one that cares mostly about goals rank players differently. Stats
         the provider doesn't supply (chance creation, match ratings) are left out rather than
-        counted as zero.
+        counted as zero. A match rating is scored by its league percentile.
         """
         stats = candidate.stats
         inputs = config.stats_inputs
-        if stats.games <= 0 and stats.minutes_per_game is None:
+        rating = rating_score(stats)
+        if stats.games <= 0 and stats.minutes_per_game is None and rating is None:
             return 0.0
         components = [
             (inputs.goals_weight, clamp(stats.goals_per90 / ELITE_GOALS_PER90, 0.0, 1.0)),
@@ -263,10 +272,8 @@ class StatsValueStrategyEngine:
                     clamp(stats.clean_sheets_per_game / ELITE_CLEAN_SHEETS_PER_GAME, 0.0, 1.0),
                 )
             )
-        if stats.average_rating is not None:
-            components.append(
-                (inputs.rating_weight, clamp((stats.average_rating - 6.0) / 2.5, 0.0, 1.0))
-            )
+        if rating is not None:
+            components.append((inputs.rating_weight, (rating + 1.0) / 2.0))
         form = form_score(stats, inputs)
         if form is not None:
             components.append((inputs.form_weight, (form + 1.0) / 2.0))
@@ -283,12 +290,20 @@ class StatsValueStrategyEngine:
 def form_score(stats: PlayerStatsContext, inputs: StatsInputsConfig) -> float | None:
     """-1..1: recent output against the season so far, judged on what this bot values.
 
-    Attacking form (goal involvements) and defensive form count in proportion to how much the
-    bot weights attacking and defensive stats. None until there is enough recent football.
+    Attacking form (goal involvements), defensive form and rating form count in proportion to
+    how much the bot weights attacking stats, defensive stats and match ratings. None until
+    there is enough recent football.
     """
     attack_weight = max(inputs.goals_weight + inputs.assists_weight + inputs.shots_weight, 0.0)
     defence_weight = max(inputs.defensive_actions_weight + inputs.clean_sheet_weight, 0.0)
     parts: list[tuple[float, float]] = []
+    if stats.rating_form is not None:
+        parts.append(
+            (
+                max(inputs.rating_weight, 0.0),
+                clamp(stats.rating_form / FORM_RATING_SWING, -1.0, 1.0),
+            )
+        )
     if stats.recent_goal_involvements_per90 is not None:
         season = stats.goals_per90 + stats.assists_per90
         parts.append(

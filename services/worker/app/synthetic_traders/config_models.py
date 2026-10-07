@@ -16,6 +16,10 @@ SUPPORTED_BETTING_MARKET_TYPES = frozenset(
 )
 
 
+# Match events are loaded over this window; an event-reaction bot's own window cannot exceed it.
+MAX_EVENT_WINDOW_HOURS = 72
+
+
 class SyntheticTraderConfigError(ValueError):
     pass
 
@@ -291,6 +295,54 @@ class BettingMarketValueConfig:
 
 
 @dataclass(frozen=True)
+class EventReactionLookbacks:
+    event_window_hours: int
+    betting_movement_minutes: int
+
+
+@dataclass(frozen=True)
+class EventReactionInputsConfig:
+    # Appearances shorter than this are ignored: FotMob rates cameos low almost regardless.
+    min_minutes: int
+    # Rating surprise, in match-rating standard deviations, that counts as a full signal.
+    surprise_scale: float
+    # How much the bookmakers' pre-match expectation discounts or amplifies the surprise.
+    expectation_weight: float
+    half_life_hours: float
+    reaction_delay_minutes: float
+    holding_period_hours: float
+    # Stockball price move since the ratings, in the surprise's direction, that counts as
+    # fully priced in.
+    priced_in_move_pct: float
+    movement_scale: float
+    market_type_weights: Mapping[str, float]
+    # Share of a position sold once `holding_period_hours` have passed since the bot last
+    # traded it. Positions the bot was only allocated are never unwound.
+    unwind_fraction: float
+
+
+@dataclass(frozen=True)
+class EventReactionSizingConfig:
+    base_cash_pct: float
+    confidence_multiplier: float
+    surprise_multiplier: float
+    position_concentration_penalty: float
+
+
+@dataclass(frozen=True)
+class EventReactionConfig:
+    universe: CandidateUniverseConfig
+    lookbacks: EventReactionLookbacks
+    signal_weights: Mapping[str, float]
+    event_inputs: EventReactionInputsConfig
+    decision: AlphaDecisionConfig
+    risk: RiskConfig
+    sizing: EventReactionSizingConfig
+    execution: ExecutionConfig
+    explainability: ExplainabilityConfig
+
+
+@dataclass(frozen=True)
 class PortfolioTargetsConfig:
     target_cash_pct: float
     min_cash_pct: float
@@ -357,6 +409,7 @@ StrategyConfig = (
     | StatsValueConfig
     | SocialSentimentConfig
     | BettingMarketValueConfig
+    | EventReactionConfig
     | PortfolioRebalancerConfig
 )
 

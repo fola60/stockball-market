@@ -17,6 +17,7 @@ class StrategyEngine(StrEnum):
     SOCIAL_SENTIMENT = "SOCIAL_SENTIMENT"
     PORTFOLIO_REBALANCER = "PORTFOLIO_REBALANCER"
     BETTING_MARKET_VALUE = "BETTING_MARKET_VALUE"
+    EVENT_REACTION = "EVENT_REACTION"
 
 
 class BotStatus(StrEnum):
@@ -90,9 +91,14 @@ class MarketTradeSample:
 @dataclass(frozen=True)
 class PlayerStatsContext:
     """A player's per-90 output this season (see `app.player_stats`), steadied early in a
-    season with last season's rates. FBref supplies no match ratings, so `average_rating` is
-    usually None; `strength` is the player's league percentile on overall contribution,
-    scaled to -1..1."""
+    season with last season's rates. `strength` is the player's league percentile on overall
+    contribution, scaled to -1..1.
+
+    The rating fields come from FotMob final match ratings when rating signals are enabled:
+    `average_rating` is the minutes-weighted season rating steadied with a prior,
+    `rating_strength` its league percentile scaled to -1..1, and `rating_form` the latest
+    appearances' rating minus the season's. They are None when the player has no rated
+    minutes or the signal is off."""
 
     available_rates: frozenset[str] | None = None
     games: float = 0.0
@@ -111,6 +117,9 @@ class PlayerStatsContext:
     recent_defensive_actions_per90: float | None = None
     strength: float | None = None
     average_rating: float | None = None
+    rating_strength: float | None = None
+    rated_nineties: float = 0.0
+    rating_form: float | None = None
     latest_observed_at: datetime | None = None
 
 
@@ -156,6 +165,30 @@ class BettingMarketContext:
 
 
 @dataclass(frozen=True)
+class MatchEventContext:
+    """The player's latest FotMob-rated match, judged against what was expected of him.
+
+    `baseline_rating` is the player's steadied season rating before this match, over
+    `baseline_nineties` of earlier rated football. `known_at` is when the ratings were first
+    observed, so a replay never reacts before the market could have. `closing_quotes` are the
+    player's last pre-kickoff betting quotes for an event kicking off within three hours of the
+    match; FotMob and bookmaker fixtures are matched by player and kickoff time, never by a
+    guessed cross-provider fixture id.
+    """
+
+    provider_match_id: str
+    kickoff_at: datetime
+    known_at: datetime
+    rating: float
+    minutes_played: int
+    baseline_rating: float
+    baseline_nineties: float
+    team_name: str | None = None
+    opponent_name: str | None = None
+    closing_quotes: tuple[BettingMarketQuote, ...] = ()
+
+
+@dataclass(frozen=True)
 class BotPositionContext:
     instrument_id: UUID
     player_id: UUID | None
@@ -165,6 +198,8 @@ class BotPositionContext:
     market_value: Decimal
     last_trade_price: Decimal | None = None
     unrealized_return_pct: float | None = None
+    # The bot's own latest trade in this player; None for a position it was only allocated.
+    last_trade_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +240,7 @@ class CandidateInstrumentContext:
     betting: BettingMarketContext = field(default_factory=BettingMarketContext)
     reference_price: Decimal | None = None
     fixture_score: float = 0.0
+    match_event: MatchEventContext | None = None
 
 
 @dataclass(frozen=True)

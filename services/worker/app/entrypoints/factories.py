@@ -177,6 +177,7 @@ def build_synthetic_trader_service(settings: Settings) -> SyntheticTraderService
             settings.database_url,
             social_signals_enabled=settings.social_signals_enabled,
             social_signal_max_age_seconds=settings.social_signal_max_age_seconds,
+            match_rating_signals_enabled=settings.match_rating_signals_enabled,
         ),
         trading_engine_client=trading_engine_client(settings),
     )

@@ -63,6 +63,7 @@ TWITTER_BROWSER_USER_DATA_DIR_ENV = "STOCKBALL_TWITTER_BROWSER_USER_DATA_DIR"
 TWITTER_BROWSER_PROFILE_DIRECTORY_ENV = "STOCKBALL_TWITTER_BROWSER_PROFILE_DIRECTORY"
 SOCIAL_SIGNALS_ENABLED_ENV = "STOCKBALL_SOCIAL_SIGNALS_ENABLED"
 SOCIAL_SIGNAL_MAX_AGE_SECONDS_ENV = "STOCKBALL_SOCIAL_SIGNAL_MAX_AGE_SECONDS"
+MATCH_RATING_SIGNALS_ENABLED_ENV = "STOCKBALL_MATCH_RATING_SIGNALS_ENABLED"
 SCHEDULER_POLL_SECONDS_ENV = "STOCKBALL_WORKER_SCHEDULER_POLL_SECONDS"
 WORKER_BLOCK_SECONDS_ENV = "STOCKBALL_WORKER_BLOCK_SECONDS"
 RETRY_DELAY_SECONDS_ENV = "STOCKBALL_WORKER_RETRY_DELAY_SECONDS"
@@ -163,6 +164,7 @@ class Settings:
     twitter_browser_profile_directory: str | None = None
     social_signals_enabled: bool = False
     social_signal_max_age_seconds: int = DEFAULT_SOCIAL_SIGNAL_MAX_AGE_SECONDS
+    match_rating_signals_enabled: bool = False
     match_freeze_schedule_enabled: bool = True
     match_freeze_lineup_lock_minutes: int = DEFAULT_MATCH_FREEZE_LINEUP_LOCK_MINUTES
     match_freeze_settlement_minutes: int = DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES
@@ -291,6 +293,7 @@ class Settings:
                 SOCIAL_SIGNAL_MAX_AGE_SECONDS_ENV,
                 DEFAULT_SOCIAL_SIGNAL_MAX_AGE_SECONDS,
             ),
+            match_rating_signals_enabled=_bool_env(MATCH_RATING_SIGNALS_ENABLED_ENV, False),
             match_freeze_schedule_enabled=_bool_env(MATCH_FREEZE_SCHEDULE_ENABLED_ENV, True),
             match_freeze_lineup_lock_minutes=_int_env(
                 MATCH_FREEZE_LINEUP_LOCK_MINUTES_ENV,

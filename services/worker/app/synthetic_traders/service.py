@@ -19,6 +19,7 @@ from app.clients.trading_engine import (
 
 from .config import (
     BettingMarketValueConfig,
+    EventReactionConfig,
     ExecutionConfig,
     MarketMomentumConfig,
     PortfolioRebalancerConfig,
@@ -122,6 +123,8 @@ class SyntheticTraderService:
                 betting_lookback_minutes = (
                     strategy_config.lookbacks.movement_minutes
                     if isinstance(strategy_config, BettingMarketValueConfig)
+                    else strategy_config.lookbacks.betting_movement_minutes
+                    if isinstance(strategy_config, EventReactionConfig)
                     else None
                 )
                 market_candidates = market_candidates_cache.get(betting_lookback_minutes)
@@ -189,6 +192,15 @@ class SyntheticTraderService:
                     )
                 else:
                     missing_quotes = 0
+                missing_events = 0
+                if isinstance(strategy_config, EventReactionConfig):
+                    window = timedelta(hours=strategy_config.lookbacks.event_window_hours)
+                    diagnostic_candidates = tuple(
+                        c
+                        for c in context.candidates
+                        if c.match_event is not None and as_of - c.match_event.known_at <= window
+                    )
+                    missing_events = len(context.candidates) - len(diagnostic_candidates)
                 exclusions = (
                     candidate_exclusion_counts(diagnostic_candidates, strategy_config.universe)
                     if hasattr(strategy_config, "universe")
@@ -196,6 +208,8 @@ class SyntheticTraderService:
                 )
                 if missing_quotes:
                     exclusions["missing_betting_quotes"] = missing_quotes
+                if missing_events:
+                    exclusions["no_recent_match_event"] = missing_events
                 diagnostics.append(
                     SyntheticTraderTickDiagnostics(
                         bot_id=bot.id,

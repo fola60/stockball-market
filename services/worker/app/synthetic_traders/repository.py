@@ -14,9 +14,19 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.database import connection as pooled_connection
-from app.player_stats import load_stat_profiles, stats_value
+from app.player_stats import (
+    RatingTotals,
+    build_rating_profile,
+    build_rating_profiles,
+    league_median_rating,
+    load_rating_totals,
+    load_stat_profiles,
+    rating_prior,
+    stats_value,
+)
 from app.seasons import current_season
 
+from .config_models import MAX_EVENT_WINDOW_HOURS
 from .market_history import RollingMarketHistoryCache
 from .models import (
     BettingMarketContext,
@@ -28,6 +38,7 @@ from .models import (
     CandidateInstrumentContext,
     CreateSyntheticTraderBotCommand,
     MarketTradeSample,
+    MatchEventContext,
     PlayerStatsContext,
     PricePoint,
     SocialSignalContext,
@@ -43,6 +54,9 @@ RECENT_MARKET_LOOKBACK_DAYS = 30
 SOCIAL_BASELINE_MIN_LOOKBACK_SECONDS = 24 * 60 * 60
 SOCIAL_BASELINE_MAX_AGE_DAYS = 7
 MIN_EXPECTED_SOCIAL_MENTIONS = 1.0
+# Bookmaker events are matched to a rated FotMob match by player and kickoff within this many
+# seconds; providers round kickoff times differently and no fixture id is shared.
+EVENT_KICKOFF_TOLERANCE_SECONDS = 3 * 60 * 60
 
 
 class SyntheticTraderRepository(Protocol):
@@ -101,9 +115,11 @@ class PostgresSyntheticTraderRepository:
         *,
         social_signals_enabled: bool = False,
         social_signal_max_age_seconds: int = 3600,
+        match_rating_signals_enabled: bool = False,
     ) -> None:
         self._database_url = database_url
         self._social_signals_enabled = social_signals_enabled
+        self._match_rating_signals_enabled = match_rating_signals_enabled
         self._social_signal_max_age_seconds = max(social_signal_max_age_seconds, 1)
         self._market_history = RollingMarketHistoryCache()
         self._market_history_refresh_lock = Lock()
@@ -340,6 +356,7 @@ class PostgresSyntheticTraderRepository:
                         p.quantity,
                         i.current_price,
                         latest_trade.execution_price AS last_trade_price,
+                        latest_trade.executed_at AS last_trade_at,
                         basis.events AS cost_events
                     FROM positions AS p
                     JOIN instruments AS i
@@ -347,7 +364,7 @@ class PostgresSyntheticTraderRepository:
                     LEFT JOIN players AS player
                         ON player.id = i.player_id
                     LEFT JOIN LATERAL (
-                        SELECT execution_price
+                        SELECT execution_price, executed_at
                         FROM trades
                         WHERE portfolio_id = %(portfolio_id)s
                           AND instrument_id = p.instrument_id
@@ -482,7 +499,7 @@ class PostgresSyntheticTraderRepository:
                     cursor, instrument_ids, market_since, as_of
                 )
                 market_values_by_player = self._load_market_values(cursor, player_ids)
-                stats_by_player = self._load_stats(cursor, player_ids, as_of)
+                stats_by_player, events_by_player = self._load_stats(cursor, player_ids, as_of)
                 betting_by_player = (
                     {}
                     if betting_lookback_minutes is None
@@ -552,6 +569,7 @@ class PostgresSyntheticTraderRepository:
                         if player_id is None
                         else betting_by_player.get(str(player_id), BettingMarketContext())
                     ),
+                    match_event=None if player_id is None else events_by_player.get(str(player_id)),
                 )
             )
 
@@ -699,16 +717,50 @@ class PostgresSyntheticTraderRepository:
         cursor,
         player_ids: list[str],
         as_of: datetime,
-    ) -> dict[str, PlayerStatsContext]:
+    ) -> tuple[dict[str, PlayerStatsContext], dict[str, MatchEventContext]]:
         if not player_ids:
-            return {}
-        profiles = load_stat_profiles(cursor, current_season(as_of), as_of.date())
+            return {}, {}
+        season = current_season(as_of)
+        profiles = load_stat_profiles(cursor, season, as_of.date())
         strengths = _percentiles(
             {player_id: stats_value(profile) for player_id, profile in profiles.items()}
         )
+        ratings = {}
+        rating_strengths = {}
+        events: dict[str, MatchEventContext] = {}
+        if self._match_rating_signals_enabled:
+            current, previous = load_rating_totals(cursor, season, as_of)
+            ratings = build_rating_profiles(season, current, previous)
+            rating_strengths = _percentiles(
+                {player_id: profile.rating for player_id, profile in ratings.items()}
+            )
+            league = league_median_rating(previous.values()) or league_median_rating(
+                current.values()
+            )
+            if league is not None:
+                events = self._load_match_events(
+                    cursor, player_ids, as_of, season, current, previous, league
+                )
         wanted = set(player_ids)
-        return {
-            player_id: PlayerStatsContext(
+        stats: dict[str, PlayerStatsContext] = {}
+        for player_id in (profiles.keys() | ratings.keys()) & wanted:
+            profile = profiles.get(player_id)
+            rating = ratings.get(player_id)
+            rating_fields = (
+                {}
+                if rating is None
+                else {
+                    "average_rating": rating.rating,
+                    "rating_strength": rating_strengths[player_id] * 2.0 - 1.0,
+                    "rated_nineties": rating.rated_nineties,
+                    "rating_form": rating.form,
+                }
+            )
+            if profile is None:
+                # No FBref snapshot: no per-90 rates to count, observed zero or otherwise.
+                stats[player_id] = PlayerStatsContext(available_rates=frozenset(), **rating_fields)
+                continue
+            stats[player_id] = PlayerStatsContext(
                 available_rates=profile.available_rates,
                 latest_observed_at=profile.latest_observed_at,
                 games=profile.games,
@@ -724,10 +776,150 @@ class PostgresSyntheticTraderRepository:
                 recent_goal_involvements_per90=profile.recent_goal_involvements_per90,
                 recent_defensive_actions_per90=profile.recent_defensive_actions_per90,
                 strength=strengths[player_id] * 2.0 - 1.0,
+                **rating_fields,
             )
-            for player_id, profile in profiles.items()
-            if player_id in wanted
-        }
+        return stats, events
+
+    def _load_match_events(
+        self,
+        cursor,
+        player_ids: list[str],
+        as_of: datetime,
+        season: int,
+        current: Mapping[str, RatingTotals],
+        previous: Mapping[str, RatingTotals],
+        league: float,
+    ) -> dict[str, MatchEventContext]:
+        """Each player's latest rated match this season whose ratings were known by `as_of`.
+
+        A backfill stamps old matches with the time it ran, so the match must also have kicked
+        off within the window: archived matches never read as fresh events.
+        """
+        window_start = as_of - timedelta(hours=MAX_EVENT_WINDOW_HOURS)
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (r.player_id)
+                r.player_id::text AS player_id,
+                m.match_id,
+                m.kickoff_at,
+                r.rating::float8 AS rating,
+                r.minutes_played,
+                r.team_name,
+                CASE WHEN r.team_provider_id = m.home_team_id
+                     THEN m.away_team_name ELSE m.home_team_name END AS opponent_name,
+                known.known_at
+            FROM player_match_ratings AS r
+            JOIN fotmob_matches AS m ON m.match_id = r.provider_match_id
+            JOIN LATERAL (
+                SELECT min(observed_at) AS known_at
+                FROM player_match_ratings
+                WHERE provider = r.provider AND provider_match_id = r.provider_match_id
+            ) AS known ON true
+            WHERE r.player_id = ANY(%(player_ids)s::uuid[])
+              AND r.rating IS NOT NULL
+              AND COALESCE(r.minutes_played, 0) > 0
+              AND m.season = %(season)s
+              AND m.kickoff_at >= %(kickoff_after)s
+              AND m.kickoff_at <= %(as_of)s
+              AND known.known_at >= %(window_start)s
+              AND known.known_at <= %(as_of)s
+            ORDER BY r.player_id, m.kickoff_at DESC, m.match_id DESC
+            """,
+            {
+                "player_ids": player_ids,
+                "season": season,
+                # Ratings follow full time by at least a quarter of an hour.
+                "kickoff_after": window_start - timedelta(hours=3),
+                "window_start": window_start,
+                "as_of": as_of,
+            },
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return {}
+        closing = self._load_closing_quotes(cursor, rows, as_of)
+        events: dict[str, MatchEventContext] = {}
+        for row in rows:
+            player_id = str(row["player_id"])
+            nineties = min(int(row["minutes_played"]), 90) / 90.0
+            season_totals = current.get(player_id, RatingTotals())
+            baseline = build_rating_profile(
+                season,
+                season_totals.without(float(row["rating"]), nineties),
+                rating_prior(previous.get(player_id), league),
+            )
+            events[player_id] = MatchEventContext(
+                provider_match_id=str(row["match_id"]),
+                kickoff_at=row["kickoff_at"],
+                known_at=row["known_at"],
+                rating=float(row["rating"]),
+                minutes_played=int(row["minutes_played"]),
+                baseline_rating=baseline.rating,
+                baseline_nineties=baseline.rated_nineties,
+                team_name=row["team_name"],
+                opponent_name=row["opponent_name"],
+                closing_quotes=tuple(closing.get(player_id, ())),
+            )
+        return events
+
+    def _load_closing_quotes(
+        self, cursor, events: list[Mapping[str, Any]], as_of: datetime
+    ) -> dict[str, list[BettingMarketQuote]]:
+        """Each player's last pre-kickoff quote per selection for his rated match."""
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (participant.player_id, selection.id)
+                participant.player_id::text AS player_id,
+                selection.provider_event_id,
+                selection.canonical_selection_key,
+                selection.market_type,
+                selection.outcome_type,
+                selection.line,
+                observation.decimal_odds,
+                observation.implied_probability,
+                observation.observed_at,
+                (selection.raw_payload ->> 'kickoff_at')::timestamptz AS kickoff_at
+            FROM unnest(%(player_ids)s::uuid[], %(kickoffs)s::timestamptz[])
+                AS event(player_id, kickoff_at)
+            JOIN betting_market_selection_players AS participant
+                ON participant.player_id = event.player_id
+            JOIN betting_market_selections AS selection
+                ON selection.id = participant.selection_id
+            JOIN betting_market_observations AS observation
+                ON observation.selection_id = selection.id
+            WHERE participant.participant_role = 'PRIMARY'
+              AND selection.market_scope = 'PLAYER'
+              AND abs(extract(epoch FROM (
+                    (selection.raw_payload ->> 'kickoff_at')::timestamptz - event.kickoff_at
+                  ))) <= %(tolerance)s
+              AND observation.observed_at < (selection.raw_payload ->> 'kickoff_at')::timestamptz
+              AND observation.observed_at <= %(as_of)s
+            ORDER BY participant.player_id, selection.id,
+                     observation.observed_at DESC, observation.id DESC
+            """,
+            {
+                "player_ids": [str(row["player_id"]) for row in events],
+                "kickoffs": [row["kickoff_at"] for row in events],
+                "tolerance": EVENT_KICKOFF_TOLERANCE_SECONDS,
+                "as_of": as_of,
+            },
+        )
+        grouped: dict[str, list[BettingMarketQuote]] = {}
+        for row in cursor.fetchall():
+            grouped.setdefault(str(row["player_id"]), []).append(
+                BettingMarketQuote(
+                    provider_event_id=str(row["provider_event_id"]),
+                    canonical_selection_key=str(row["canonical_selection_key"]),
+                    market_type=str(row["market_type"]),
+                    outcome_type=str(row["outcome_type"]),
+                    line=None if row["line"] is None else _decimal(row["line"]),
+                    decimal_odds=_decimal(row["decimal_odds"]),
+                    implied_probability=_decimal(row["implied_probability"]),
+                    observed_at=row["observed_at"],
+                    kickoff_at=row["kickoff_at"],
+                )
+            )
+        return grouped
 
     def _load_social(
         self, cursor, player_ids: list[str], as_of: datetime
@@ -964,6 +1156,7 @@ def _build_position_context(row: Mapping[str, Any]) -> BotPositionContext:
         market_value=market_value,
         last_trade_price=last_trade_price,
         unrealized_return_pct=unrealized_return_pct,
+        last_trade_at=row.get("last_trade_at"),
     )
 
 
