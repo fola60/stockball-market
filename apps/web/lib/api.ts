@@ -16,6 +16,7 @@ export type Instrument = {
   quantity_outstanding: string;
   net_shares_purchased: string;
   full_supply_price_multiplier: string;
+  curve_depth_shares: string;
   price_change_24h: string;
   volume_24h: string;
   status: "ACTIVE" | "FROZEN" | "DELISTED";

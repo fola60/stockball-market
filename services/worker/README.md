@@ -81,6 +81,12 @@ cp scripts/local-ingestion.env.example .env.local-ingestion
 
 `seed-player-shares` requires the trading engine to be running locally at `STOCKBALL_WORKER_TRADING_ENGINE_URL`.
 
+`recalibrate-price-curves --multiplier M --depth-divisor D --reason TEXT` reshapes every
+player-share price curve without moving any price (see
+`services/trading-engine/src/price_impact/README.md`). It is a dry run unless `--apply` is
+given; the default request id is one per UTC day and calibration, so a retry replays instead of
+rebasing twice.
+
 Set `LOCAL_INGESTION_INSTALL_CHROMEDRIVER=1` in `.env.local-ingestion` if FBref browser fallback needs a local chromedriver install.
 
 Twitter injury ingestion uses only the approved X API recent-search endpoint. It is disabled

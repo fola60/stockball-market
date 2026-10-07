@@ -127,6 +127,7 @@ class MarketApiTests(unittest.TestCase):
             quantity_outstanding="1000000.000000",
             net_shares_purchased="0.000000",
             full_supply_price_multiplier="2.500000",
+            curve_depth_shares="1000000.000000",
             status=InstrumentStatus.ACTIVE,
             created_at=_timestamp(),
             updated_at=_timestamp(),
@@ -253,6 +254,7 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(body[0]["reference_price"], "100.0000")
         self.assertEqual(body[0]["net_shares_purchased"], "0.000000")
         self.assertEqual(body[0]["full_supply_price_multiplier"], "2.500000")
+        self.assertEqual(body[0]["curve_depth_shares"], "1000000.000000")
         self.assertNotIn("price_impact_unit", body[0])
 
     def test_get_instrument_returns_404_when_missing(self) -> None:

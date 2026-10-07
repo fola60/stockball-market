@@ -62,6 +62,7 @@ class PostgresInstrumentsRepository:
                         i.shares_outstanding AS quantity_outstanding,
                         i.net_shares_purchased,
                         i.full_supply_price_multiplier,
+                        i.curve_depth_shares,
                         i.trading_status AS status,
                         i.created_at,
                         i.updated_at,
@@ -116,6 +117,7 @@ class PostgresInstrumentsRepository:
                         i.shares_outstanding AS quantity_outstanding,
                         i.net_shares_purchased,
                         i.full_supply_price_multiplier,
+                        i.curve_depth_shares,
                         i.trading_status AS status,
                         i.created_at,
                         i.updated_at,
@@ -373,6 +375,7 @@ def _build_instrument_record(row: dict) -> InstrumentRecord:
         full_supply_price_multiplier=format_decimal(
             _as_decimal(row["full_supply_price_multiplier"])
         ),
+        curve_depth_shares=format_decimal(_as_decimal(row["curve_depth_shares"])),
         status=InstrumentStatus(row["status"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::ProvisioningError;
+use crate::price_impact::CurveCalibration;
 
 /// Credits the one-time opening balance of a newly registered account's portfolio.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -140,6 +141,60 @@ pub struct PreMarketPriceResult {
     pub instrument_id: Uuid,
     pub old_price: Decimal,
     pub new_price: Decimal,
+}
+
+/// Re-shapes every player-share price curve. Each curve is re-anchored at its current price, so
+/// no price changes; the calibration only decides how far later trades move prices.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecalibratePriceCurvesCommand {
+    pub request_id: String,
+    #[serde(flatten)]
+    pub calibration: CurveCalibration,
+    pub reason: String,
+    /// Apply and report the recalibration, then roll it back. A dry run leaves the request id
+    /// unused.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+impl RecalibratePriceCurvesCommand {
+    pub fn validate(&self) -> Result<(), ProvisioningError> {
+        validate_request_id(&self.request_id)?;
+        if self.reason.trim().is_empty() {
+            return Err(ProvisioningError::EmptyReason);
+        }
+        self.calibration
+            .validate()
+            .map_err(ProvisioningError::InvalidCurveCalibration)
+    }
+
+    pub fn request_fingerprint(&self) -> String {
+        format!(
+            "recalibrate_price_curves;full_supply_price_multiplier={};curve_depth_divisor={};reason={}",
+            self.calibration.full_supply_price_multiplier.normalize(),
+            self.calibration.curve_depth_divisor.normalize(),
+            self.reason.trim()
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecalibratePriceCurvesResult {
+    pub request_id: String,
+    pub dry_run: bool,
+    #[serde(flatten)]
+    pub calibration: CurveCalibration,
+    pub instrument_count: usize,
+    /// Instruments whose accumulated net demand was folded into their new reference price.
+    pub reset_net_demand_count: usize,
+    /// The largest net demand reset, as a share of the old curve depth.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub max_reset_demand_ratio: Decimal,
+    /// Curve multipliers in use before the recalibration.
+    #[serde(with = "rust_decimal::serde::str_option")]
+    pub previous_min_multiplier: Option<Decimal>,
+    #[serde(with = "rust_decimal::serde::str_option")]
+    pub previous_max_multiplier: Option<Decimal>,
 }
 
 fn validate_request_id(request_id: &str) -> Result<(), ProvisioningError> {

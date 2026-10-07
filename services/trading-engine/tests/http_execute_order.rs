@@ -17,7 +17,8 @@ use stockball_trading_engine::{
     orders::{ExecuteOrderCommand, OrderError, OrderSide},
     provisioning::{
         ApplyOpeningBalanceCommand, IssueInitialSupplyCommand, IssueInitialSupplyResult,
-        PreMarketPriceResult, ProvisioningError, SetPreMarketPriceCommand,
+        PreMarketPriceResult, ProvisioningError, RecalibratePriceCurvesCommand,
+        RecalibratePriceCurvesResult, SetPreMarketPriceCommand,
     },
     topups::{ApplyTopupCommand, TopupError},
 };
@@ -301,6 +302,23 @@ impl OrderExecutor for StubExecutor {
         panic!("stub cannot issue initial supply")
     }
 
+    async fn recalibrate_price_curves(
+        &self,
+        command: RecalibratePriceCurvesCommand,
+    ) -> Result<RecalibratePriceCurvesResult, ProvisioningError> {
+        command.validate()?;
+        Ok(RecalibratePriceCurvesResult {
+            request_id: command.request_id,
+            dry_run: command.dry_run,
+            calibration: command.calibration,
+            instrument_count: 2,
+            reset_net_demand_count: 1,
+            max_reset_demand_ratio: Decimal::new(25, 3),
+            previous_min_multiplier: Some(Decimal::from(4)),
+            previous_max_multiplier: Some(Decimal::from(4)),
+        })
+    }
+
     async fn set_pre_market_price(
         &self,
         _command: SetPreMarketPriceCommand,
@@ -443,4 +461,60 @@ async fn read_body(response: axum::response::Response) -> Value {
 #[test]
 fn uses_active_status_string_in_error_details() {
     assert_eq!(InstrumentStatus::Active.as_str(), "ACTIVE");
+}
+
+#[tokio::test]
+async fn recalibrate_price_curves_accepts_string_decimals_and_reports_the_rebase() {
+    let response = build_router(AppState::new(StubExecutor::success(sample_response())))
+        .oneshot(
+            Request::post("/internal/v1/instruments/price-curves/recalibrate")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "request_id": "curve-recalibration-1",
+                        "full_supply_price_multiplier": "20",
+                        "curve_depth_divisor": "15",
+                        "reason": "raise volatility",
+                        "dry_run": true
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(body["dry_run"], json!(true));
+    assert_eq!(body["full_supply_price_multiplier"], json!("20"));
+    assert_eq!(body["curve_depth_divisor"], json!("15"));
+    assert_eq!(body["max_reset_demand_ratio"], json!("0.025"));
+}
+
+#[tokio::test]
+async fn recalibrate_price_curves_rejects_a_curve_deeper_than_the_supply() {
+    let response = build_router(AppState::new(StubExecutor::success(sample_response())))
+        .oneshot(
+            Request::post("/internal/v1/instruments/price-curves/recalibrate")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "request_id": "curve-recalibration-2",
+                        "full_supply_price_multiplier": "20",
+                        "curve_depth_divisor": "0.5",
+                        "reason": "too deep"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(body["code"], json!("invalid_curve_calibration"));
 }

@@ -15,6 +15,7 @@ from app.clients.trading_engine import (
     IssueInitialSupplyCommand,
     LedgerReason,
     OrderSide,
+    RecalibratePriceCurvesCommand,
     SetPreMarketPriceCommand,
     TradingEngineClientError,
     TradingEngineUnavailableError,
@@ -219,6 +220,51 @@ class TradingEngineClientTests(unittest.TestCase):
             {"request_id": "price-1", "instrument_id": str(instrument_id), "new_price": "12.5"},
         )
         self.assertEqual(result.old_price, "10.0000")
+
+    def test_recalibrate_price_curves_defaults_to_a_dry_run(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(incoming: httpx.Request) -> httpx.Response:
+            requests.append(incoming)
+            body = json.loads(incoming.content)
+            return httpx.Response(
+                200,
+                json={
+                    "request_id": body["request_id"],
+                    "dry_run": body["dry_run"],
+                    "full_supply_price_multiplier": "20",
+                    "curve_depth_divisor": "15",
+                    "instrument_count": 421,
+                    "reset_net_demand_count": 380,
+                    "max_reset_demand_ratio": "0.0425",
+                    "previous_min_multiplier": "4.000000",
+                    "previous_max_multiplier": "4.000000",
+                },
+            )
+
+        client = HttpTradingEngineClient(
+            "http://trading-engine.test", transport=httpx.MockTransport(handler)
+        )
+        result = client.recalibrate_price_curves(
+            RecalibratePriceCurvesCommand("curves-1", "20", "15", "more volatility")
+        )
+
+        self.assertEqual(
+            requests[0].url.path, "/internal/v1/instruments/price-curves/recalibrate"
+        )
+        self.assertEqual(
+            json.loads(requests[0].content),
+            {
+                "request_id": "curves-1",
+                "full_supply_price_multiplier": "20",
+                "curve_depth_divisor": "15",
+                "reason": "more volatility",
+                "dry_run": True,
+            },
+        )
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.instrument_count, 421)
+        self.assertEqual(result.previous_max_multiplier, "4.000000")
 
     def test_http_error_is_retryable_unavailable_error(self) -> None:
         client = HttpTradingEngineClient(

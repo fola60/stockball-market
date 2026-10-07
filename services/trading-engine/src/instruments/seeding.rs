@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     instruments::InstrumentError,
-    price_impact::DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER,
+    price_impact::CurveCalibration,
     snapshots::{self, PriceSnapshotReason},
 };
 
@@ -32,7 +32,12 @@ struct SeedCandidateRow {
     existing_instrument_id: Option<Uuid>,
 }
 
-pub async fn seed_player_shares(pool: &PgPool) -> Result<SeedPlayerSharesResult, InstrumentError> {
+/// Lists every unlisted player, starting each curve with `calibration` so new players trade on
+/// the same scale as the rest of the market.
+pub async fn seed_player_shares(
+    pool: &PgPool,
+    calibration: CurveCalibration,
+) -> Result<SeedPlayerSharesResult, InstrumentError> {
     let mut transaction = pool.begin().await?;
     let candidates = list_seed_candidates(&mut transaction).await?;
 
@@ -57,6 +62,7 @@ pub async fn seed_player_shares(pool: &PgPool) -> Result<SeedPlayerSharesResult,
             &symbol_for_player(&candidate.display_name, candidate.player_id),
             &format!("{} Share", candidate.display_name),
             initial_price,
+            calibration,
         )
         .await?;
 
@@ -182,7 +188,9 @@ async fn insert_player_share_instrument(
     symbol: &str,
     display_name: &str,
     current_price: Decimal,
+    calibration: CurveCalibration,
 ) -> Result<Uuid, InstrumentError> {
+    let shares_outstanding = SHARES_OUTSTANDING.round_dp(6);
     let instrument_id = sqlx::query_scalar::<_, Uuid>(
         r#"
         INSERT INTO instruments (
@@ -195,6 +203,7 @@ async fn insert_player_share_instrument(
             shares_outstanding,
             net_shares_purchased,
             full_supply_price_multiplier,
+            curve_depth_shares,
             trading_status
         ) VALUES (
             'PLAYER_SHARE',
@@ -206,6 +215,7 @@ async fn insert_player_share_instrument(
             $6,
             0,
             $7,
+            $8,
             'ACTIVE'
         )
         RETURNING id
@@ -216,8 +226,9 @@ async fn insert_player_share_instrument(
     .bind(display_name)
     .bind(current_price)
     .bind(current_price)
-    .bind(SHARES_OUTSTANDING.round_dp(6))
-    .bind(DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER)
+    .bind(shares_outstanding)
+    .bind(calibration.full_supply_price_multiplier)
+    .bind(calibration.curve_depth_shares(shares_outstanding))
     .fetch_one(&mut *connection)
     .await?;
 

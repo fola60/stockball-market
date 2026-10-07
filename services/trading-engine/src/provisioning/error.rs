@@ -41,6 +41,12 @@ pub enum ProvisioningError {
     #[error("instrument {0} already has orders, trades, or positions")]
     MarketActivityExists(Uuid),
 
+    #[error("reason must not be empty")]
+    EmptyReason,
+
+    #[error("invalid price curve calibration: {0}")]
+    InvalidCurveCalibration(String),
+
     #[error(transparent)]
     Idempotency(#[from] IdempotencyError),
 

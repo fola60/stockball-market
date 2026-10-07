@@ -19,6 +19,8 @@ pub struct Instrument {
     pub shares_outstanding: Decimal,
     pub net_shares_purchased: Decimal,
     pub full_supply_price_multiplier: Decimal,
+    /// Net shares that carry the price to `full_supply_price_multiplier` times the reference.
+    pub curve_depth_shares: Decimal,
     pub status: InstrumentStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

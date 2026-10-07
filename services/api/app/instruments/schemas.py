@@ -39,6 +39,7 @@ class InstrumentResponse(BaseModel):
     quantity_outstanding: str
     net_shares_purchased: str
     full_supply_price_multiplier: str
+    curve_depth_shares: str
     status: InstrumentStatus
     created_at: datetime
     updated_at: datetime

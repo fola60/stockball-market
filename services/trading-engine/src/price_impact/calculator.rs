@@ -17,9 +17,15 @@ pub struct PriceImpactQuote {
     pub net_shares_purchased_after: Decimal,
 }
 
+/// Quotes a trade on an exponential price curve.
+///
+/// The price is `reference_price × multiplier ^ (net_shares_purchased ÷ curve_depth_shares)`:
+/// net buying of `curve_depth_shares` reaches `multiplier` times the reference price, and the
+/// same net selling reaches its reciprocal. The depth is usually a fraction of the supply, so
+/// it sets how far each traded share moves the price.
 pub fn quote_trade(
     reference_price: Decimal,
-    shares_outstanding: Decimal,
+    curve_depth_shares: Decimal,
     net_shares_purchased: Decimal,
     full_supply_price_multiplier: Decimal,
     quantity: Decimal,
@@ -27,7 +33,7 @@ pub fn quote_trade(
 ) -> Result<PriceImpactQuote, PriceImpactError> {
     validate_curve_state(
         reference_price,
-        shares_outstanding,
+        curve_depth_shares,
         net_shares_purchased,
         full_supply_price_multiplier,
     )?;
@@ -38,7 +44,7 @@ pub fn quote_trade(
 
     let net_shares_purchased_after = match direction {
         PriceImpactDirection::Buy => {
-            let available = checked_sub(shares_outstanding, net_shares_purchased)?;
+            let available = checked_sub(curve_depth_shares, net_shares_purchased)?;
             if quantity > available {
                 return Err(PriceImpactError::BuyExceedsCurveLimit {
                     available,
@@ -48,7 +54,7 @@ pub fn quote_trade(
             checked_add(net_shares_purchased, quantity)?
         }
         PriceImpactDirection::Sell => {
-            let available = checked_add(shares_outstanding, net_shares_purchased)?;
+            let available = checked_add(curve_depth_shares, net_shares_purchased)?;
             if quantity > available {
                 return Err(PriceImpactError::SellExceedsCurveLimit {
                     available,
@@ -61,13 +67,13 @@ pub fn quote_trade(
 
     let old_price = price_at(
         reference_price,
-        shares_outstanding,
+        curve_depth_shares,
         net_shares_purchased,
         full_supply_price_multiplier,
     )?;
     let new_price = price_at(
         reference_price,
-        shares_outstanding,
+        curve_depth_shares,
         net_shares_purchased_after,
         full_supply_price_multiplier,
     )?;
@@ -75,14 +81,14 @@ pub fn quote_trade(
     // Adjacent trades then share the same endpoint and their stored costs telescope exactly.
     let old_cost = cumulative_cost(
         reference_price,
-        shares_outstanding,
+        curve_depth_shares,
         net_shares_purchased,
         full_supply_price_multiplier,
     )?
     .round_dp(STORED_MONEY_DECIMAL_PLACES);
     let new_cost = cumulative_cost(
         reference_price,
-        shares_outstanding,
+        curve_depth_shares,
         net_shares_purchased_after,
         full_supply_price_multiplier,
     )?
@@ -104,22 +110,20 @@ pub fn quote_trade(
 
 fn validate_curve_state(
     reference_price: Decimal,
-    shares_outstanding: Decimal,
+    curve_depth_shares: Decimal,
     net_shares_purchased: Decimal,
     full_supply_price_multiplier: Decimal,
 ) -> Result<(), PriceImpactError> {
     if reference_price <= Decimal::ZERO {
         return Err(PriceImpactError::NonPositiveReferencePrice(reference_price));
     }
-    if shares_outstanding <= Decimal::ZERO {
-        return Err(PriceImpactError::NonPositiveSharesOutstanding(
-            shares_outstanding,
-        ));
+    if curve_depth_shares <= Decimal::ZERO {
+        return Err(PriceImpactError::NonPositiveCurveDepth(curve_depth_shares));
     }
-    if net_shares_purchased < -shares_outstanding || net_shares_purchased > shares_outstanding {
+    if net_shares_purchased < -curve_depth_shares || net_shares_purchased > curve_depth_shares {
         return Err(PriceImpactError::InvalidNetSharesPurchased {
             net_shares_purchased,
-            shares_outstanding,
+            curve_depth_shares,
         });
     }
     if full_supply_price_multiplier <= Decimal::ONE {
@@ -132,11 +136,11 @@ fn validate_curve_state(
 
 fn price_at(
     reference_price: Decimal,
-    shares_outstanding: Decimal,
+    curve_depth_shares: Decimal,
     net_shares_purchased: Decimal,
     full_supply_price_multiplier: Decimal,
 ) -> Result<Decimal, PriceImpactError> {
-    let position = checked_div(net_shares_purchased, shares_outstanding)?;
+    let position = checked_div(net_shares_purchased, curve_depth_shares)?;
     let multiplier = curve_growth(full_supply_price_multiplier, position)?;
 
     checked_mul(reference_price, multiplier)
@@ -144,18 +148,18 @@ fn price_at(
 
 fn cumulative_cost(
     reference_price: Decimal,
-    shares_outstanding: Decimal,
+    curve_depth_shares: Decimal,
     net_shares_purchased: Decimal,
     full_supply_price_multiplier: Decimal,
 ) -> Result<Decimal, PriceImpactError> {
-    let position = checked_div(net_shares_purchased, shares_outstanding)?;
+    let position = checked_div(net_shares_purchased, curve_depth_shares)?;
     let growth = curve_growth(full_supply_price_multiplier, position)?;
     let logarithm = full_supply_price_multiplier
         .checked_ln()
         .ok_or(PriceImpactError::CalculationOverflow)?;
-    let reference_market_value = checked_mul(reference_price, shares_outstanding)?;
+    let reference_curve_value = checked_mul(reference_price, curve_depth_shares)?;
 
-    checked_div(checked_mul(reference_market_value, growth)?, logarithm)
+    checked_div(checked_mul(reference_curve_value, growth)?, logarithm)
 }
 
 fn curve_growth(
@@ -197,6 +201,56 @@ mod tests {
 
     const REFERENCE_PRICE: Decimal = Decimal::from_parts(100, 0, 0, false, 0);
     const TOTAL_SHARES: Decimal = Decimal::from_parts(1_000_000, 0, 0, false, 0);
+
+    #[test]
+    fn a_shallower_curve_moves_further_for_the_same_trade() {
+        let multiplier = Decimal::from(20);
+        let quantity = Decimal::from(1_000);
+        let full = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES,
+            Decimal::ZERO,
+            multiplier,
+            quantity,
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+        let shallow = quote_trade(
+            REFERENCE_PRICE,
+            TOTAL_SHARES / Decimal::from(15),
+            Decimal::ZERO,
+            multiplier,
+            quantity,
+            PriceImpactDirection::Buy,
+        )
+        .unwrap();
+
+        // 20^(1000/1e6) − 1 ≈ 0.30% on the full supply, 20^(1000/66666.67) − 1 ≈ 4.6% on a
+        // fifteenth of it: fifteen times the exponent.
+        let full_move = (full.new_price / REFERENCE_PRICE).ln();
+        let shallow_move = (shallow.new_price / REFERENCE_PRICE).ln();
+        assert!((shallow_move / full_move - Decimal::from(15)).abs() < Decimal::new(1, 6));
+        assert_eq!(shallow.net_shares_purchased_after, quantity);
+    }
+
+    #[test]
+    fn a_shallow_curve_ends_at_its_depth() {
+        let depth = TOTAL_SHARES / Decimal::from(15);
+        let error = quote_trade(
+            REFERENCE_PRICE,
+            depth,
+            depth - Decimal::from(10),
+            Decimal::from(20),
+            Decimal::from(11),
+            PriceImpactDirection::Buy,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PriceImpactError::BuyExceedsCurveLimit { .. }
+        ));
+    }
 
     #[test]
     fn buying_the_full_supply_reaches_the_configured_multiplier() {

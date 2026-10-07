@@ -10,9 +10,11 @@ use crate::{
     instruments::{self, InstrumentError, SeedPlayerSharesResult},
     ledger::CashLedgerEntry,
     orders::ExecuteOrderCommand,
+    price_impact::CurveCalibration,
     provisioning::{
         self, ApplyOpeningBalanceCommand, IssueInitialSupplyCommand, IssueInitialSupplyResult,
-        PreMarketPriceResult, ProvisioningError, SetPreMarketPriceCommand,
+        PreMarketPriceResult, ProvisioningError, RecalibratePriceCurvesCommand,
+        RecalibratePriceCurvesResult, SetPreMarketPriceCommand,
     },
     topups::{self, ApplyTopupCommand, TopupError},
 };
@@ -49,6 +51,11 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
         command: SetPreMarketPriceCommand,
     ) -> Result<PreMarketPriceResult, ProvisioningError>;
 
+    async fn recalibrate_price_curves(
+        &self,
+        command: RecalibratePriceCurvesCommand,
+    ) -> Result<RecalibratePriceCurvesResult, ProvisioningError>;
+
     async fn apply_freeze(
         &self,
         command: ApplyFreezeCommand,
@@ -63,11 +70,21 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
 #[derive(Debug, Clone)]
 pub struct SqlOrderExecutor {
     pool: PgPool,
+    // The curve newly seeded players start on.
+    seed_curve: CurveCalibration,
 }
 
 impl SqlOrderExecutor {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            seed_curve: CurveCalibration::default(),
+        }
+    }
+
+    pub fn with_seed_curve(mut self, seed_curve: CurveCalibration) -> Self {
+        self.seed_curve = seed_curve;
+        self
     }
 }
 
@@ -88,7 +105,7 @@ impl OrderExecutor for SqlOrderExecutor {
     }
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError> {
-        instruments::seed_player_shares(&self.pool).await
+        instruments::seed_player_shares(&self.pool, self.seed_curve).await
     }
 
     async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError> {
@@ -114,6 +131,13 @@ impl OrderExecutor for SqlOrderExecutor {
         command: SetPreMarketPriceCommand,
     ) -> Result<PreMarketPriceResult, ProvisioningError> {
         provisioning::set_pre_market_price(&self.pool, command).await
+    }
+
+    async fn recalibrate_price_curves(
+        &self,
+        command: RecalibratePriceCurvesCommand,
+    ) -> Result<RecalibratePriceCurvesResult, ProvisioningError> {
+        provisioning::recalibrate_price_curves(&self.pool, command).await
     }
 
     async fn apply_freeze(

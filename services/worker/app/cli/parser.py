@@ -156,6 +156,40 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off seed command, default: INFO",
     )
+    recalibrate_curves = subcommands.add_parser(
+        "recalibrate-price-curves",
+        help=(
+            "re-anchor every player-share price curve at its current price with a new shape; "
+            "a dry run unless --apply is given"
+        ),
+    )
+    recalibrate_curves.add_argument(
+        "--multiplier",
+        required=True,
+        help="price multiple reached at the end of the curve, e.g. 20",
+    )
+    recalibrate_curves.add_argument(
+        "--depth-divisor",
+        required=True,
+        help="the curve spans shares_outstanding / this many net shares, e.g. 15",
+    )
+    recalibrate_curves.add_argument(
+        "--reason", required=True, help="why the curves are changing; kept with the result"
+    )
+    recalibrate_curves.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the recalibration; without it the engine reports and rolls back",
+    )
+    recalibrate_curves.add_argument(
+        "--request-id",
+        help="idempotency key; defaults to one per UTC day and calibration",
+    )
+    recalibrate_curves.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off command, default: INFO",
+    )
     spawn_synthetic_traders = subcommands.add_parser(
         "spawn-synthetic-traders",
         help="create synthetic trader accounts through the API and attach worker bot configs",
