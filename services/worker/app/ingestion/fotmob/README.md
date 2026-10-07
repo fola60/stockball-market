@@ -1,7 +1,9 @@
 # FotMob player match ratings
 
-Final Premier League match ratings, on FotMob's native 0–10 scale. This module does not
-change synthetic-trader or trading-engine inputs. `player_match_ratings` stores one
+Final Premier League match ratings, on FotMob's native 0–10 scale. With
+`STOCKBALL_MATCH_RATING_SIGNALS_ENABLED=true`, synthetic traders read them through
+`app.player_stats.ratings` and the `EVENT_REACTION` engine (see
+`synthetic_traders/STRATEGY_ENGINES.md`). Prices still move only through orders. `player_match_ratings` stores one
 appearance per provider match/player. `player_season_ratings` provides the unweighted
 mean of published ratings, appearance counts, minutes and latest match date.
 Missing ratings remain NULL; unused substitutes are excluded.

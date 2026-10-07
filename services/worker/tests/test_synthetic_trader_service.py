@@ -624,3 +624,117 @@ def _noise_payload() -> dict[str, object]:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EventReactionServiceTests(unittest.TestCase):
+    def test_event_reactor_loads_next_fixture_odds_and_reports_players_without_events(
+        self,
+    ) -> None:
+        from app.synthetic_traders import MatchEventContext
+        from app.synthetic_traders.engines import EventReactionStrategyEngine
+        from tests.test_synthetic_trader_configs import _event_reaction_payload
+
+        as_of = datetime(2026, 10, 18, 20, 0, tzinfo=UTC)
+        bot = SyntheticTraderBotRecord(
+            id=uuid4(),
+            account_id=uuid4(),
+            portfolio_id=uuid4(),
+            config_id=uuid4(),
+            bot_key="reactor",
+            display_name="Reactor",
+            status=BotStatus.ACTIVE,
+            config_overrides={},
+            last_ticked_at=None,
+            next_tick_after=None,
+            created_at=as_of,
+            updated_at=as_of,
+        )
+        base = CandidateInstrumentContext(
+            instrument_id=uuid4(),
+            player_id=uuid4(),
+            symbol="PLAYER-1",
+            display_name="Player One",
+            club="Arsenal",
+            position="MID",
+            current_price=Decimal("20"),
+            trading_status="ACTIVE",
+            current_holding_quantity=Decimal("0"),
+            current_holding_value=Decimal("0"),
+            market_value_observation=None,
+            market_value_observed_at=None,
+            recent_prices=(PricePoint(price=Decimal("20"), captured_at=as_of),),
+            recent_trades=(),
+            stats=PlayerStatsContext(),
+            social=SocialSignalContext(),
+        )
+        reacted = replace(
+            base,
+            match_event=MatchEventContext(
+                provider_match_id="4813377",
+                kickoff_at=as_of - timedelta(hours=7),
+                known_at=as_of - timedelta(hours=4, minutes=30),
+                rating=9.1,
+                minutes_played=90,
+                baseline_rating=7.0,
+                baseline_nineties=20.0,
+            ),
+        )
+        quiet = replace(base, instrument_id=uuid4(), player_id=uuid4())
+
+        class RecordingRepository(FakeSyntheticTraderRepository):
+            def load_candidate_instruments(self, portfolio, as_of, *, betting_lookback_minutes=None):
+                self.betting_lookbacks.append(betting_lookback_minutes)
+                return super().load_candidate_instruments(portfolio, as_of)
+
+        repository = RecordingRepository(
+            bot=bot,
+            config=SyntheticTraderBotConfigRecord(
+                id=bot.config_id,
+                config_key="EVENT_REACTION_MEASURED",
+                display_name="Measured Post-Match Reactor",
+                strategy_engine=StrategyEngine.EVENT_REACTION,
+                version=1,
+                config=_event_reaction_payload(),
+                enabled=True,
+                created_at=as_of,
+                updated_at=as_of,
+            ),
+            portfolio=BotPortfolioContext(
+                account_id=bot.account_id,
+                portfolio_id=bot.portfolio_id,
+                cash_balance=Decimal("10000"),
+                total_position_value=Decimal("0"),
+                total_equity=Decimal("10000"),
+                positions=(),
+            ),
+            activity=BotActivityContext(
+                daily_trade_count=0, daily_turnover_cash=Decimal("0"), last_order_at=None
+            ),
+            candidates=(reacted, quiet),
+        )
+        repository.betting_lookbacks = []
+
+        class AlwaysTrade:
+            def random(self) -> float:
+                return 0.0
+
+            def uniform(self, lower: float, upper: float) -> float:
+                return (lower + upper) / 2
+
+        client = FakeTradingEngineClient(repository.portfolio)
+        service = SyntheticTraderService(
+            repository=repository,
+            trading_engine_client=client,
+            random_source=AlwaysTrade(),  # type: ignore[arg-type]
+            engine_registry={StrategyEngine.EVENT_REACTION: EventReactionStrategyEngine()},
+        )
+
+        result = service.tick_due_bots(as_of)
+
+        self.assertEqual(repository.betting_lookbacks, [720])
+        self.assertEqual(result.diagnostics[0].candidate_exclusions["no_recent_match_event"], 1)
+        self.assertEqual(result.submitted_count, 1)
+        self.assertEqual(client.commands[0].instrument_id, reacted.instrument_id)
+        self.assertEqual(client.commands[0].side, OrderSide.BUY)
+        explained = result.diagnostics[0].explanation["decisions"][0]["components"]
+        self.assertEqual(explained["action"], "react")

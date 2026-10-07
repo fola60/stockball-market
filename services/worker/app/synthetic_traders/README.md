@@ -18,7 +18,7 @@ Synthetic traders are tagged accounts that behave like users but are controlled 
 
 - `models.py`: typed records for bot configs, bot state, portfolio context, candidate instruments, decisions, and tick outcomes.
 - `config.py`: dataclass-based config parsing and validation for each supported engine.
-- `repository.py`: worker-owned PostgreSQL reads for due bots, portfolios, positions, trades, price snapshots, market values, stats, and player-linked betting odds.
+- `repository.py`: worker-owned PostgreSQL reads for due bots, portfolios, positions, trades, price snapshots, market values, stats, player-linked betting odds, and (when `STOCKBALL_MATCH_RATING_SIGNALS_ENABLED`) FotMob rating profiles, recent rated matches and their closing odds.
 - `service.py`: bot tick orchestration, universal risk filtering, idempotent request-id generation, and trading-engine submission.
 - `spawner.py`: bulk bootstrap flow that asks the API to provision accounts and then attaches worker bot config rows.
 - `engines/`: reusable strategy engine implementations.

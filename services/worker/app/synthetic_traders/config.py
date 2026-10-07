@@ -6,6 +6,7 @@ from uuid import UUID
 
 from .config_models import (
     DEFAULT_EXPLAINABILITY,
+    MAX_EVENT_WINDOW_HOURS,
     SUPPORTED_BETTING_MARKET_TYPES,
     AlphaDecisionConfig,
     BettingMarketInputsConfig,
@@ -14,6 +15,10 @@ from .config_models import (
     BettingMarketValueConfig,
     CandidateSelectionConfig,
     CandidateUniverseConfig,
+    EventReactionConfig,
+    EventReactionInputsConfig,
+    EventReactionLookbacks,
+    EventReactionSizingConfig,
     ExecutionConfig,
     ExplainabilityConfig,
     FairValueBlendConfig,
@@ -457,25 +462,7 @@ def _parse_betting_market_inputs(
     payload: Mapping[str, Any],
 ) -> BettingMarketInputsConfig:
     inputs = _section(payload, "betting_inputs")
-    raw_weights = _section(
-        inputs,
-        "market_type_weights",
-        parent="betting_inputs",
-    )
-    market_type_weights: dict[str, float] = {}
-    for market_type, value in raw_weights.items():
-        normalized_type = str(market_type).strip().upper()
-        if normalized_type not in SUPPORTED_BETTING_MARKET_TYPES:
-            raise SyntheticTraderConfigError(
-                "betting_inputs.market_type_weights contains unsupported market type "
-                f"{market_type!r}"
-            )
-        market_type_weights[normalized_type] = _positive_float(
-            value,
-            f"betting_inputs.market_type_weights.{market_type}",
-        )
-    if not market_type_weights:
-        raise SyntheticTraderConfigError("betting_inputs.market_type_weights must not be empty")
+    market_type_weights = _parse_market_type_weights(inputs, "betting_inputs")
     min_distinct_market_types = _positive_int(
         inputs.get("min_distinct_market_types"),
         "betting_inputs.min_distinct_market_types",
@@ -516,6 +503,89 @@ def _parse_betting_market_sizing(
         movement_multiplier=_positive_float(
             sizing.get("movement_multiplier"),
             "sizing.movement_multiplier",
+        ),
+        position_concentration_penalty=_ratio(
+            sizing.get("position_concentration_penalty"),
+            "sizing.position_concentration_penalty",
+        ),
+    )
+
+
+def _parse_market_type_weights(inputs: Mapping[str, Any], parent: str) -> dict[str, float]:
+    raw_weights = _section(inputs, "market_type_weights", parent=parent)
+    market_type_weights: dict[str, float] = {}
+    for market_type, value in raw_weights.items():
+        normalized_type = str(market_type).strip().upper()
+        if normalized_type not in SUPPORTED_BETTING_MARKET_TYPES:
+            raise SyntheticTraderConfigError(
+                f"{parent}.market_type_weights contains unsupported market type {market_type!r}"
+            )
+        market_type_weights[normalized_type] = _positive_float(
+            value,
+            f"{parent}.market_type_weights.{market_type}",
+        )
+    if not market_type_weights:
+        raise SyntheticTraderConfigError(f"{parent}.market_type_weights must not be empty")
+    return market_type_weights
+
+
+def _parse_event_reaction_lookbacks(payload: Mapping[str, Any]) -> EventReactionLookbacks:
+    lookbacks = _section(payload, "lookbacks")
+    event_window_hours = _positive_int(
+        lookbacks.get("event_window_hours"), "lookbacks.event_window_hours"
+    )
+    if event_window_hours > MAX_EVENT_WINDOW_HOURS:
+        raise SyntheticTraderConfigError(
+            f"lookbacks.event_window_hours must not exceed {MAX_EVENT_WINDOW_HOURS}"
+        )
+    return EventReactionLookbacks(
+        event_window_hours=event_window_hours,
+        betting_movement_minutes=_positive_int(
+            lookbacks.get("betting_movement_minutes"), "lookbacks.betting_movement_minutes"
+        ),
+    )
+
+
+def _parse_event_reaction_inputs(payload: Mapping[str, Any]) -> EventReactionInputsConfig:
+    inputs = _section(payload, "event_inputs")
+    # Durations are floats so per-bot randomized overrides parse.
+    return EventReactionInputsConfig(
+        min_minutes=_non_negative_int(inputs.get("min_minutes"), "event_inputs.min_minutes"),
+        surprise_scale=_positive_float(
+            inputs.get("surprise_scale"), "event_inputs.surprise_scale"
+        ),
+        expectation_weight=_non_negative_float(
+            inputs.get("expectation_weight", 0.0), "event_inputs.expectation_weight"
+        ),
+        half_life_hours=_positive_float(
+            inputs.get("half_life_hours"), "event_inputs.half_life_hours"
+        ),
+        reaction_delay_minutes=_non_negative_float(
+            inputs.get("reaction_delay_minutes", 0.0), "event_inputs.reaction_delay_minutes"
+        ),
+        holding_period_hours=_positive_float(
+            inputs.get("holding_period_hours"), "event_inputs.holding_period_hours"
+        ),
+        priced_in_move_pct=_positive_float(
+            inputs.get("priced_in_move_pct"), "event_inputs.priced_in_move_pct"
+        ),
+        movement_scale=_positive_float(
+            inputs.get("movement_scale"), "event_inputs.movement_scale"
+        ),
+        market_type_weights=_parse_market_type_weights(inputs, "event_inputs"),
+        unwind_fraction=_ratio(inputs.get("unwind_fraction", 1.0), "event_inputs.unwind_fraction"),
+    )
+
+
+def _parse_event_reaction_sizing(payload: Mapping[str, Any]) -> EventReactionSizingConfig:
+    sizing = _section(payload, "sizing")
+    return EventReactionSizingConfig(
+        base_cash_pct=_ratio(sizing.get("base_cash_pct"), "sizing.base_cash_pct"),
+        confidence_multiplier=_positive_float(
+            sizing.get("confidence_multiplier"), "sizing.confidence_multiplier"
+        ),
+        surprise_multiplier=_positive_float(
+            sizing.get("surprise_multiplier"), "sizing.surprise_multiplier"
         ),
         position_concentration_penalty=_ratio(
             sizing.get("position_concentration_penalty"),
@@ -836,6 +906,13 @@ def _positive_float(value: object, path: str) -> float:
     return parsed
 
 
+def _non_negative_float(value: object, path: str) -> float:
+    parsed = _float(value, path)
+    if parsed < 0:
+        raise SyntheticTraderConfigError(f"{path} must be greater than or equal to 0")
+    return parsed
+
+
 def _ratio(value: object, path: str) -> float:
     parsed = _float(value, path)
     if parsed < 0 or parsed > 1:
@@ -980,6 +1057,20 @@ def _betting_config(payload: Mapping[str, Any]) -> StrategyConfig:
     )
 
 
+def _event_reaction_config(payload: Mapping[str, Any]) -> StrategyConfig:
+    return EventReactionConfig(
+        universe=_parse_universe(payload),
+        lookbacks=_parse_event_reaction_lookbacks(payload),
+        signal_weights=_parse_float_mapping(payload, "signal_weights"),
+        event_inputs=_parse_event_reaction_inputs(payload),
+        decision=_parse_alpha_decision(payload),
+        risk=_parse_risk(payload),
+        sizing=_parse_event_reaction_sizing(payload),
+        execution=_parse_execution(payload),
+        explainability=_parse_explainability(payload),
+    )
+
+
 def _rebalancer_config(payload: Mapping[str, Any]) -> StrategyConfig:
     return PortfolioRebalancerConfig(
         portfolio_targets=_parse_portfolio_targets(payload),
@@ -1000,5 +1091,6 @@ _STRATEGY_PARSERS: Mapping[StrategyEngine, Callable[[Mapping[str, Any]], Strateg
     StrategyEngine.STATS_VALUE: _stats_config,
     StrategyEngine.SOCIAL_SENTIMENT: _social_config,
     StrategyEngine.BETTING_MARKET_VALUE: _betting_config,
+    StrategyEngine.EVENT_REACTION: _event_reaction_config,
     StrategyEngine.PORTFOLIO_REBALANCER: _rebalancer_config,
 }

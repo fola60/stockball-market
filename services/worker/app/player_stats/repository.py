@@ -12,6 +12,12 @@ from .profiles import (
     league_median_rates,
     per90_rates,
 )
+from .ratings import (
+    RECENT_RATED_APPEARANCES,
+    PlayerRatingProfile,
+    RatingTotals,
+    build_rating_profiles,
+)
 
 # Form compares the latest snapshot with the newest one at least this old.
 FORM_WINDOW_DAYS = 21
@@ -58,6 +64,54 @@ def load_stat_profiles(cursor: Any, season: int, as_of: date) -> dict[str, Playe
             form_base=form_base if form_base != totals else None,
         )
     return profiles
+
+
+def load_rating_profiles(
+    cursor: Any, season: int, as_of: datetime
+) -> dict[str, PlayerRatingProfile]:
+    """FotMob rating profiles for every linked player rated this season or last."""
+    current, previous = load_rating_totals(cursor, season, as_of)
+    return build_rating_profiles(season, current, previous)
+
+
+def load_rating_totals(
+    cursor: Any, season: int, as_of: datetime
+) -> tuple[dict[str, RatingTotals], dict[str, RatingTotals]]:
+    """Rated minutes for `season` and the one before, from matches kicked off by `as_of`."""
+    cursor.execute(
+        """
+        WITH rated AS (
+            SELECT r.player_id::text AS player_id, m.season, m.kickoff_at,
+                   r.rating::float8 AS rating, LEAST(r.minutes_played, 90) / 90.0 AS nineties,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY r.player_id, m.season ORDER BY m.kickoff_at DESC, m.match_id
+                   ) AS recency
+            FROM player_match_ratings AS r
+            JOIN fotmob_matches AS m ON m.match_id = r.provider_match_id
+            WHERE r.player_id IS NOT NULL AND r.rating IS NOT NULL AND r.minutes_played > 0
+              AND m.season IN (%(season)s, %(season)s - 1) AND m.kickoff_at <= %(as_of)s
+        )
+        SELECT player_id, season,
+               sum(rating * nineties) AS weighted_sum, sum(nineties) AS nineties,
+               COALESCE(sum(rating * nineties) FILTER (WHERE recency <= %(recent)s), 0)
+                   AS recent_weighted_sum,
+               COALESCE(sum(nineties) FILTER (WHERE recency <= %(recent)s), 0) AS recent_nineties,
+               max(kickoff_at) AS latest_match_at
+        FROM rated
+        GROUP BY player_id, season
+        """,
+        {"season": season, "as_of": as_of, "recent": RECENT_RATED_APPEARANCES},
+    )
+    totals: dict[int, dict[str, RatingTotals]] = {season: {}, season - 1: {}}
+    for row in cursor.fetchall():
+        totals[int(row["season"])][str(row["player_id"])] = RatingTotals(
+            weighted_sum=float(row["weighted_sum"]),
+            nineties=float(row["nineties"]),
+            recent_weighted_sum=float(row["recent_weighted_sum"]),
+            recent_nineties=float(row["recent_nineties"]),
+            latest_match_at=row["latest_match_at"],
+        )
+    return totals[season], totals[season - 1]
 
 
 def _latest_snapshots(cursor: Any, season: int, on_or_before: date) -> dict[str, SeasonTotals]:

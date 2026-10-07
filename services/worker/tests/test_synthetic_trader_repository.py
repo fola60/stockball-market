@@ -352,3 +352,75 @@ class MentionSpikeTests(unittest.TestCase):
         self.assertAlmostEqual(_mention_spike_zscore(2, 1.0, 2.0), 0.0)
         # A usually silent player is scored against a floor of one expected mention.
         self.assertAlmostEqual(_mention_spike_zscore(3, 1.0, 0.0), 3.0)
+
+
+class MatchRatingLoadingTests(unittest.TestCase):
+    AS_OF = datetime(2026, 10, 18, 20, 0, tzinfo=UTC)
+
+    def _rating_rows(self, player_id: str) -> list[dict]:
+        latest = self.AS_OF - timedelta(hours=4)
+        return [
+            # This season: four full matches, the last a 9.0.
+            {"player_id": player_id, "season": 2026, "weighted_sum": 7.0 * 3 + 9.0,
+             "nineties": 4.0, "recent_weighted_sum": 7.0 * 3 + 9.0, "recent_nineties": 4.0,
+             "latest_match_at": latest},
+            {"player_id": "regular", "season": 2025, "weighted_sum": 7.0 * 30,
+             "nineties": 30.0, "recent_weighted_sum": 35.0, "recent_nineties": 5.0,
+             "latest_match_at": latest - timedelta(days=150)},
+        ]
+
+    def test_disabled_signals_leave_ratings_and_events_empty(self) -> None:
+        player_id = str(uuid4())
+        cursor = SequencedCursor([[], [], []])
+        repo = PostgresSyntheticTraderRepository("unused")
+
+        stats, events = repo._load_stats(cursor, [player_id], self.AS_OF)
+
+        self.assertEqual((stats, events), ({}, {}))
+        self.assertEqual(len(cursor.executed), 3)
+
+    def test_enabled_signals_fill_ratings_and_judge_the_latest_match(self) -> None:
+        player_id = str(uuid4())
+        kickoff = self.AS_OF - timedelta(hours=6, minutes=15)
+        known_at = self.AS_OF - timedelta(hours=4)
+        cursor = SequencedCursor(
+            [
+                [],
+                [],
+                [],
+                self._rating_rows(player_id),
+                [
+                    {"player_id": player_id, "match_id": "4813377", "kickoff_at": kickoff,
+                     "rating": 9.0, "minutes_played": 90, "team_name": "Arsenal",
+                     "opponent_name": "Chelsea", "known_at": known_at},
+                ],
+                [
+                    {"player_id": player_id, "provider_event_id": "evt",
+                     "canonical_selection_key": "SCORE_OR_ASSIST|FULL_MATCH|ANYTIME|1|p",
+                     "market_type": "SCORE_OR_ASSIST", "outcome_type": "ANYTIME",
+                     "line": Decimal("1"), "decimal_odds": Decimal("3.0"),
+                     "implied_probability": Decimal("0.3333"),
+                     "observed_at": kickoff - timedelta(minutes=3), "kickoff_at": kickoff},
+                ],
+            ]
+        )
+        repo = PostgresSyntheticTraderRepository("unused", match_rating_signals_enabled=True)
+
+        stats, events = repo._load_stats(cursor, [player_id], self.AS_OF)
+
+        rating = stats[player_id]
+        # (4 nineties at 7.5 + 8 at the 7.0 league median) / 12
+        self.assertAlmostEqual(rating.average_rating or 0.0, (30.0 + 56.0) / 12.0)
+        self.assertEqual(rating.rated_nineties, 4.0)
+        self.assertIsNotNone(rating.rating_strength)
+        event = events[player_id]
+        # Judged against the season before the 9.0: three 7.0s steadied with the league.
+        self.assertAlmostEqual(event.baseline_rating, 7.0)
+        self.assertEqual(event.baseline_nineties, 3.0)
+        self.assertEqual(event.opponent_name, "Chelsea")
+        self.assertEqual(len(event.closing_quotes), 1)
+        events_query, events_params = cursor.executed[4]
+        self.assertIn("known.known_at <= %(as_of)s", events_query)
+        self.assertEqual(events_params["season"], 2026)
+        _, quote_params = cursor.executed[5]
+        self.assertEqual(quote_params["kickoffs"], [kickoff])

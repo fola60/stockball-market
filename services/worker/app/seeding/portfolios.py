@@ -476,6 +476,8 @@ _POSITION_BREADTH = {
     StrategyEngine.MARKET_MOMENTUM: 0.9,
     StrategyEngine.NOISE: 0.8,
     StrategyEngine.SOCIAL_SENTIMENT: 0.8,
+    # Short-horizon traders unwind after each match; a small book keeps that selling modest.
+    StrategyEngine.EVENT_REACTION: 0.6,
 }
 
 
@@ -745,6 +747,8 @@ def _profile_weight(
         return 0.10 + 0.15 * market + 0.75 * random_score
     if bot.strategy_engine is StrategyEngine.PORTFOLIO_REBALANCER:
         return 1.0 + 0.05 * stats + 0.05 * market + 0.05 * random_score
+    if bot.strategy_engine is StrategyEngine.EVENT_REACTION:
+        return 0.10 + 0.35 * stats + 0.30 * betting + 0.25 * random_score
     if bot.strategy_engine is StrategyEngine.SOCIAL_SENTIMENT:
         # News follows famous players, so lean on market value; the rest is taste.
         return 0.10 + 0.35 * market + 0.55 * random_score

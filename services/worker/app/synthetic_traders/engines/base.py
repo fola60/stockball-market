@@ -274,11 +274,37 @@ def positive_score(value: float, scale: float) -> float:
     return clamp(value / scale, -1.0, 1.0)
 
 
-def stats_confirmation(stats: PlayerStatsContext) -> float:
-    """-1..1: how strong a player's stats look. Uses a match rating when the provider supplies
-    one, otherwise the player's league percentile on per-90 contribution."""
+# Season ratings of Premier League regulars in 2025-26 FotMob data: median about 6.95, with
+# 6.49 and 7.38 at the 5th and 95th percentiles. Used only when no league percentile is known.
+TYPICAL_SEASON_RATING = 6.95
+SEASON_RATING_SPREAD = 0.45
+
+
+def rating_score(stats: PlayerStatsContext) -> float | None:
+    """-1..1: how well the player rates against the league, or None without ratings.
+
+    Prefers the league percentile; a lone rating is placed on the regulars' distribution, since
+    a linear 0-10 scale would squeeze nearly every season rating into a narrow band.
+    """
+    if stats.rating_strength is not None:
+        return clamp(stats.rating_strength, -1.0, 1.0)
     if stats.average_rating is not None:
-        return clamp((stats.average_rating - 6.5) / 2.0, -1.0, 1.0)
-    if stats.strength is not None:
-        return clamp(stats.strength, -1.0, 1.0)
-    return 0.0
+        return clamp(
+            (stats.average_rating - TYPICAL_SEASON_RATING) / SEASON_RATING_SPREAD, -1.0, 1.0
+        )
+    return None
+
+
+def stats_confirmation(stats: PlayerStatsContext) -> float:
+    """-1..1: how strong a player's stats look, averaging the league percentiles on per-90
+    contribution and on match rating that are available. A rating complements the per-90
+    view rather than replacing it, so players with and without ratings share one scale."""
+    scores = [
+        score
+        for score in (
+            None if stats.strength is None else clamp(stats.strength, -1.0, 1.0),
+            rating_score(stats),
+        )
+        if score is not None
+    ]
+    return fmean(scores) if scores else 0.0

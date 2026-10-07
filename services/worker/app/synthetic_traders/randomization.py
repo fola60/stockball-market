@@ -16,6 +16,10 @@ PROFILE_VARIATION_BY_CONFIG_KEY: dict[str, float] = {
     "PORTFOLIO_REBALANCER": 0.12,
     "BETTING_MARKET_CONSERVATIVE": 0.15,
     "BETTING_MARKET_AGGRESSIVE": 0.30,
+    "STATS_VALUE_RATINGS": 0.15,
+    "STATS_VALUE_FORM_CHASER": 0.25,
+    "EVENT_REACTION_MEASURED": 0.18,
+    "EVENT_REACTION_FAST": 0.30,
 }
 
 ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
@@ -112,6 +116,23 @@ ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
         "execution.trade_probability",
         "execution.size_noise_pct",
     ),
+    StrategyEngine.EVENT_REACTION: (
+        "signal_weights.*",
+        "event_inputs.surprise_scale",
+        "event_inputs.expectation_weight",
+        "event_inputs.half_life_hours",
+        "event_inputs.reaction_delay_minutes",
+        "event_inputs.holding_period_hours",
+        "event_inputs.priced_in_move_pct",
+        "event_inputs.market_type_weights.*",
+        "decision.buy_threshold",
+        "decision.sell_threshold",
+        "sizing.base_cash_pct",
+        "sizing.confidence_multiplier",
+        "sizing.surprise_multiplier",
+        "execution.trade_probability",
+        "execution.size_noise_pct",
+    ),
 }
 
 RATIO_FIELD_SUFFIXES = (
@@ -162,6 +183,8 @@ STATS_STYLE_GROUPS: dict[str, dict[str, float]] = {
 }
 # Weights a profile predates and the engine used to hard-code.
 _STATS_WEIGHT_DEFAULTS = {"minutes_weight": 0.15, "form_weight": 0.1}
+# Keeps an interest the profile ignores possible, if rare.
+MIN_STYLE_CONCENTRATION = 0.05
 
 
 def _sample_stats_style(
@@ -174,21 +197,30 @@ def _sample_stats_style(
 
     Jittering each weight around the profile's values leaves every bot with the same
     priorities, so they all rank players alike. Instead the bot's total stat weight is split
-    across interests (goal threat, creation, defence, reliability, form) by a Dirichlet draw:
-    one bot may be mostly about defending, another mostly about goals. Profiles with a wider
-    spread draw more lopsided styles.
+    across interests (goal threat, creation, defence, reliability, form) by a Dirichlet draw
+    centred on the profile's own mix: one bot may be mostly about defending, another mostly
+    about goals, while a form-chasing profile's bots still mostly chase form. Profiles with a
+    wider spread draw more lopsided styles; an evenly split profile draws as if uncentred.
     """
     base_inputs = _get_path(base_config, ("stats_inputs",))
     base_inputs = base_inputs if isinstance(base_inputs, Mapping) else {}
-    total = sum(
-        max(float(base_inputs.get(key, _STATS_WEIGHT_DEFAULTS.get(key, 0.0))), 0.0)
-        for group in STATS_STYLE_GROUPS.values()
-        for key in group
-    )
+    group_weights = {
+        name: sum(
+            max(float(base_inputs.get(key, _STATS_WEIGHT_DEFAULTS.get(key, 0.0))), 0.0)
+            for key in group
+        )
+        for name, group in STATS_STYLE_GROUPS.items()
+    }
+    total = sum(group_weights.values())
     if total <= 0:
         return
-    concentration = 0.2 / max(spread, 0.05)
-    draws = {name: random_source.gammavariate(concentration, 1.0) for name in STATS_STYLE_GROUPS}
+    concentration = 0.2 / max(spread, 0.05) * len(STATS_STYLE_GROUPS)
+    draws = {
+        name: random_source.gammavariate(
+            max(concentration * group_weights[name] / total, MIN_STYLE_CONCENTRATION), 1.0
+        )
+        for name in STATS_STYLE_GROUPS
+    }
     draw_total = sum(draws.values())
     for name, split in STATS_STYLE_GROUPS.items():
         share = draws[name] / draw_total
