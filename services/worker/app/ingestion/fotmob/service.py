@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from .client import FotMobClient
+from .client import FotMobClient, FotMobImageMissing
 from .parsing import parse_ratings
 from .repository import FotMobRepository
 
@@ -67,6 +67,7 @@ class FotMobIngestionService:
                     logger.warning("FotMob player profile %s unavailable: %s", player_id, error)
             if fetched_profiles:
                 identity_matches = self.repository.reconcile_player_matches()
+            images = self._ingest_images(limit=20, now=now)
             return {
                 "season": season,
                 "processed_matches": processed,
@@ -75,7 +76,35 @@ class FotMobIngestionService:
                 "matched_players": linked,
                 "identity_matches": identity_matches,
                 "fetched_profiles": fetched_profiles,
+                "images": images,
                 **self.repository.coverage(league, season),
             }
         finally:
             self.client.close()
+
+    def ingest_images(self, *, limit: int = 200, now: datetime | None = None) -> dict:
+        try:
+            return self._ingest_images(limit=limit, now=now or datetime.now(UTC))
+        finally:
+            self.client.close()
+
+    def _ingest_images(self, *, limit: int, now: datetime) -> dict:
+        fetched = missing = failed = 0
+        for player_id in self.repository.due_images(limit=limit, now=now):
+            try:
+                image = self.client.player_image(player_id)
+                self.repository.save_image(player_id, image)
+                fetched += 1
+            except FotMobImageMissing as error:
+                self.repository.record_image_failure(player_id, missing=True, error=str(error))
+                missing += 1
+            except Exception as error:
+                self.repository.record_image_failure(player_id, missing=False, error=str(error))
+                logger.warning("FotMob player image %s unavailable: %s", player_id, error)
+                failed += 1
+        return {
+            "fetched": fetched,
+            "missing": missing,
+            "failed": failed,
+            **self.repository.image_coverage(),
+        }

@@ -13,6 +13,7 @@ Missing ratings remain NULL; unused substitutes are excluded.
 ```sh
 scripts/local-ingestion.sh fotmob --season 2025 --backfill
 scripts/local-ingestion.sh fotmob --season 2026 --backfill
+scripts/local-ingestion.sh fotmob-images --max-images 200
 ```
 
 Seasons are start years: 2025 means 2025/26. The default league is FotMob 47
@@ -22,16 +23,18 @@ backfill resumes missing matches. Add `--refresh` to re-fetch completed matches,
 `--max-matches N` to bound a batch, or `--archive-dir /path/to/archive` to reuse
 previously downloaded JSON documents. Use `--refresh` to replace incomplete or
 invalid archived documents. The archive is used only for backfills;
-scheduled runs always retrieve current documents.
+scheduled runs always retrieve current documents. Repeat `fotmob-images` until
+`pending` is zero to backfill portraits for every player seen in those matches.
 
 ## Scheduled ingestion
 
-Apply migrations 0030 and 0031, deploy the ingestion worker and scheduler, then enable
+Apply migrations 0030, 0031 and 0034, deploy the ingestion worker and scheduler, then enable
 `STOCKBALL_FOTMOB_SCHEDULE_ENABLED=true` in their Compose environment. The admin
 Processes list exposes **FotMob player ratings**, with the existing start/pause controls.
 The scheduler creates an `INGEST_FOTMOB_RATINGS` run every 15 minutes, routed to the
 ingestion queue. Only one scheduled FotMob run can be in flight. Batches contain up
-to 40 completed matches and follow the current season each July.
+to 40 completed matches and follow the current season each July. Each run also
+fetches up to 20 due player portraits.
 
 Every poll rediscovers the complete season fixture list. A match becomes eligible
 15 minutes after it is first observed as finished. Previously completed matches
@@ -68,6 +71,18 @@ appearances preserved. Earlier automatic name-only references are rechecked.
 Reviewed references are retained. No players, instruments or prices are created.
 Historical players absent from the current canonical roster remain queryable by
 FotMob ID. No cross-provider fixture ID is guessed.
+
+## Player portraits
+
+The ingester requests the PNG portrait linked from each FotMob player page at
+`images.fotmob.com/image_resources/playerimages/{id}.png`. It verifies the response
+host, PNG content type, image structure, dimensions and one-megabyte size limit
+before storing the **image bytes** in `fotmob_player_images`. The source player ID
+remains the key, so an unmatched player can still have a portrait; canonical links
+are resolved through `player_provider_refs` rather than copied into image rows.
+Successful portraits refresh after 30 days. Missing images are checked again after
+30 days and transient failures after one day. A failed refresh retains the last
+valid image. The source URL, SHA-256 hash, fetch time and dimensions are retained.
 
 ## Verify coverage
 

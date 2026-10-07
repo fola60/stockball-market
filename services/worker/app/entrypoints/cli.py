@@ -20,6 +20,7 @@ COMMANDS: dict[str, Callable[..., int]] = {
     "ingest-player-stats": ingestion.ingest_player_stats,
     "import-market-values": ingestion.import_market_values,
     "ingest-fotmob-ratings": ingestion.ingest_fotmob_ratings,
+    "ingest-fotmob-images": ingestion.ingest_fotmob_images,
     "ingest-bet365-odds": ingestion.ingest_bet365_odds,
     "sync-twitter-injury-registry": ingestion.sync_twitter_injury_registry,
     "ingest-twitter-injuries": ingestion.ingest_twitter_injuries,

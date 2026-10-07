@@ -14,6 +14,7 @@ from psycopg2 import sql
 from psycopg2.extensions import make_dsn
 
 from app.database import connection
+from app.ingestion.fotmob.client import FotMobPlayerImage
 from app.ingestion.fotmob.parsing import PlayerRating
 from app.ingestion.fotmob.repository import FotMobRepository
 
@@ -38,6 +39,7 @@ def repository():
         migrations = Path(__file__).resolve().parents[3] / "infra/postgres/migrations"
         cur.execute((migrations / "0030_fotmob_player_ratings.sql").read_text())
         cur.execute((migrations / "0031_fotmob_player_identity_matches.sql").read_text())
+        cur.execute((migrations / "0034_fotmob_player_images.sql").read_text())
     try:
         yield FotMobRepository(make_dsn(url, options=f"-c search_path={schema},public"))
     finally:
@@ -190,3 +192,43 @@ def test_legacy_automatic_link_is_rechecked_but_reviewed_link_is_preserved(repos
     with connection(repository.database_url) as conn, conn.cursor() as cur:
         cur.execute("SELECT player_id::text FROM player_match_ratings")
         assert cur.fetchone()[0] == first_id
+
+
+def test_player_images_are_binary_resumable_and_preserved_on_refresh_failure(repository):
+    now = datetime.now(UTC)
+    match = fixture()
+    repository.discover([match], 47, 2025)
+    repository.save_ratings(
+        match,
+        [
+            PlayerRating("10", "One", "1", "Home", Decimal("7"), 90, {}),
+            PlayerRating("11", "Two", "1", "Home", Decimal("6"), 90, {}),
+        ],
+        "url",
+    )
+    assert repository.due_images(limit=10, now=now) == ["10", "11"]
+    image = FotMobPlayerImage(
+        "https://images.fotmob.com/image_resources/playerimages/10.png", b"png-data", 192, 192
+    )
+    repository.save_image("10", image)
+    repository.record_image_failure("11", missing=True, error="not found")
+    assert repository.due_images(limit=10, now=now + timedelta(days=1)) == []
+    assert repository.image_coverage() == {
+        "source_players": 2,
+        "ready": 1,
+        "missing": 1,
+        "failed": 0,
+        "pending": 0,
+    }
+    repository.record_image_failure("10", missing=False, error="timeout")
+    with connection(repository.database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT status,image_data,content_sha256,last_error FROM fotmob_player_images "
+            "WHERE provider_player_id='10'"
+        )
+        status, stored, digest, error = cur.fetchone()
+        assert status == "READY"
+        assert bytes(stored) == b"png-data"
+        assert len(digest) == 64
+        assert error == "timeout"
+    assert repository.due_images(limit=10, now=now + timedelta(days=2)) == ["10"]

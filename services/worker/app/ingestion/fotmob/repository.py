@@ -10,7 +10,7 @@ from psycopg2.extras import Json
 from app.database import connection
 from app.ingestion.market_values.repository import PostgresMarketValueRepository
 
-from .client import match_page_url
+from .client import IMAGE_BASE_URL, FotMobPlayerImage, match_page_url
 from .matching import FotMobIdentity, resolve_identity, source_name_counts
 from .parsing import PlayerRating, is_finished, timestamp
 
@@ -180,6 +180,107 @@ class FotMobRepository:
                     player_id,
                 ),
             )
+
+    def due_images(self, *, limit: int, now: datetime) -> list[str]:
+        if limit <= 0:
+            raise ValueError("image limit must be positive")
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH source_players AS (
+                    SELECT DISTINCT provider_player_id
+                    FROM player_match_ratings WHERE provider='FOTMOB'
+                )
+                SELECT s.provider_player_id
+                FROM source_players s
+                LEFT JOIN fotmob_player_images i USING (provider_player_id)
+                WHERE i.next_fetch_at IS NULL OR i.next_fetch_at <= %s
+                ORDER BY (i.provider_player_id IS NOT NULL),
+                         i.next_fetch_at NULLS FIRST, s.provider_player_id
+                LIMIT %s
+                """,
+                (now, limit),
+            )
+            return [row[0] for row in cur.fetchall()]
+
+    def save_image(self, player_id: str, image: FotMobPlayerImage) -> None:
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO fotmob_player_images
+                    (provider_player_id,source_url,status,image_data,content_type,
+                     content_sha256,width,height,fetched_at,last_attempt_at,next_fetch_at)
+                VALUES (%s,%s,'READY',%s,'image/png',%s,%s,%s,now(),now(),
+                        now() + interval '30 days')
+                ON CONFLICT (provider_player_id) DO UPDATE SET
+                    source_url=EXCLUDED.source_url,status='READY',
+                    image_data=EXCLUDED.image_data,content_type=EXCLUDED.content_type,
+                    content_sha256=EXCLUDED.content_sha256,width=EXCLUDED.width,
+                    height=EXCLUDED.height,fetched_at=EXCLUDED.fetched_at,
+                    last_attempt_at=EXCLUDED.last_attempt_at,
+                    next_fetch_at=EXCLUDED.next_fetch_at,last_error=NULL,updated_at=now()
+                """,
+                (
+                    player_id,
+                    image.source_url,
+                    image.data,
+                    hashlib.sha256(image.data).hexdigest(),
+                    image.width,
+                    image.height,
+                ),
+            )
+
+    def record_image_failure(self, player_id: str, *, missing: bool, error: str) -> None:
+        status = "MISSING" if missing else "FAILED"
+        retry_delay = timedelta(days=30 if missing else 1)
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO fotmob_player_images
+                    (provider_player_id,source_url,status,last_attempt_at,next_fetch_at,last_error)
+                VALUES (%s,%s,%s,now(),now() + %s,%s)
+                ON CONFLICT (provider_player_id) DO UPDATE SET
+                    status=CASE WHEN fotmob_player_images.status='READY' THEN 'READY'
+                                ELSE EXCLUDED.status END,
+                    last_attempt_at=EXCLUDED.last_attempt_at,
+                    next_fetch_at=EXCLUDED.next_fetch_at,
+                    last_error=EXCLUDED.last_error,updated_at=now()
+                """,
+                (
+                    player_id,
+                    f"{IMAGE_BASE_URL}/{player_id}.png",
+                    status,
+                    retry_delay,
+                    error[:500],
+                ),
+            )
+
+    def image_coverage(self) -> dict[str, int]:
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH source_players AS (
+                    SELECT DISTINCT provider_player_id
+                    FROM player_match_ratings WHERE provider='FOTMOB'
+                )
+                SELECT count(*),count(*) FILTER (WHERE i.status='READY'),
+                       count(*) FILTER (WHERE i.status='MISSING'),
+                       count(*) FILTER (WHERE i.status='FAILED'),
+                       count(*) FILTER (WHERE i.status IS NULL)
+                FROM source_players s
+                LEFT JOIN fotmob_player_images i USING (provider_player_id)
+                """
+            )
+            row = cur.fetchone()
+            assert row is not None
+            total, ready, missing, failed, pending = row
+            return {
+                "source_players": total,
+                "ready": ready,
+                "missing": missing,
+                "failed": failed,
+                "pending": pending,
+            }
 
     def reconcile_player_matches(self) -> dict[str, int]:
         """Apply market-value identity rules to every historical FotMob player ID.

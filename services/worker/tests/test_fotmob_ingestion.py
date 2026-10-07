@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import copy
 import json
 from datetime import UTC, date, datetime
@@ -11,6 +12,7 @@ import httpx
 import pytest
 
 from app.ingestion.fotmob import FotMobClient, FotMobError, FotMobIngestionService
+from app.ingestion.fotmob.client import FotMobImageMissing, FotMobPlayerImage
 from app.ingestion.fotmob.matching import FotMobIdentity, resolve_identity, source_name_counts
 from app.ingestion.fotmob.parsing import is_finished, parse_ratings
 from app.ingestion.market_values.matching import PlayerCandidate
@@ -170,6 +172,14 @@ def test_failed_match_does_not_prevent_later_matches_or_checkpoint(match_data):
     repository.save_ratings.return_value = 22
     repository.reconcile_player_matches.return_value = {"MATCHED": 22}
     repository.missing_profile_ids.return_value = []
+    repository.due_images.return_value = []
+    repository.image_coverage.return_value = {
+        "source_players": 0,
+        "ready": 0,
+        "missing": 0,
+        "failed": 0,
+        "pending": 0,
+    }
     client = Mock()
     client.fixtures.return_value = ("url", "body", [second, fixture])
     client.match.side_effect = [httpx.ReadTimeout("timeout"), ("url", "{}", data)]
@@ -178,6 +188,71 @@ def test_failed_match_does_not_prevent_later_matches_or_checkpoint(match_data):
     assert result["processed_matches"] == 1
     repository.save_ratings.assert_called_once()
     repository.record_error.assert_called_once_with("124", "timeout")
+    client.close.assert_called_once()
+
+
+def test_player_image_is_verified_before_storage():
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl3"
+        "x0EAAAAASUVORK5CYII="
+    )
+    client = FotMobClient(interval_seconds=0)
+    client._http.close()
+    client._http = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers={"content-type": "image/png"}, content=png)
+        )
+    )
+    image = client.player_image("357880")
+    assert image.source_url.endswith("/357880.png")
+    assert image.data == png
+    assert (image.width, image.height) == (1, 1)
+    client.close()
+
+
+def test_player_image_rejects_missing_and_non_image_responses():
+    client = FotMobClient(interval_seconds=0)
+    client._http.close()
+    client._http = httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(403, content=b"not available"))
+    )
+    with pytest.raises(FotMobImageMissing):
+        client.player_image("357880")
+    client.close()
+    client = FotMobClient(interval_seconds=0)
+    client._http.close()
+    client._http = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, headers={"content-type": "text/html"}, content=b"not an image"
+            )
+        )
+    )
+    with pytest.raises(FotMobError, match="content type"):
+        client.player_image("357880")
+    client.close()
+
+
+def test_image_batch_keeps_missing_portraits_for_later_retry():
+    repository = Mock()
+    repository.due_images.return_value = ["10", "11"]
+    repository.image_coverage.return_value = {
+        "source_players": 2,
+        "ready": 1,
+        "missing": 1,
+        "failed": 0,
+        "pending": 0,
+    }
+    client = Mock()
+    image = FotMobPlayerImage(
+        "https://images.fotmob.com/image_resources/playerimages/10.png", b"png", 1, 1
+    )
+    client.player_image.side_effect = [image, FotMobImageMissing("missing")]
+    result = FotMobIngestionService(client, repository).ingest_images(limit=2)
+    assert result["fetched"] == 1
+    assert result["missing"] == 1
+    repository.save_image.assert_called_once_with("10", image)
+    repository.record_image_failure.assert_called_once_with("11", missing=True, error="missing")
     client.close.assert_called_once()
 
 
@@ -247,14 +322,22 @@ def test_name_variant_needs_birth_date_and_club():
     candidate = PlayerCandidate(uuid4(), "Alisson", "Liverpool", date(1992, 10, 2), None, {})
     counts = source_name_counts([source])
     assert resolve_identity([source], candidates=[candidate], name_counts=counts).player_id is None
-    match = resolve_identity([source], candidates=[candidate], name_counts=counts,
-                             date_of_birth=date(1992, 10, 2))
+    match = resolve_identity(
+        [source], candidates=[candidate], name_counts=counts, date_of_birth=date(1992, 10, 2)
+    )
     assert match.player_id == candidate.player_id
     assert match.reason == "name_variant_date_of_birth_and_club"
     assert match.confidence == Decimal("0.950")
     wrong_club = FotMobIdentity("10", "Alisson Becker", "Chelsea")
-    assert resolve_identity([wrong_club], candidates=[candidate], name_counts=counts,
-                            date_of_birth=date(1992, 10, 2)).player_id is None
+    assert (
+        resolve_identity(
+            [wrong_club],
+            candidates=[candidate],
+            name_counts=counts,
+            date_of_birth=date(1992, 10, 2),
+        ).player_id
+        is None
+    )
 
 
 def test_name_variant_with_two_equal_candidates_remains_ambiguous():
@@ -263,8 +346,11 @@ def test_name_variant_with_two_equal_candidates_remains_ambiguous():
         PlayerCandidate(uuid4(), "Gabriel Jesus", "Arsenal", date(1997, 1, 1), None, {}),
         PlayerCandidate(uuid4(), "Gabriel Magalhães", "Arsenal", date(1997, 1, 1), None, {}),
     ]
-    match = resolve_identity([source], candidates=candidates,
-                             name_counts=source_name_counts([source]),
-                             date_of_birth=date(1997, 1, 1))
+    match = resolve_identity(
+        [source],
+        candidates=candidates,
+        name_counts=source_name_counts([source]),
+        date_of_birth=date(1997, 1, 1),
+    )
     assert match.player_id is None
     assert match.reason == "ambiguous_name_or_club"

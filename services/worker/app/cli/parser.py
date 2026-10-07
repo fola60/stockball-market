@@ -80,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
     fotmob.add_argument("--max-matches", type=_positive_int)
     fotmob.add_argument("--archive-dir", help="resumable match JSON archive (backfill only)")
     fotmob.add_argument("--log-level", default="INFO")
+    fotmob_images = subcommands.add_parser(
+        "ingest-fotmob-images", help="store FotMob player portraits in Postgres"
+    )
+    fotmob_images.add_argument("--max-images", type=_positive_int, default=200)
+    fotmob_images.add_argument("--log-level", default="INFO")
     ingest_bet365 = subcommands.add_parser(
         "ingest-bet365-odds",
         help="ingest Bet365 pre-match or live match and player markets",

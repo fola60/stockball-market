@@ -239,3 +239,7 @@ writers = ["worker"]
 [tables.fotmob_player_identity_matches]
 owner = "worker"
 writers = ["worker"]
+
+[tables.fotmob_player_images]
+owner = "worker"
+writers = ["worker"]

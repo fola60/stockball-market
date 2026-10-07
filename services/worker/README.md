@@ -62,6 +62,7 @@ scripts/local-ingestion.sh stats --stat-type standard --stat-type shooting
 scripts/local-ingestion.sh market-values
 scripts/local-ingestion.sh fotmob --season 2025 --backfill
 scripts/local-ingestion.sh fotmob --season 2026 --backfill
+scripts/local-ingestion.sh fotmob-images --max-images 200
 scripts/local-ingestion.sh shares
 scripts/local-ingestion.sh twitter-sources --registry /path/to/reviewed-registry.json
 scripts/local-ingestion.sh twitter-injuries

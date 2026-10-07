@@ -196,3 +196,15 @@ def ingest_fotmob_ratings(args) -> int:
                             backfill=args.backfill, refresh=args.refresh, limit=args.max_matches)
     print(json.dumps(result, sort_keys=True))
     return 1 if result['failed_matches'] else 0
+
+
+def ingest_fotmob_images(args) -> int:
+    import json
+
+    from app.entrypoints.factories import build_fotmob_ingestion_service
+
+    settings = DatabaseSettings.from_env()
+    configure_logging(args.log_level)
+    result = build_fotmob_ingestion_service(settings).ingest_images(limit=args.max_images)
+    print(json.dumps(result, sort_keys=True))
+    return 1 if result["failed"] else 0
