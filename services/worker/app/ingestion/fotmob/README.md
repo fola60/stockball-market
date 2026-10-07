@@ -28,13 +28,13 @@ scheduled runs always retrieve current documents. Repeat `fotmob-images` until
 
 ## Scheduled ingestion
 
-Apply migrations 0030, 0031 and 0034, deploy the ingestion worker and scheduler, then enable
+Apply migrations 0030, 0031, 0034 and 0035, deploy the ingestion worker and scheduler, then enable
 `STOCKBALL_FOTMOB_SCHEDULE_ENABLED=true` in their Compose environment. The admin
 Processes list exposes **FotMob player ratings**, with the existing start/pause controls.
 The scheduler creates an `INGEST_FOTMOB_RATINGS` run every 15 minutes, routed to the
 ingestion queue. Only one scheduled FotMob run can be in flight. Batches contain up
 to 40 completed matches and follow the current season each July. Each run also
-fetches up to 20 due player portraits.
+fetches up to 20 due player portraits and 20 due club badges.
 
 Every poll rediscovers the complete season fixture list. A match becomes eligible
 15 minutes after it is first observed as finished. Previously completed matches
@@ -83,6 +83,18 @@ are resolved through `player_provider_refs` rather than copied into image rows.
 Successful portraits refresh after 30 days. Missing images are checked again after
 30 days and transient failures after one day. A failed refresh retains the last
 valid image. The source URL, SHA-256 hash, fetch time and dimensions are retained.
+
+## Club badges
+
+Club badges follow the same rules and refresh schedule, stored in `fotmob_team_logos`
+and keyed by FotMob team ID. Every team that appears on either side of a discovered
+match is eligible; badges come from
+`images.fotmob.com/image_resources/logo/teamlogo/{id}.png`. `fotmob-images` reports
+badge progress under `team_logos`. Each badge run also rebuilds `fotmob_club_teams`,
+mapping every canonical `players.club` to the FotMob team most of that club's linked
+players last played for, so club names never need to match FotMob's spelling and a
+transferred player's latest FotMob team cannot change the club's badge. Apply
+migrations 0035 and 0036 before deploying.
 
 ## Verify coverage
 

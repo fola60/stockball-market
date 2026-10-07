@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Instrument } from "@/lib/api";
+import { ClubBadge, PlayerAvatar } from "./player-media";
 
 type SearchableInstrument = Pick<
   Instrument,
-  "id" | "display_name" | "player_name" | "player_club" | "player_position" | "symbol" | "status"
+  | "id" | "display_name" | "player_name" | "player_club" | "player_position" | "symbol" | "status"
+  | "player_image_version" | "club_badge_version"
 >;
 
 function playerName(instrument: SearchableInstrument): string {
@@ -88,7 +90,7 @@ export function PlayerSearch({ instruments }: { instruments: SearchableInstrumen
           {!normalizedQuery ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">Search by player name, ticker, or club.</p> : null}
           {normalizedQuery && results.length === 0 ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">No player stocks match “{query.trim()}”.</p> : null}
           {results.map(({ instrument }) => <Link prefetch={false} key={instrument.id} href={`/instrument/${instrument.id}`} onClick={closeSearch} className="flex items-center justify-between gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.045] focus:bg-white/[0.045] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">
-            <span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{playerName(instrument)}</strong><small className="mt-1 block truncate text-[11px] font-medium text-[#818b97]">{instrument.player_club ?? "Club unavailable"} · {instrument.player_position ?? "—"}</small></span>
+            <span className="flex min-w-0 items-center gap-3"><PlayerAvatar instrument={instrument} name={playerName(instrument)} className="size-9" /><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{playerName(instrument)}</strong><small className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-[#818b97]"><ClubBadge instrument={instrument} /><span className="truncate">{instrument.player_club ?? "Club unavailable"} · {instrument.player_position ?? "—"}</span></small></span></span>
             <span className="shrink-0 text-[11px] font-semibold text-[#8fb5ff]">{instrument.symbol}</span>
           </Link>)}
         </div>

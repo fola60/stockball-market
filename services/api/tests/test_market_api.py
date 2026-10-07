@@ -11,6 +11,7 @@ from app.auth.dependencies import get_current_principal
 from app.auth.models import CurrentPrincipal
 from app.clients.trading_engine import TradingEngineClientError, TradingEngineUnavailableError
 from app.instruments.models import (
+    ImageRecord,
     InstrumentRecord,
     InstrumentStatus,
     InstrumentType,
@@ -34,10 +35,14 @@ class FakeInstrumentsRepository:
         instruments: list[InstrumentRecord],
         price_history: dict[UUID, list[PriceSnapshotRecord]],
         player_stats: dict[UUID, PlayerStatsRecord] | None = None,
+        player_images: dict[UUID, ImageRecord] | None = None,
+        club_badges: dict[UUID, ImageRecord] | None = None,
     ) -> None:
         self._instruments = {instrument.id: instrument for instrument in instruments}
         self._price_history = price_history
         self._player_stats = player_stats or {}
+        self._player_images = player_images or {}
+        self._club_badges = club_badges or {}
         self.last_price_history_since: datetime | None = None
 
     def list_instruments(self) -> list[InstrumentRecord]:
@@ -57,6 +62,12 @@ class FakeInstrumentsRepository:
 
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
         return self._player_stats.get(instrument_id)
+
+    def get_player_image(self, instrument_id: UUID) -> ImageRecord | None:
+        return self._player_images.get(instrument_id)
+
+    def get_club_badge(self, instrument_id: UUID) -> ImageRecord | None:
+        return self._club_badges.get(instrument_id)
 
 
 class FakePortfoliosRepository:
@@ -131,6 +142,10 @@ class MarketApiTests(unittest.TestCase):
             status=InstrumentStatus.ACTIVE,
             created_at=_timestamp(),
             updated_at=_timestamp(),
+            player_image_version="ab12cd34ef56ab78",
+        )
+        self.portrait = ImageRecord(
+            data=b"\x89PNG portrait", content_type="image/png", content_sha256="ab12cd34" * 8
         )
         price_history = [
             PriceSnapshotRecord(
@@ -192,6 +207,7 @@ class MarketApiTests(unittest.TestCase):
         self.instruments_repository = FakeInstrumentsRepository(
             instruments=[instrument],
             price_history={self.instrument_id: price_history},
+            player_images={self.instrument_id: self.portrait},
             player_stats={
                 self.instrument_id: PlayerStatsRecord(
                     season=2025,
@@ -256,6 +272,34 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(body[0]["full_supply_price_multiplier"], "2.500000")
         self.assertEqual(body[0]["curve_depth_shares"], "1000000.000000")
         self.assertNotIn("price_impact_unit", body[0])
+
+    def test_list_instruments_exposes_image_versions(self) -> None:
+        body = self.client.get("/v1/instruments").json()
+
+        self.assertEqual(body[0]["player_image_version"], "ab12cd34ef56ab78")
+        self.assertIsNone(body[0]["club_badge_version"])
+
+    def test_player_image_is_served_with_a_content_hash_etag(self) -> None:
+        response = self.client.get(f"/v1/instruments/{self.instrument_id}/player-image")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, self.portrait.data)
+        self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertEqual(response.headers["etag"], f'"{self.portrait.content_sha256}"')
+        self.assertIn("max-age", response.headers["cache-control"])
+
+        revalidated = self.client.get(
+            f"/v1/instruments/{self.instrument_id}/player-image",
+            headers={"If-None-Match": response.headers["etag"]},
+        )
+        self.assertEqual(revalidated.status_code, 304)
+        self.assertEqual(revalidated.content, b"")
+
+    def test_missing_club_badge_returns_404(self) -> None:
+        response = self.client.get(f"/v1/instruments/{self.instrument_id}/club-badge")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "club_badge_not_found")
 
     def test_get_instrument_returns_404_when_missing(self) -> None:
         response = self.client.get(f"/v1/instruments/{uuid4()}")

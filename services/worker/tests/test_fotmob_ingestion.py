@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from app.ingestion.fotmob import FotMobClient, FotMobError, FotMobIngestionService
-from app.ingestion.fotmob.client import FotMobImageMissing, FotMobPlayerImage
+from app.ingestion.fotmob.client import FotMobImage, FotMobImageMissing
 from app.ingestion.fotmob.matching import FotMobIdentity, resolve_identity, source_name_counts
 from app.ingestion.fotmob.parsing import is_finished, parse_ratings
 from app.ingestion.market_values.matching import PlayerCandidate
@@ -173,6 +173,8 @@ def test_failed_match_does_not_prevent_later_matches_or_checkpoint(match_data):
     repository.reconcile_player_matches.return_value = {"MATCHED": 22}
     repository.missing_profile_ids.return_value = []
     repository.due_images.return_value = []
+    repository.due_team_logos.return_value = []
+    repository.team_logo_coverage.return_value = {}
     repository.image_coverage.return_value = {
         "source_players": 0,
         "ready": 0,
@@ -236,6 +238,8 @@ def test_player_image_rejects_missing_and_non_image_responses():
 def test_image_batch_keeps_missing_portraits_for_later_retry():
     repository = Mock()
     repository.due_images.return_value = ["10", "11"]
+    repository.due_team_logos.return_value = []
+    repository.team_logo_coverage.return_value = {}
     repository.image_coverage.return_value = {
         "source_players": 2,
         "ready": 1,
@@ -244,7 +248,7 @@ def test_image_batch_keeps_missing_portraits_for_later_retry():
         "pending": 0,
     }
     client = Mock()
-    image = FotMobPlayerImage(
+    image = FotMobImage(
         "https://images.fotmob.com/image_resources/playerimages/10.png", b"png", 1, 1
     )
     client.player_image.side_effect = [image, FotMobImageMissing("missing")]
@@ -253,6 +257,51 @@ def test_image_batch_keeps_missing_portraits_for_later_retry():
     assert result["missing"] == 1
     repository.save_image.assert_called_once_with("10", image)
     repository.record_image_failure.assert_called_once_with("11", missing=True, error="missing")
+    client.close.assert_called_once()
+
+
+def test_team_logo_is_fetched_from_the_team_logo_path():
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl3"
+        "x0EAAAAASUVORK5CYII="
+    )
+    requested: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=png)
+
+    client = FotMobClient(interval_seconds=0)
+    client._http.close()
+    client._http = httpx.Client(transport=httpx.MockTransport(respond))
+    logo = client.team_logo("9825")
+    assert requested == ["https://images.fotmob.com/image_resources/logo/teamlogo/9825.png"]
+    assert logo.data == png
+    with pytest.raises(FotMobError, match="Invalid FotMob team ID"):
+        client.team_logo("../9825")
+    client.close()
+
+
+def test_image_batch_also_fetches_due_team_logos():
+    repository = Mock()
+    repository.due_images.return_value = []
+    repository.image_coverage.return_value = {}
+    repository.due_team_logos.return_value = ["9825", "1"]
+    repository.team_logo_coverage.return_value = {"source_teams": 2, "pending": 0}
+    client = Mock()
+    logo = FotMobImage(
+        "https://images.fotmob.com/image_resources/logo/teamlogo/9825.png", b"png", 1, 1
+    )
+    client.team_logo.side_effect = [logo, httpx.ReadTimeout("timeout")]
+    result = FotMobIngestionService(client, repository).ingest_images(limit=5)
+    assert result["team_logos"]["fetched"] == 1
+    assert result["team_logos"]["failed"] == 1
+    assert result["team_logos"]["source_teams"] == 2
+    repository.refresh_club_teams.assert_called_once()
+    repository.save_team_logo.assert_called_once_with("9825", logo)
+    repository.record_team_logo_failure.assert_called_once_with(
+        "1", missing=False, error="timeout"
+    )
     client.close.assert_called_once()
 
 

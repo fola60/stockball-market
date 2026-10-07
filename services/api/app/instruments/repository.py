@@ -13,6 +13,7 @@ from psycopg2.extras import RealDictCursor
 from app.common.decimal import format_decimal
 from app.database import connection as pooled_connection
 from app.instruments.models import (
+    ImageRecord,
     InstrumentFreezeRecord,
     InstrumentRecord,
     InstrumentStatus,
@@ -35,6 +36,35 @@ class InstrumentsRepository(Protocol):
     ) -> list[PriceSnapshotRecord]: ...
 
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None: ...
+
+    def get_player_image(self, instrument_id: UUID) -> ImageRecord | None: ...
+
+    def get_club_badge(self, instrument_id: UUID) -> ImageRecord | None: ...
+
+
+# Joins `portrait` (the player's ready FotMob image) and `badge` (their club's ready
+# FotMob logo, through the worker-maintained club mapping) onto `players AS p`. Only
+# hashes are read here; image bytes are fetched by the dedicated image queries.
+_IMAGE_JOINS = """
+    LEFT JOIN (
+        SELECT DISTINCT ON (ref.player_id) ref.player_id, image.content_sha256
+        FROM player_provider_refs AS ref
+        JOIN fotmob_player_images AS image
+            ON image.provider_player_id = ref.provider_player_id
+           AND image.status = 'READY'
+        WHERE ref.provider = 'FOTMOB'
+        ORDER BY ref.player_id, ref.is_primary DESC, image.fetched_at DESC
+    ) AS portrait ON portrait.player_id = p.id
+    LEFT JOIN fotmob_club_teams AS club_team ON club_team.club = p.club
+    LEFT JOIN fotmob_team_logos AS badge
+        ON badge.provider_team_id = club_team.provider_team_id
+       AND badge.status = 'READY'
+"""
+
+_IMAGE_VERSIONS = """
+    left(portrait.content_sha256, 16) AS player_image_version,
+    left(badge.content_sha256, 16) AS club_badge_version
+"""
 
 
 class PostgresInstrumentsRepository:
@@ -77,7 +107,10 @@ class PostgresInstrumentsRepository:
                             ),
                             0
                         ) AS price_change_24h,
-                        COALESCE(activity.volume_24h, 0) AS volume_24h
+                        COALESCE(activity.volume_24h, 0) AS volume_24h,
+                    """
+                    + _IMAGE_VERSIONS
+                    + """
                     FROM instruments AS i
                     JOIN players AS p ON p.id = i.player_id
                     LEFT JOIN LATERAL (
@@ -94,6 +127,9 @@ class PostgresInstrumentsRepository:
                         WHERE t.instrument_id = i.id
                           AND t.executed_at >= now() - interval '24 hours'
                     ) AS activity ON TRUE
+                    """
+                    + _IMAGE_JOINS
+                    + """
                     ORDER BY i.created_at DESC, i.id DESC
                     """
                 )
@@ -137,7 +173,10 @@ class PostgresInstrumentsRepository:
                         active_freeze.started_at AS freeze_started_at,
                         fixture.home_team_name AS freeze_home_team,
                         fixture.away_team_name AS freeze_away_team,
-                        fixture.kickoff_at AS freeze_kickoff_at
+                        fixture.kickoff_at AS freeze_kickoff_at,
+                    """
+                    + _IMAGE_VERSIONS
+                    + """
                     FROM instruments AS i
                     JOIN players AS p ON p.id = i.player_id
                     LEFT JOIN LATERAL (
@@ -164,6 +203,9 @@ class PostgresInstrumentsRepository:
                     ) AS active_freeze ON TRUE
                     LEFT JOIN fixtures AS fixture
                         ON active_freeze.source_key = 'fixture:' || fixture.id::text
+                    """
+                    + _IMAGE_JOINS
+                    + """
                     WHERE i.id = %(instrument_id)s
                     """,
                     {"instrument_id": str(instrument_id)},
@@ -185,6 +227,52 @@ class PostgresInstrumentsRepository:
                 fixture_away_team=row["freeze_away_team"],
                 fixture_kickoff_at=row["freeze_kickoff_at"],
             ),
+        )
+
+    def get_player_image(self, instrument_id: UUID) -> ImageRecord | None:
+        return self._fetch_image(
+            """
+            SELECT image.image_data, image.content_type, image.content_sha256
+            FROM instruments AS i
+            JOIN player_provider_refs AS ref
+                ON ref.player_id = i.player_id AND ref.provider = 'FOTMOB'
+            JOIN fotmob_player_images AS image
+                ON image.provider_player_id = ref.provider_player_id
+               AND image.status = 'READY'
+            WHERE i.id = %(instrument_id)s
+            ORDER BY ref.is_primary DESC, image.fetched_at DESC
+            LIMIT 1
+            """,
+            instrument_id,
+        )
+
+    def get_club_badge(self, instrument_id: UUID) -> ImageRecord | None:
+        return self._fetch_image(
+            """
+            SELECT badge.image_data, badge.content_type, badge.content_sha256
+            FROM instruments AS i
+            JOIN players AS p ON p.id = i.player_id
+            JOIN fotmob_club_teams AS club_team ON club_team.club = p.club
+            JOIN fotmob_team_logos AS badge
+                ON badge.provider_team_id = club_team.provider_team_id
+               AND badge.status = 'READY'
+            WHERE i.id = %(instrument_id)s
+            """,
+            instrument_id,
+        )
+
+    def _fetch_image(self, query: str, instrument_id: UUID) -> ImageRecord | None:
+        with self._connection() as connection:
+            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(query, {"instrument_id": str(instrument_id)})
+                row = cursor.fetchone()
+
+        if row is None:
+            return None
+        return ImageRecord(
+            data=bytes(row["image_data"]),
+            content_type=row["content_type"],
+            content_sha256=row["content_sha256"],
         )
 
     def list_price_history(
@@ -384,6 +472,8 @@ def _build_instrument_record(row: dict) -> InstrumentRecord:
         player_position=row["player_position"],
         price_change_24h=format_decimal(_as_decimal(row["price_change_24h"])),
         volume_24h=format_decimal(_as_decimal(row["volume_24h"])),
+        player_image_version=row["player_image_version"],
+        club_badge_version=row["club_badge_version"],
     )
 
 

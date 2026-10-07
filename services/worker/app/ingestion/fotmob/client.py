@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.fotmob.com"
 IMAGE_BASE_URL = "https://images.fotmob.com/image_resources/playerimages"
+TEAM_LOGO_BASE_URL = "https://images.fotmob.com/image_resources/logo/teamlogo"
 MAX_IMAGE_BYTES = 1048576
 
 
@@ -27,7 +28,7 @@ class FotMobImageMissing(FotMobError):
 
 
 @dataclass(frozen=True)
-class FotMobPlayerImage:
+class FotMobImage:
     source_url: str
     data: bytes
     width: int
@@ -106,36 +107,43 @@ class FotMobClient:
             raise FotMobError(f"FotMob returned a different player for {player_id}")
         return url, body, data
 
-    def player_image(self, player_id: str) -> FotMobPlayerImage:
+    def player_image(self, player_id: str) -> FotMobImage:
         if not player_id.isdigit():
             raise FotMobError("Invalid FotMob player ID")
-        url = f"{IMAGE_BASE_URL}/{player_id}.png"
+        return self._png(f"{IMAGE_BASE_URL}/{player_id}.png", f"portrait for player {player_id}")
+
+    def team_logo(self, team_id: str) -> FotMobImage:
+        if not team_id.isdigit():
+            raise FotMobError("Invalid FotMob team ID")
+        return self._png(f"{TEAM_LOGO_BASE_URL}/{team_id}.png", f"logo for team {team_id}")
+
+    def _png(self, url: str, label: str) -> FotMobImage:
         time.sleep(max(0, self.interval_seconds - (time.monotonic() - self._last_request)))
         try:
             with self._http.stream("GET", url) as response:
                 if response.status_code in (403, 404):
-                    raise FotMobImageMissing(f"No FotMob portrait for player {player_id}")
+                    raise FotMobImageMissing(f"No FotMob {label}")
                 response.raise_for_status()
                 if response.url.host != "images.fotmob.com":
-                    raise FotMobError("FotMob portrait redirected to another host")
+                    raise FotMobError(f"FotMob {label} redirected to another host")
                 if response.headers.get("content-type", "").split(";", 1)[0].strip() != "image/png":
-                    raise FotMobError("FotMob portrait has an unexpected content type")
+                    raise FotMobError(f"FotMob {label} has an unexpected content type")
                 chunks: list[bytes] = []
                 size = 0
                 for chunk in response.iter_bytes():
                     size += len(chunk)
                     if size > MAX_IMAGE_BYTES:
-                        raise FotMobError("FotMob portrait exceeds the size limit")
+                        raise FotMobError(f"FotMob {label} exceeds the size limit")
                     chunks.append(chunk)
                 data = b"".join(chunks)
         finally:
             self._last_request = time.monotonic()
         if len(data) < 45 or not data.startswith(b"\x89PNG\r\n\x1a\n") or data[-8:-4] != b"IEND":
-            raise FotMobError("FotMob portrait is not a complete PNG")
+            raise FotMobError(f"FotMob {label} is not a complete PNG")
         width, height = struct.unpack(">II", data[16:24])
         if not (1 <= width <= 4096 and 1 <= height <= 4096):
-            raise FotMobError("FotMob portrait has invalid dimensions")
-        return FotMobPlayerImage(url, data, width, height)
+            raise FotMobError(f"FotMob {label} has invalid dimensions")
+        return FotMobImage(url, data, width, height)
 
 
 def match_page_url(match: dict) -> str:

@@ -49,6 +49,8 @@ class InstrumentResponse(BaseModel):
     price_change_24h: str = "0.0000"
     volume_24h: str = "0.000000"
     freeze: InstrumentFreezeResponse | None = None
+    player_image_version: str | None = None
+    club_badge_version: str | None = None
 
     @classmethod
     def from_record(cls, instrument: InstrumentRecord) -> "InstrumentResponse":

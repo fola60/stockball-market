@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Shell } from "./components/market-shell";
+import { ClubBadge, PlayerAvatar } from "./components/player-media";
 import { getMarketPageData, playerName, type MarketRow } from "@/lib/api";
 import { formatCompact, formatCurrency, formatPercent } from "@/lib/format";
 
@@ -56,9 +57,12 @@ function PlayerStocks({ rows }: { rows: MarketRow[] }) {
             <li key={instrument.id}>
               <Link prefetch={false} href={`/instrument/${instrument.id}`} className="group grid min-h-20 grid-cols-[minmax(0,1fr)_4.75rem_5rem] items-center gap-x-3 py-4 transition-colors hover:bg-white/[0.025] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8fb5ff] sm:grid-cols-[minmax(0,1fr)_8rem_6rem] sm:gap-x-5 md:px-1">
                 <span className="sr-only">{positive ? "Gainer" : "Decliner"} rank {directionRank}, {positive ? "up" : "down"} {Math.abs(change).toFixed(2)} percent over 24 hours.</span>
-                <span className="min-w-0">
-                  <strong className="block truncate text-sm font-semibold text-white group-hover:text-[#dce7ff] sm:text-base">{name}</strong>
-                  <small className="mt-1.5 block truncate text-[11px] font-medium text-[#818b97]">{instrument.player_club ?? "Club unavailable"} · {instrument.player_position ?? "—"}<span className="hidden sm:inline"> · VOL {formatCompact(instrument.volume_24h)}</span></small>
+                <span className="flex min-w-0 items-center gap-3">
+                  <PlayerAvatar instrument={instrument} name={name} className="size-9 sm:size-11" />
+                  <span className="min-w-0">
+                    <strong className="block truncate text-sm font-semibold text-white group-hover:text-[#dce7ff] sm:text-base">{name}</strong>
+                    <small className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-[#818b97]"><ClubBadge instrument={instrument} /><span className="truncate">{instrument.player_club ?? "Club unavailable"} · {instrument.player_position ?? "—"}<span className="hidden sm:inline"> · VOL {formatCompact(instrument.volume_24h)}</span></span></small>
+                  </span>
                 </span>
                 <span className="flex min-w-0 items-center"><Sparkline row={row} /></span>
                 <span className="text-right">

@@ -10,7 +10,7 @@ from psycopg2.extras import Json
 from app.database import connection
 from app.ingestion.market_values.repository import PostgresMarketValueRepository
 
-from .client import IMAGE_BASE_URL, FotMobPlayerImage, match_page_url
+from .client import IMAGE_BASE_URL, TEAM_LOGO_BASE_URL, FotMobImage, match_page_url
 from .matching import FotMobIdentity, resolve_identity, source_name_counts
 from .parsing import PlayerRating, is_finished, timestamp
 
@@ -203,7 +203,7 @@ class FotMobRepository:
             )
             return [row[0] for row in cur.fetchall()]
 
-    def save_image(self, player_id: str, image: FotMobPlayerImage) -> None:
+    def save_image(self, player_id: str, image: FotMobImage) -> None:
         with connection(self.database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -276,6 +276,133 @@ class FotMobRepository:
             total, ready, missing, failed, pending = row
             return {
                 "source_players": total,
+                "ready": ready,
+                "missing": missing,
+                "failed": failed,
+                "pending": pending,
+            }
+
+    def due_team_logos(self, *, limit: int, now: datetime) -> list[str]:
+        if limit <= 0:
+            raise ValueError("team logo limit must be positive")
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH source_teams AS (
+                    SELECT home_team_id AS provider_team_id FROM fotmob_matches
+                    UNION
+                    SELECT away_team_id FROM fotmob_matches
+                )
+                SELECT s.provider_team_id
+                FROM source_teams s
+                LEFT JOIN fotmob_team_logos l USING (provider_team_id)
+                WHERE l.next_fetch_at IS NULL OR l.next_fetch_at <= %s
+                ORDER BY (l.provider_team_id IS NOT NULL),
+                         l.next_fetch_at NULLS FIRST, s.provider_team_id
+                LIMIT %s
+                """,
+                (now, limit),
+            )
+            return [row[0] for row in cur.fetchall()]
+
+    def save_team_logo(self, team_id: str, image: FotMobImage) -> None:
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO fotmob_team_logos
+                    (provider_team_id,source_url,status,image_data,content_type,
+                     content_sha256,width,height,fetched_at,last_attempt_at,next_fetch_at)
+                VALUES (%s,%s,'READY',%s,'image/png',%s,%s,%s,now(),now(),
+                        now() + interval '30 days')
+                ON CONFLICT (provider_team_id) DO UPDATE SET
+                    source_url=EXCLUDED.source_url,status='READY',
+                    image_data=EXCLUDED.image_data,content_type=EXCLUDED.content_type,
+                    content_sha256=EXCLUDED.content_sha256,width=EXCLUDED.width,
+                    height=EXCLUDED.height,fetched_at=EXCLUDED.fetched_at,
+                    last_attempt_at=EXCLUDED.last_attempt_at,
+                    next_fetch_at=EXCLUDED.next_fetch_at,last_error=NULL,updated_at=now()
+                """,
+                (
+                    team_id,
+                    image.source_url,
+                    image.data,
+                    hashlib.sha256(image.data).hexdigest(),
+                    image.width,
+                    image.height,
+                ),
+            )
+
+    def record_team_logo_failure(self, team_id: str, *, missing: bool, error: str) -> None:
+        status = "MISSING" if missing else "FAILED"
+        retry_delay = timedelta(days=30 if missing else 1)
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO fotmob_team_logos
+                    (provider_team_id,source_url,status,last_attempt_at,next_fetch_at,last_error)
+                VALUES (%s,%s,%s,now(),now() + %s,%s)
+                ON CONFLICT (provider_team_id) DO UPDATE SET
+                    status=CASE WHEN fotmob_team_logos.status='READY' THEN 'READY'
+                                ELSE EXCLUDED.status END,
+                    last_attempt_at=EXCLUDED.last_attempt_at,
+                    next_fetch_at=EXCLUDED.next_fetch_at,
+                    last_error=EXCLUDED.last_error,updated_at=now()
+                """,
+                (
+                    team_id,
+                    f"{TEAM_LOGO_BASE_URL}/{team_id}.png",
+                    status,
+                    retry_delay,
+                    error[:500],
+                ),
+            )
+
+    def refresh_club_teams(self) -> int:
+        """Map each canonical club to the FotMob team most of its players last played for."""
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM fotmob_club_teams")
+            cur.execute(
+                """
+                WITH latest_teams AS (
+                    SELECT DISTINCT ON (r.player_id) r.player_id, r.team_provider_id
+                    FROM player_match_ratings AS r
+                    JOIN fotmob_matches AS m ON m.match_id = r.provider_match_id
+                    WHERE r.player_id IS NOT NULL
+                    ORDER BY r.player_id, m.kickoff_at DESC, r.provider_match_id DESC
+                )
+                INSERT INTO fotmob_club_teams (club, provider_team_id, linked_players)
+                SELECT DISTINCT ON (p.club) p.club, l.team_provider_id, count(*)
+                FROM players AS p
+                JOIN latest_teams AS l ON l.player_id = p.id
+                WHERE p.club IS NOT NULL
+                GROUP BY p.club, l.team_provider_id
+                ORDER BY p.club, count(*) DESC, l.team_provider_id
+                """
+            )
+            return cur.rowcount
+
+    def team_logo_coverage(self) -> dict[str, int]:
+        with connection(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH source_teams AS (
+                    SELECT home_team_id AS provider_team_id FROM fotmob_matches
+                    UNION
+                    SELECT away_team_id FROM fotmob_matches
+                )
+                SELECT count(*),count(*) FILTER (WHERE l.status='READY'),
+                       count(*) FILTER (WHERE l.status='MISSING'),
+                       count(*) FILTER (WHERE l.status='FAILED'),
+                       count(*) FILTER (WHERE l.status IS NULL)
+                FROM source_teams s
+                LEFT JOIN fotmob_team_logos l USING (provider_team_id)
+                """
+            )
+            row = cur.fetchone()
+            assert row is not None
+            total, ready, missing, failed, pending = row
+            return {
+                "source_teams": total,
                 "ready": ready,
                 "missing": missing,
                 "failed": failed,
