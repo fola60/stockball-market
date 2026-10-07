@@ -9,7 +9,8 @@ use crate::http::{
     error::ApiError, executor::OrderExecutor, ApplyFreezeRequest, ApplyFreezeResponse,
     ApplyOpeningBalanceRequest, ApplyOpeningBalanceResponse, ApplyTopupRequest, ApplyTopupResponse,
     ExecuteOrderRequest, ExecuteOrderResponse, IssueInitialSupplyRequest,
-    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse, ReleaseFreezeRequest,
+    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
+    RecalibratePriceCurvesRequest, RecalibratePriceCurvesResponse, ReleaseFreezeRequest,
     ReleaseFreezeResponse, SeedPlayerSharesResponse, SetPreMarketPriceRequest,
     SetPreMarketPriceResponse,
 };
@@ -48,6 +49,10 @@ where
         .route(
             "/internal/v1/instruments/pre-market-price/set",
             post(set_pre_market_price::<E>),
+        )
+        .route(
+            "/internal/v1/instruments/price-curves/recalibrate",
+            post(recalibrate_price_curves::<E>),
         )
         .route("/internal/v1/freezes/apply", post(apply_freeze::<E>))
         .route("/internal/v1/freezes/release", post(release_freeze::<E>))
@@ -127,6 +132,17 @@ where
     E: OrderExecutor,
 {
     let result = state.executor.set_pre_market_price(request).await?;
+    Ok(Json(result))
+}
+
+async fn recalibrate_price_curves<E>(
+    State(state): State<AppState<E>>,
+    JsonBody(request): JsonBody<RecalibratePriceCurvesRequest>,
+) -> Result<Json<RecalibratePriceCurvesResponse>, ApiError>
+where
+    E: OrderExecutor,
+{
+    let result = state.executor.recalibrate_price_curves(request).await?;
     Ok(Json(result))
 }
 

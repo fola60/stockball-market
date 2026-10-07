@@ -8,15 +8,15 @@ pub enum PriceImpactError {
     #[error("reference price must be positive: {0}")]
     NonPositiveReferencePrice(Decimal),
 
-    #[error("shares outstanding must be positive: {0}")]
-    NonPositiveSharesOutstanding(Decimal),
+    #[error("curve depth must be positive: {0}")]
+    NonPositiveCurveDepth(Decimal),
 
     #[error(
-        "net shares purchased {net_shares_purchased} must be between negative and positive shares outstanding {shares_outstanding}"
+        "net shares purchased {net_shares_purchased} must be between negative and positive curve depth {curve_depth_shares}"
     )]
     InvalidNetSharesPurchased {
         net_shares_purchased: Decimal,
-        shares_outstanding: Decimal,
+        curve_depth_shares: Decimal,
     },
 
     #[error("full-supply price multiplier must be greater than one: {0}")]

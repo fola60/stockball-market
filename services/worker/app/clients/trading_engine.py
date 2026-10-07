@@ -28,6 +28,7 @@ class TradingEngineEndpoints:
     apply_topup: str = "/internal/v1/ledger/topups/apply"
     issue_initial_supply: str = "/internal/v1/positions/initial-supply/issue"
     set_pre_market_price: str = "/internal/v1/instruments/pre-market-price/set"
+    recalibrate_price_curves: str = "/internal/v1/instruments/price-curves/recalibrate"
     apply_freeze: str = "/internal/v1/freezes/apply"
     release_freeze: str = "/internal/v1/freezes/release"
 
@@ -220,6 +221,59 @@ class PreMarketPriceRecord:
 
 
 @dataclass(frozen=True)
+class RecalibratePriceCurvesCommand:
+    """Re-anchors every player-share curve at its current price with a new shape: net buying of
+    shares_outstanding ÷ curve_depth_divisor reaches full_supply_price_multiplier times the
+    reference. No price changes; only how far later trades move prices."""
+
+    request_id: str
+    full_supply_price_multiplier: str
+    curve_depth_divisor: str
+    reason: str
+    dry_run: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "full_supply_price_multiplier": self.full_supply_price_multiplier,
+            "curve_depth_divisor": self.curve_depth_divisor,
+            "reason": self.reason,
+            "dry_run": self.dry_run,
+        }
+
+
+@dataclass(frozen=True)
+class RecalibratePriceCurvesRecord:
+    request_id: str
+    dry_run: bool
+    full_supply_price_multiplier: str
+    curve_depth_divisor: str
+    instrument_count: int
+    reset_net_demand_count: int
+    max_reset_demand_ratio: str
+    previous_min_multiplier: str | None
+    previous_max_multiplier: str | None
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RecalibratePriceCurvesRecord":
+        return cls(
+            request_id=str(payload["request_id"]),
+            dry_run=bool(payload["dry_run"]),
+            full_supply_price_multiplier=str(payload["full_supply_price_multiplier"]),
+            curve_depth_divisor=str(payload["curve_depth_divisor"]),
+            instrument_count=int(payload["instrument_count"]),
+            reset_net_demand_count=int(payload["reset_net_demand_count"]),
+            max_reset_demand_ratio=str(payload["max_reset_demand_ratio"]),
+            previous_min_multiplier=_optional_str(payload.get("previous_min_multiplier")),
+            previous_max_multiplier=_optional_str(payload.get("previous_max_multiplier")),
+        )
+
+
+def _optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+@dataclass(frozen=True)
 class ApplyFreezeCommand:
     reason: str
     source_key: str
@@ -363,6 +417,12 @@ class HttpTradingEngineClient:
     def set_pre_market_price(self, command: SetPreMarketPriceCommand) -> PreMarketPriceRecord:
         payload = self._post(self._endpoints.set_pre_market_price, command.to_payload())
         return PreMarketPriceRecord.from_payload(payload)
+
+    def recalibrate_price_curves(
+        self, command: RecalibratePriceCurvesCommand
+    ) -> RecalibratePriceCurvesRecord:
+        payload = self._post(self._endpoints.recalibrate_price_curves, command.to_payload())
+        return RecalibratePriceCurvesRecord.from_payload(payload)
 
     def apply_freeze(self, command: ApplyFreezeCommand) -> ApplyFreezeRecord:
         payload = self._post(self._endpoints.apply_freeze, command.to_payload())

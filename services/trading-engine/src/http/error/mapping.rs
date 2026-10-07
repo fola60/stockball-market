@@ -191,6 +191,18 @@ impl From<ProvisioningError> for ApiError {
                 "instrument already has orders, trades, or positions.",
                 Some(json!({ "instrument_id": instrument_id })),
             ),
+            ProvisioningError::EmptyReason => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "empty_reason",
+                "reason must not be empty.",
+                None,
+            ),
+            ProvisioningError::InvalidCurveCalibration(reason) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_curve_calibration",
+                "price curve calibration is invalid.",
+                Some(json!({ "reason": reason })),
+            ),
             ProvisioningError::Idempotency(error) => idempotency_error(error),
             ProvisioningError::Instrument(error) => instrument_error(error),
             ProvisioningError::Ledger(error) => ledger_error(error),
@@ -688,20 +700,20 @@ fn price_impact_error(error: PriceImpactError) -> ApiError {
             "instrument reference price is invalid.",
             Some(json!({ "reference_price": reference_price })),
         ),
-        PriceImpactError::NonPositiveSharesOutstanding(shares_outstanding) => internal_error(
-            "non_positive_shares_outstanding",
-            "instrument shares outstanding is invalid.",
-            Some(json!({ "shares_outstanding": shares_outstanding })),
+        PriceImpactError::NonPositiveCurveDepth(curve_depth_shares) => internal_error(
+            "non_positive_curve_depth",
+            "instrument price curve depth is invalid.",
+            Some(json!({ "curve_depth_shares": curve_depth_shares })),
         ),
         PriceImpactError::InvalidNetSharesPurchased {
             net_shares_purchased,
-            shares_outstanding,
+            curve_depth_shares,
         } => internal_error(
             "invalid_net_shares_purchased",
             "instrument net shares purchased is invalid.",
             Some(json!({
                 "net_shares_purchased": net_shares_purchased,
-                "shares_outstanding": shares_outstanding
+                "curve_depth_shares": curve_depth_shares
             })),
         ),
         PriceImpactError::InvalidFullSupplyPriceMultiplier(multiplier) => internal_error(

@@ -7,7 +7,8 @@ pub use dto::{
     ApplyFreezeRequest, ApplyFreezeResponse, ApplyOpeningBalanceRequest,
     ApplyOpeningBalanceResponse, ApplyTopupRequest, ApplyTopupResponse, ErrorResponse,
     ExecuteOrderRequest, ExecuteOrderResponse, IssueInitialSupplyRequest,
-    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse, ReleaseFreezeRequest,
+    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
+    RecalibratePriceCurvesRequest, RecalibratePriceCurvesResponse, ReleaseFreezeRequest,
     ReleaseFreezeResponse, SeedPlayerSharesResponse, SetPreMarketPriceRequest,
     SetPreMarketPriceResponse,
 };

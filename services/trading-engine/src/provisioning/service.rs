@@ -15,7 +15,8 @@ use crate::{
 
 use super::{
     ApplyOpeningBalanceCommand, IssueInitialSupplyCommand, IssueInitialSupplyResult,
-    PreMarketPriceResult, ProvisioningError, SetPreMarketPriceCommand,
+    PreMarketPriceResult, ProvisioningError, RecalibratePriceCurvesCommand,
+    RecalibratePriceCurvesResult, SetPreMarketPriceCommand,
 };
 
 pub async fn apply_opening_balance(
@@ -155,6 +156,71 @@ pub async fn set_pre_market_price(
         old_price: instrument.current_price,
         new_price: command.new_price,
     };
+    idempotency::complete_admin_adjustment(&mut transaction, &command.request_id, 200, &result)
+        .await?;
+    transaction.commit().await?;
+    Ok(result)
+}
+
+/// Re-anchors every player-share curve with a new calibration in one transaction. Prices are
+/// untouched: each reference becomes the current price and net demand resets. Trades lock the
+/// instrument rows they price, so none can interleave with the rebase.
+pub async fn recalibrate_price_curves(
+    pool: &PgPool,
+    command: RecalibratePriceCurvesCommand,
+) -> Result<RecalibratePriceCurvesResult, ProvisioningError> {
+    command.validate()?;
+
+    let mut transaction = pool.begin().await?;
+    if !command.dry_run {
+        let request_hash = command.request_fingerprint();
+        match idempotency::claim_admin_adjustment(
+            &mut transaction,
+            &command.request_id,
+            &request_hash,
+        )
+        .await?
+        {
+            IdempotencyClaim::Completed(record) => {
+                let result = record.deserialize_response::<RecalibratePriceCurvesResult>()?;
+                transaction.commit().await?;
+                return Ok(result);
+            }
+            IdempotencyClaim::Claimed(_) => {}
+        }
+    }
+
+    let curves =
+        instruments::recalibrate_price_curves(&mut transaction, command.calibration).await?;
+    let result = RecalibratePriceCurvesResult {
+        request_id: command.request_id.clone(),
+        dry_run: command.dry_run,
+        calibration: command.calibration,
+        instrument_count: curves.len(),
+        reset_net_demand_count: curves
+            .iter()
+            .filter(|curve| !curve.old_net_shares_purchased.is_zero())
+            .count(),
+        max_reset_demand_ratio: curves
+            .iter()
+            .map(|curve| (curve.old_net_shares_purchased / curve.old_curve_depth_shares).abs())
+            .max()
+            .unwrap_or(Decimal::ZERO)
+            .round_dp(6),
+        previous_min_multiplier: curves
+            .iter()
+            .map(|curve| curve.old_full_supply_price_multiplier)
+            .min(),
+        previous_max_multiplier: curves
+            .iter()
+            .map(|curve| curve.old_full_supply_price_multiplier)
+            .max(),
+    };
+
+    if command.dry_run {
+        transaction.rollback().await?;
+        return Ok(result);
+    }
     idempotency::complete_admin_adjustment(&mut transaction, &command.request_id, 200, &result)
         .await?;
     transaction.commit().await?;

@@ -158,6 +158,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/instruments/price-curves/recalibrate:
+    post:
+      operationId: recalibratePriceCurves
+      summary: Re-shape every player-share price curve without moving prices
+      description: >
+        Re-anchors every PLAYER_SHARE curve at its current price: the reference price becomes the current price and net demand resets, so no price changes. The new multiplier and depth (shares_outstanding / curve_depth_divisor) only decide how far later trades move prices. Each rebase is audited in instrument_price_curve_rebases. A dry run applies and reports the change, then rolls back. Otherwise idempotent by request_id.
+      tags:
+        - Instruments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecalibratePriceCurvesRequest"
+      responses:
+        "200":
+          description: Curves recalibrated, a dry run reported, or a prior result replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecalibratePriceCurvesResponse"
+        "409":
+          description: The idempotency key was used for a different recalibration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The calibration or command is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /internal/v1/freezes/apply:
     post:
       operationId: applyFreeze
@@ -390,6 +423,10 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/SetPreMarketPriceRequest"
     PreMarketPriceResponse:
       $ref: "../schemas/trading.schema.json#/$defs/PreMarketPriceResponse"
+    RecalibratePriceCurvesRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/RecalibratePriceCurvesRequest"
+    RecalibratePriceCurvesResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/RecalibratePriceCurvesResponse"
     ExecuteOrderRequest:
       $ref: "../schemas/trading.schema.json#/$defs/ExecuteOrderRequest"
     ExecuteOrderResponse:

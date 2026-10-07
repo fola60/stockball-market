@@ -18,6 +18,7 @@
         "quantity_outstanding",
         "net_shares_purchased",
         "full_supply_price_multiplier",
+        "curve_depth_shares",
         "status",
         "created_at",
         "updated_at"
@@ -51,11 +52,15 @@
         },
         "net_shares_purchased": {
           "$ref": "./common.schema.json#/$defs/DecimalString",
-          "description": "Shares bought through the engine minus shares sold through it."
+          "description": "Shares bought through the engine minus shares sold through it since the curve was last anchored."
         },
         "full_supply_price_multiplier": {
           "$ref": "./common.schema.json#/$defs/DecimalString",
-          "description": "Price multiplier reached when net buying equals shares outstanding."
+          "description": "Price multiplier reached when net buying equals curve_depth_shares."
+        },
+        "curve_depth_shares": {
+          "$ref": "./common.schema.json#/$defs/DecimalString",
+          "description": "Net shares that carry the price to full_supply_price_multiplier times the reference price; a fraction of the supply."
         },
         "status": {
           "$ref": "./common.schema.json#/$defs/InstrumentStatus"
@@ -680,6 +685,115 @@
         },
         "new_price": {
           "$ref": "./common.schema.json#/$defs/DecimalString"
+        }
+      }
+    },
+    "RecalibratePriceCurvesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "full_supply_price_multiplier",
+        "curve_depth_divisor",
+        "reason"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "full_supply_price_multiplier": {
+          "description": "Price multiple reached at the end of each curve; greater than 1.",
+          "allOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/DecimalString"
+            },
+            {
+              "pattern": "^(?!(?:0(?:\\.0+)?)$)(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+            }
+          ]
+        },
+        "curve_depth_divisor": {
+          "description": "Each curve spans shares_outstanding divided by this; at least 1.",
+          "allOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/DecimalString"
+            },
+            {
+              "pattern": "^(?!(?:0(?:\\.0+)?)$)(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply and report the recalibration, then roll it back. A dry run leaves request_id unused."
+        }
+      }
+    },
+    "RecalibratePriceCurvesResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "dry_run",
+        "full_supply_price_multiplier",
+        "curve_depth_divisor",
+        "instrument_count",
+        "reset_net_demand_count",
+        "max_reset_demand_ratio",
+        "previous_min_multiplier",
+        "previous_max_multiplier"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "full_supply_price_multiplier": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "curve_depth_divisor": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "instrument_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reset_net_demand_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Instruments whose net demand was folded into their new reference price."
+        },
+        "max_reset_demand_ratio": {
+          "$ref": "./common.schema.json#/$defs/DecimalString",
+          "description": "Largest net demand reset, as a share of its old curve depth."
+        },
+        "previous_min_multiplier": {
+          "oneOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/DecimalString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "previous_max_multiplier": {
+          "oneOf": [
+            {
+              "$ref": "./common.schema.json#/$defs/DecimalString"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

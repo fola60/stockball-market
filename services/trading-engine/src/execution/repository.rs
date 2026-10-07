@@ -35,7 +35,7 @@ pub async fn quote_order(
 
     let quote = price_impact::quote_trade(
         instrument.reference_price,
-        instrument.shares_outstanding,
+        instrument.curve_depth_shares,
         instrument.net_shares_purchased,
         instrument.full_supply_price_multiplier,
         command.quantity,
@@ -135,7 +135,7 @@ pub async fn execute_order(
 
     let quote = price_impact::quote_trade(
         instrument.reference_price,
-        instrument.shares_outstanding,
+        instrument.curve_depth_shares,
         instrument.net_shares_purchased,
         instrument.full_supply_price_multiplier,
         command.quantity,

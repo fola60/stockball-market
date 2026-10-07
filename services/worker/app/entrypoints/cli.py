@@ -25,6 +25,7 @@ COMMANDS: dict[str, Callable[..., int]] = {
     "ingest-twitter-injuries": ingestion.ingest_twitter_injuries,
     # Market setup and seeding
     "seed-player-shares": market.seed_player_shares,
+    "recalibrate-price-curves": market.recalibrate_price_curves,
     "spawn-synthetic-traders": market.spawn_synthetic_traders,
     "bootstrap-synthetic-portfolios": market.bootstrap_synthetic_portfolios,
     "bootstrap-dev-market": market.bootstrap_dev_market,

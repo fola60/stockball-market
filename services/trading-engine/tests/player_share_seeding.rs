@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use sqlx::PgPool;
-use stockball_trading_engine::instruments::seed_player_shares;
+use stockball_trading_engine::{instruments::seed_player_shares, price_impact::CurveCalibration};
 use uuid::Uuid;
 
 #[test]
@@ -28,14 +28,18 @@ async fn seeds_player_shares_and_is_rerunnable_inner() {
     let fallback_player_id = insert_player(&pool, "Test Goalkeeper", "Goalkeeper").await;
     insert_market_value(&pool, priced_player_id, Decimal::new(100_000_000, 0)).await;
 
-    let first = seed_player_shares(&pool).await.unwrap();
+    let first = seed_player_shares(&pool, CurveCalibration::default())
+        .await
+        .unwrap();
 
     assert_eq!(first.created_count, 2);
     assert_eq!(first.market_value_priced_count, 1);
     assert_eq!(first.fallback_priced_count, 1);
     assert_eq!(first.created_instrument_ids.len(), 2);
 
-    let second = seed_player_shares(&pool).await.unwrap();
+    let second = seed_player_shares(&pool, CurveCalibration::default())
+        .await
+        .unwrap();
 
     assert_eq!(second.created_count, 0);
     assert_eq!(second.market_value_priced_count, 0);

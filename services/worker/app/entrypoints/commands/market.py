@@ -11,6 +11,7 @@ import psycopg2
 from app.clients import (
     ApiClientError,
     ApiUnavailableError,
+    RecalibratePriceCurvesCommand,
     TradingEngineClientError,
     TradingEngineUnavailableError,
 )
@@ -69,6 +70,43 @@ def seed_player_shares(args) -> int:
         f"{result.market_value_priced_count} market-value priced, "
         f"{result.fallback_priced_count} fallback priced"
     )
+    return 0
+
+
+def recalibrate_price_curves(args) -> int:
+    settings = Settings.from_env()
+    configure_logging(args.log_level)
+    request_id = args.request_id or (
+        f"price-curves:{datetime.now(UTC).date().isoformat()}:"
+        f"{args.multiplier}x:{args.depth_divisor}"
+    )
+    try:
+        result = trading_engine_client(settings).recalibrate_price_curves(
+            RecalibratePriceCurvesCommand(
+                request_id=request_id,
+                full_supply_price_multiplier=args.multiplier,
+                curve_depth_divisor=args.depth_divisor,
+                reason=args.reason,
+                dry_run=not args.apply,
+            )
+        )
+    except TradingEngineClientError as error:
+        details = error.body.get("details")
+        print(f"price curve recalibration failed: {error}" + (f" {details}" if details else ""))
+        return 1
+    except TradingEngineUnavailableError as error:
+        print(f"price curve recalibration failed: {error}")
+        return 1
+    verb = "would rebase" if result.dry_run else "rebased"
+    print(
+        f"{verb} {result.instrument_count} price curves to {result.full_supply_price_multiplier}x "
+        f"over 1/{result.curve_depth_divisor} of supply (request {result.request_id}); "
+        f"{result.reset_net_demand_count} carried net demand, largest "
+        f"{float(result.max_reset_demand_ratio):.2%} of its old curve; previous multipliers "
+        f"{result.previous_min_multiplier}-{result.previous_max_multiplier}. Prices are unchanged."
+    )
+    if result.dry_run:
+        print("dry run: nothing was written; rerun with --apply to rebase")
     return 0
 
 
