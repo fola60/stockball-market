@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
+from app.common.images import ImageRecord
 from app.instruments.models import (
-    ImageRecord,
     InstrumentRecord,
     PlayerStatsRecord,
     PriceSnapshotRecord,

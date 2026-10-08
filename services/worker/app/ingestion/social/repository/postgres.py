@@ -307,8 +307,14 @@ class PostgresSocialRepository:
                             ) VALUES (
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                             )
-                            ON CONFLICT (provider, external_id) DO NOTHING
-                            RETURNING id
+                            ON CONFLICT (provider, external_id) DO UPDATE
+                                -- Entries stored before headlines were kept gain them
+                                -- when the feed serves them again; nothing else changes.
+                                SET provider_metadata = social_documents.provider_metadata
+                                    || jsonb_build_object('title', EXCLUDED.provider_metadata->'title')
+                                WHERE EXCLUDED.provider_metadata ? 'title'
+                                  AND NOT social_documents.provider_metadata ? 'title'
+                            RETURNING id, (xmax = 0) AS inserted
                             """,
                             (
                                 document.provider.value,
@@ -328,7 +334,7 @@ class PostgresSocialRepository:
                             ),
                         )
                         row = cursor.fetchone()
-                        if row is None:
+                        if row is None or not row["inserted"]:
                             continue
                         inserted += 1
                         cursor.execute(

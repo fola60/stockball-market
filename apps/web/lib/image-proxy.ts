@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 const API_URL = process.env.STOCKBALL_API_URL ?? "http://localhost:8000";
 const INSTRUMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TEAM_ID = /^[0-9]{1,12}$/;
 
 export type InstrumentImage = "player-image" | "club-badge";
 
@@ -12,11 +13,20 @@ export type InstrumentImage = "player-image" | "club-badge";
  */
 export async function proxyInstrumentImage(request: NextRequest, id: string, image: InstrumentImage) {
   if (!INSTRUMENT_ID.test(id)) return new Response(null, { status: 404 });
+  return proxyImage(request, `/v1/instruments/${id}/${image}`);
+}
 
+/** A FotMob team's badge, for fixtures where no single player is in context. */
+export async function proxyTeamBadge(request: NextRequest, teamId: string) {
+  if (!TEAM_ID.test(teamId)) return new Response(null, { status: 404 });
+  return proxyImage(request, `/v1/market/teams/${teamId}/badge`);
+}
+
+async function proxyImage(request: NextRequest, path: string) {
   const ifNoneMatch = request.headers.get("if-none-match");
   let upstream: Response;
   try {
-    upstream = await fetch(`${API_URL}/v1/instruments/${id}/${image}`, {
+    upstream = await fetch(`${API_URL}${path}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
       headers: ifNoneMatch ? { "If-None-Match": ifNoneMatch } : {},

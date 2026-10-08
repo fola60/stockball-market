@@ -10,8 +10,8 @@ from app.accounts.models import AccountType
 from app.auth.dependencies import get_current_principal
 from app.auth.models import CurrentPrincipal
 from app.clients.trading_engine import TradingEngineClientError, TradingEngineUnavailableError
+from app.common.images import ImageRecord
 from app.instruments.models import (
-    ImageRecord,
     InstrumentRecord,
     InstrumentStatus,
     InstrumentType,
@@ -272,6 +272,9 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(body[0]["full_supply_price_multiplier"], "2.500000")
         self.assertEqual(body[0]["curve_depth_shares"], "1000000.000000")
         self.assertNotIn("price_impact_unit", body[0])
+        self.assertEqual(body[0]["price_change_7d"], "0.0000")
+        self.assertEqual(body[0]["traded_value_24h"], "0.0000")
+        self.assertIsNone(body[0]["freeze_reason"])
 
     def test_list_instruments_exposes_image_versions(self) -> None:
         body = self.client.get("/v1/instruments").json()

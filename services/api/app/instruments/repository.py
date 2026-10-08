@@ -11,9 +11,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.common.decimal import format_decimal
+from app.common.images import ImageRecord
 from app.database import connection as pooled_connection
 from app.instruments.models import (
-    ImageRecord,
     InstrumentFreezeRecord,
     InstrumentRecord,
     InstrumentStatus,
@@ -79,6 +79,10 @@ class PostgresInstrumentsRepository:
     def list_instruments(self) -> list[InstrumentRecord]:
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                # These per-instrument lookups are cheap, but their summed cost estimate
+                # crosses Postgres's JIT threshold and compiling costs ~50 ms more than
+                # running the query.
+                cursor.execute("SET LOCAL jit = off")
                 cursor.execute(
                     """
                     SELECT
@@ -107,7 +111,17 @@ class PostgresInstrumentsRepository:
                             ),
                             0
                         ) AS price_change_24h,
+                        COALESCE(
+                            ROUND(
+                                ((i.current_price - week_opening.opening_price)
+                                    / NULLIF(week_opening.opening_price, 0)) * 100,
+                                4
+                            ),
+                            0
+                        ) AS price_change_7d,
                         COALESCE(activity.volume_24h, 0) AS volume_24h,
+                        ROUND(COALESCE(activity.traded_value_24h, 0), 4) AS traded_value_24h,
+                        active_freeze.reason AS freeze_reason,
                     """
                     + _IMAGE_VERSIONS
                     + """
@@ -122,11 +136,28 @@ class PostgresInstrumentsRepository:
                         LIMIT 1
                     ) AS opening ON TRUE
                     LEFT JOIN LATERAL (
-                        SELECT SUM(t.shares) AS volume_24h
+                        SELECT ps.old_price AS opening_price
+                        FROM price_snapshots AS ps
+                        WHERE ps.instrument_id = i.id
+                          AND ps.captured_at >= now() - interval '7 days'
+                        ORDER BY ps.captured_at ASC, ps.id ASC
+                        LIMIT 1
+                    ) AS week_opening ON TRUE
+                    LEFT JOIN (
+                        SELECT
+                            t.instrument_id,
+                            SUM(t.shares) AS volume_24h,
+                            SUM(t.gross_amount) AS traded_value_24h
                         FROM trades AS t
-                        WHERE t.instrument_id = i.id
-                          AND t.executed_at >= now() - interval '24 hours'
-                    ) AS activity ON TRUE
+                        WHERE t.executed_at >= now() - interval '24 hours'
+                        GROUP BY t.instrument_id
+                    ) AS activity ON activity.instrument_id = i.id
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (f.instrument_id) f.instrument_id, f.reason
+                        FROM instrument_freezes AS f
+                        WHERE f.released_at IS NULL
+                        ORDER BY f.instrument_id, f.started_at, f.id
+                    ) AS active_freeze ON active_freeze.instrument_id = i.id
                     """
                     + _IMAGE_JOINS
                     + """
@@ -140,6 +171,10 @@ class PostgresInstrumentsRepository:
     def get_instrument(self, instrument_id: UUID) -> InstrumentRecord | None:
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                # These per-instrument lookups are cheap, but their summed cost estimate
+                # crosses Postgres's JIT threshold and compiling costs ~50 ms more than
+                # running the query.
+                cursor.execute("SET LOCAL jit = off")
                 cursor.execute(
                     """
                     SELECT
@@ -168,7 +203,16 @@ class PostgresInstrumentsRepository:
                             ),
                             0
                         ) AS price_change_24h,
+                        COALESCE(
+                            ROUND(
+                                ((i.current_price - week_opening.opening_price)
+                                    / NULLIF(week_opening.opening_price, 0)) * 100,
+                                4
+                            ),
+                            0
+                        ) AS price_change_7d,
                         COALESCE(activity.volume_24h, 0) AS volume_24h,
+                        ROUND(COALESCE(activity.traded_value_24h, 0), 4) AS traded_value_24h,
                         active_freeze.reason AS freeze_reason,
                         active_freeze.started_at AS freeze_started_at,
                         fixture.home_team_name AS freeze_home_team,
@@ -188,7 +232,15 @@ class PostgresInstrumentsRepository:
                         LIMIT 1
                     ) AS opening ON TRUE
                     LEFT JOIN LATERAL (
-                        SELECT SUM(t.shares) AS volume_24h
+                        SELECT ps.old_price AS opening_price
+                        FROM price_snapshots AS ps
+                        WHERE ps.instrument_id = i.id
+                          AND ps.captured_at >= now() - interval '7 days'
+                        ORDER BY ps.captured_at ASC, ps.id ASC
+                        LIMIT 1
+                    ) AS week_opening ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT SUM(t.shares) AS volume_24h, SUM(t.gross_amount) AS traded_value_24h
                         FROM trades AS t
                         WHERE t.instrument_id = i.id
                           AND t.executed_at >= now() - interval '24 hours'
@@ -472,6 +524,9 @@ def _build_instrument_record(row: dict) -> InstrumentRecord:
         player_position=row["player_position"],
         price_change_24h=format_decimal(_as_decimal(row["price_change_24h"])),
         volume_24h=format_decimal(_as_decimal(row["volume_24h"])),
+        price_change_7d=format_decimal(_as_decimal(row["price_change_7d"])),
+        traded_value_24h=format_decimal(_as_decimal(row["traded_value_24h"])),
+        freeze_reason=row.get("freeze_reason"),
         player_image_version=row["player_image_version"],
         club_badge_version=row["club_badge_version"],
     )

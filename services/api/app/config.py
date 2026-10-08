@@ -13,6 +13,8 @@ REDIS_URL_ENV = "STOCKBALL_API_REDIS_URL"
 ADMIN_API_ENABLED_ENV = "STOCKBALL_ADMIN_API_ENABLED"
 # Pre-rename name, still honoured so existing deployments keep their setting.
 ADMIN_API_ENABLED_LEGACY_ENV = "STOCKBALL_DEV_PORTAL_ENABLED"
+# Shared with the worker, which freezes each club's players this long before kick-off.
+LINEUP_LOCK_MINUTES_ENV = "STOCKBALL_MATCH_FREEZE_LINEUP_LOCK_MINUTES"
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,7 @@ class Settings:
     ingestion_queue_name: str = "stockball:worker:ingestion"
     admin_api_enabled: bool = False
     user_opening_balance: Decimal = Decimal("100000.0000")
+    lineup_lock_minutes: int = 60
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -64,4 +67,5 @@ class Settings:
             user_opening_balance=Decimal(
                 os.getenv("STOCKBALL_USER_OPENING_BALANCE", "100000.0000")
             ),
+            lineup_lock_minutes=int(os.getenv(LINEUP_LOCK_MINUTES_ENV, "60")),
         )

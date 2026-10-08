@@ -76,7 +76,7 @@ def _rss_item(item: ET.Element, source_id: UUID, feed_url: str) -> SocialDocumen
         published_at=published,
         canonical_url=canonical_url,
         language=language,
-        metadata={"feed_url": feed_url},
+        metadata=_metadata(feed_url, title),
     )
 
 
@@ -111,8 +111,14 @@ def _atom_entry(item: ET.Element, source_id: UUID, feed_url: str) -> SocialDocum
         published_at=published,
         canonical_url=canonical_url,
         language=language,
-        metadata={"feed_url": feed_url},
+        metadata=_metadata(feed_url, title),
     )
+
+
+def _metadata(feed_url: str, title: str | None) -> dict[str, str]:
+    # The text joins title and body, so the headline is kept separately for display.
+    headline = sanitize_html(title) if title else ""
+    return {"feed_url": feed_url, "title": headline} if headline else {"feed_url": feed_url}
 
 
 def _children(parent: ET.Element, name: str) -> Iterable[ET.Element]:
