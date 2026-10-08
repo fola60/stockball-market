@@ -37,3 +37,9 @@ export function ClubBadge({ instrument, className = "size-3.5" }: { instrument: 
   if (!version) return null;
   return <img src={imageUrl(instrument.id, "club-badge", version)} alt="" aria-hidden="true" loading="lazy" decoding="async" className={`shrink-0 object-contain ${className}`} />;
 }
+
+/** A club badge by FotMob team, for fixtures; renders nothing when no badge is stored. */
+export function TeamBadge({ teamId, version, className = "size-3.5" }: { teamId: string; version: string | null; className?: string }) {
+  if (!version) return null;
+  return <img src={`/api/teams/${teamId}/badge?v=${encodeURIComponent(version)}`} alt="" aria-hidden="true" loading="lazy" decoding="async" className={`shrink-0 object-contain ${className}`} />;
+}

@@ -56,16 +56,14 @@ class InstrumentRecord:
     price_change_24h: str = "0.0000"
     volume_24h: str = "0.000000"
     freeze: InstrumentFreezeRecord | None = None
+    price_change_7d: str = "0.0000"
+    # Virtual pounds traded over the last 24 hours.
+    traded_value_24h: str = "0.0000"
+    # Why the instrument is frozen (MATCH_DAY, ADMIN_HALT or DATA_ISSUE), else None.
+    freeze_reason: str | None = None
     # Content-hash prefixes of the stored portrait and club badge, or None when absent.
     player_image_version: str | None = None
     club_badge_version: str | None = None
-
-
-@dataclass(frozen=True)
-class ImageRecord:
-    data: bytes
-    content_type: str
-    content_sha256: str
 
 
 @dataclass(frozen=True)

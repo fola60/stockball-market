@@ -205,6 +205,7 @@ class RssConnectorTests(unittest.IsolatedAsyncioTestCase):
         result = await connector.poll(subscription, cursor)
 
         self.assertEqual(result.documents[0].text, "Squad update Player returned to training.")
+        self.assertEqual(result.documents[0].metadata["title"], "Squad update")
         self.assertEqual(result.documents[0].canonical_url, "https://club.test/news/1")
         self.assertEqual(requests[0].headers["if-none-match"], '"v1"')
         self.assertEqual(result.next_cursor["etag"], '"v2"')
@@ -229,6 +230,7 @@ class RssConnectorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(result.documents), 1)
         self.assertEqual(result.documents[0].external_id, "club-news-1")
+        self.assertEqual(result.documents[0].metadata["title"], "Team news")
         self.assertEqual(
             result.documents[0].published_at,
             datetime(2026, 9, 10, 12, 0, tzinfo=UTC),

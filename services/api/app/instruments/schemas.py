@@ -49,6 +49,9 @@ class InstrumentResponse(BaseModel):
     price_change_24h: str = "0.0000"
     volume_24h: str = "0.000000"
     freeze: InstrumentFreezeResponse | None = None
+    price_change_7d: str = "0.0000"
+    traded_value_24h: str = "0.0000"
+    freeze_reason: str | None = None
     player_image_version: str | None = None
     club_badge_version: str | None = None
 

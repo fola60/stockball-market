@@ -6,7 +6,7 @@ import { PlayerSearch } from "./player-search";
 import { AuthDialog, AuthTrigger } from "./auth-dialog";
 import type { AuthMode } from "@/app/login/auth-form";
 
-export type ShellSection = "market" | "portfolio" | "leaderboard";
+export type ShellSection = "market" | "players" | "portfolio" | "leaderboard";
 
 export function Label({ children }: { children: ReactNode }) {
   return <p className="mb-2 text-[11px] font-semibold leading-none text-[#77818e]">{children}</p>;
@@ -20,7 +20,7 @@ function Header({ active, account, tickerStocks, searchInstruments }: { active: 
         <span>STOCK<span className="text-[#8fb5ff]">BALL</span></span>
       </Link>
       <nav aria-label="Primary" className="ml-5 hidden items-center gap-1 sm:flex md:ml-8">
-        {([["/", "Market", "market"], ["/leaderboard", "Leaderboard", "leaderboard"]] as const).map(([href, label, section]) => (
+        {([["/", "Market", "market"], ["/players", "Players", "players"], ["/leaderboard", "Leaderboard", "leaderboard"]] as const).map(([href, label, section]) => (
           <Link key={href} href={href} aria-current={active === section ? "page" : undefined} className={`h-9 rounded-lg px-3 text-xs font-bold leading-9 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${active === section ? "bg-white/[0.05] text-white" : "text-[#7c8693] hover:bg-white/[0.03] hover:text-white"}`}>{label}</Link>
         ))}
       </nav>

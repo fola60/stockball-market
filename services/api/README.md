@@ -29,6 +29,7 @@ It is the entry point for clients and the admin UI, but it does not execute trad
 
 - `accounts`: user identity, sessions, auth, roles, and synthetic bot account provisioning.
 - `instruments`: read APIs for tradable instruments and market data.
+- `market`: market-wide reads for the homepage: sparklines, the matchday, recent large trades, linked news, and team badges.
 - `portfolios`: read APIs for cash, positions, and PnL.
 - `orders`: public order endpoint and request validation.
 - `admin`: admin-only read and control endpoints.

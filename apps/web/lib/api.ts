@@ -23,6 +23,11 @@ export type Instrument = {
   updated_at: string;
   /** Present on the instrument detail endpoint while the instrument is frozen. */
   freeze?: InstrumentFreeze | null;
+  price_change_7d: string;
+  /** Virtual pounds traded over the last 24 hours. */
+  traded_value_24h: string;
+  /** Why the instrument is frozen, when it is: MATCH_DAY, ADMIN_HALT or DATA_ISSUE. */
+  freeze_reason: InstrumentFreeze["reason"] | null;
   /** Content-hash prefix of the stored player portrait; null when there is none. */
   player_image_version: string | null;
   /** Content-hash prefix of the stored club badge; null when there is none. */
@@ -167,10 +172,74 @@ export type OrderExecution = Omit<OrderQuote, "quoted_at"> & {
   executed_at: string;
 };
 
-export type MarketRow = {
-  instrument: Instrument;
-  directionRank: number;
-  prices: number[];
+export type SparklineRange = "1D" | "1W";
+
+export type FixtureStatus = "UPCOMING" | "PAUSED" | "LIVE" | "FINISHED" | "POSTPONED";
+
+export type FixtureTeam = {
+  team_id: string;
+  name: string;
+  short_name: string;
+  /** The canonical club the FotMob team maps to, matching Instrument.player_club. */
+  club: string | null;
+  badge_version: string | null;
+};
+
+export type Fixture = {
+  match_id: string;
+  kickoff_at: string;
+  /** When the clubs' players stop trading (the lineup lock). */
+  lock_at: string;
+  status: FixtureStatus;
+  score: string | null;
+  home: FixtureTeam;
+  away: FixtureTeam;
+};
+
+export type RatedPlayer = {
+  instrument_id: string;
+  player_name: string;
+  team_name: string;
+  rating: string;
+  goals: number;
+  home_team: string;
+  away_team: string;
+  score: string | null;
+};
+
+export type Matchday = {
+  lineup_lock_minutes: number;
+  next_round: { season: number; round: number; fixtures: Fixture[] } | null;
+  previous_round: number | null;
+  top_rated: RatedPlayer[];
+  /** Clubs in the current season's fixtures. */
+  league_clubs: string[];
+};
+
+export type MarketTrade = {
+  trade_id: string;
+  executed_at: string;
+  account_id: string;
+  trader_name: string;
+  trader_kind: TraderKind;
+  strategy: string | null;
+  side: OrderSide;
+  shares: string;
+  execution_price: string;
+  gross_amount: string;
+  instrument_id: string;
+  player_name: string;
+};
+
+export type NewsItem = {
+  document_id: string;
+  title: string;
+  url: string;
+  source: string;
+  published_at: string;
+  topic: string | null;
+  player_name: string;
+  instrument_id: string;
 };
 
 export type TickerStock = {
@@ -279,52 +348,40 @@ async function getPlayerStats(instrumentId: string): Promise<PlayerStats | null>
   return apiRequest<PlayerStats | null>(`/v1/instruments/${instrumentId}/player-stats`);
 }
 
-export async function getMarketPageData() {
-  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
-  const tradable = instruments.filter((instrument) => instrument.status !== "DELISTED");
-  const byChange = [...tradable].sort(
-    (a, b) => Number(b.price_change_24h) - Number(a.price_change_24h),
+export async function getSparklines(
+  instrumentIds: string[],
+  range: SparklineRange,
+): Promise<Record<string, number[]>> {
+  if (instrumentIds.length === 0) return {};
+  const ids = encodeURIComponent(instrumentIds.join(","));
+  const body = await apiRequest<{ series: Record<string, string[]> }>(
+    `/v1/market/sparklines?range=${range}&ids=${ids}`,
   );
-  const gainers = byChange.filter((instrument) => Number(instrument.price_change_24h) >= 0).slice(0, 5);
-  const mostValuable = [...tradable]
-    .sort(
-      (a, b) =>
-        Number(b.current_price) * Number(b.quantity_outstanding)
-        - Number(a.current_price) * Number(a.quantity_outstanding),
-    )
-    .slice(0, 80);
-  const decliners = mostValuable
-    .filter((instrument) => Number(instrument.price_change_24h) < 0)
-    .sort((a, b) => Number(a.price_change_24h) - Number(b.price_change_24h))
-    .slice(0, 5);
-
-  const selected = gainers.flatMap((instrument, index) => {
-    const rows = [{ instrument, directionRank: index + 1 }];
-    if (decliners[index]) rows.push({ instrument: decliners[index], directionRank: index + 1 });
-    return rows;
-  });
-
-  // Keep the market-page fan-out below the API's database pool limit. These
-  // queries are intentionally sequential: the list is capped at ten rows and
-  // a partial pool exhaustion would make the entire authenticated page fail.
-  const histories: PriceSnapshot[][] = [];
-  for (const { instrument } of selected) {
-    histories.push(await getPriceHistory(instrument.id, "1D"));
-  }
-
-  const rows: MarketRow[] = selected.map((row, index) => ({
-    ...row,
-    prices: chartPrices(histories[index], Number(row.instrument.current_price)),
-  }));
-
-  const tickerStocks = toTickerStocks(tradable);
-
-  const updatedAt = tradable.reduce(
-    (latest, instrument) => instrument.updated_at > latest ? instrument.updated_at : latest,
-    tradable[0]?.updated_at ?? new Date().toISOString(),
+  return Object.fromEntries(
+    Object.entries(body.series).map(([id, prices]) => [id, prices.map(Number)]),
   );
+}
 
-  return { account, rows, tickerStocks, searchInstruments: tradable, updatedAt };
+export async function getMatchday(): Promise<Matchday> {
+  return apiRequest<Matchday>("/v1/market/matchday");
+}
+
+export async function getMarketTrades(limit = 5): Promise<MarketTrade[]> {
+  return apiRequest<MarketTrade[]>(`/v1/market/trades?limit=${limit}`);
+}
+
+export async function getMarketNews(limit = 3): Promise<NewsItem[]> {
+  return apiRequest<NewsItem[]>(`/v1/market/news?limit=${limit}`);
+}
+
+export async function getLeaderboard(
+  filter: LeaderboardFilter,
+  limit: number,
+  offset = 0,
+): Promise<LeaderboardPage> {
+  return apiRequest<LeaderboardPage>(
+    `/v1/traders/leaderboard?filter=${filter}&limit=${limit}&offset=${offset}`,
+  );
 }
 
 export async function getPortfolioPageData() {
@@ -380,13 +437,17 @@ export async function getInstrumentPageData(instrumentId: string) {
   };
 }
 
-async function getShellData() {
-  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
+export function shellData(account: Account | null, instruments: Instrument[]) {
   return {
     account,
     tickerStocks: toTickerStocks(instruments),
     searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED"),
   };
+}
+
+async function getShellData() {
+  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
+  return shellData(account, instruments);
 }
 
 export const LEADERBOARD_PAGE_SIZE = 50;
@@ -395,9 +456,7 @@ export async function getLeaderboardPageData(filter: LeaderboardFilter, page: nu
   const offset = (page - 1) * LEADERBOARD_PAGE_SIZE;
   const [shell, leaderboard] = await Promise.all([
     getShellData(),
-    apiRequest<LeaderboardPage>(
-      `/v1/traders/leaderboard?filter=${filter}&limit=${LEADERBOARD_PAGE_SIZE}&offset=${offset}`,
-    ),
+    getLeaderboard(filter, LEADERBOARD_PAGE_SIZE, offset),
   ]);
   // The signed-in trader's own standing, so they can find themselves on any page.
   const viewerStanding = shell.account ? await getTraderStanding(shell.account.id) : null;
@@ -433,6 +492,15 @@ function playerSymbol(instrument: Instrument): string {
   return (words.at(-1) ?? instrument.symbol).toUpperCase();
 }
 
+/**
+ * Players in the market: trading now, or paused only for their match. Admin halts
+ * (players who left the league) and delistings are left out of market-wide views.
+ */
+export function isInMarket(instrument: Instrument): boolean {
+  return instrument.status === "ACTIVE"
+    || (instrument.status === "FROZEN" && instrument.freeze_reason === "MATCH_DAY");
+}
+
 function toTickerStocks(instruments: Instrument[]): TickerStock[] {
   return [...instruments]
     .filter((instrument) => instrument.status !== "DELISTED")
@@ -444,17 +512,4 @@ function toTickerStocks(instruments: Instrument[]): TickerStock[] {
       price: Number(instrument.current_price),
       change: Number(instrument.price_change_24h),
     }));
-}
-
-function chartPrices(history: PriceSnapshot[], currentPrice: number): number[] {
-  const cutoff = Date.now() - 24 * 60 * 60 * 1_000;
-  const chronological = history
-    .filter((snapshot) => new Date(snapshot.captured_at).getTime() >= cutoff)
-    .sort((a, b) => a.captured_at.localeCompare(b.captured_at))
-    .map((snapshot) => Number(snapshot.new_price))
-    .filter(Number.isFinite);
-
-  const recent = chronological.slice(-18);
-  if (recent.at(-1) !== currentPrice) recent.push(currentPrice);
-  return recent.length > 1 ? recent : [currentPrice, currentPrice];
 }

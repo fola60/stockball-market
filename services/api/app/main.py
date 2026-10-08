@@ -24,6 +24,9 @@ from app.config import Settings
 from app.instruments.repository import PostgresInstrumentsRepository
 from app.instruments.router import router as instruments_router
 from app.instruments.service import InstrumentsService
+from app.market.repository import PostgresMarketRepository
+from app.market.router import router as market_router
+from app.market.service import MarketService
 from app.orders.router import router as orders_router
 from app.orders.service import OrdersService
 from app.portfolios.repository import PostgresPortfoliosRepository
@@ -43,6 +46,7 @@ def create_app(
     auth_service: AuthService | None = None,
     admin_service: AdminService | None = None,
     traders_service: TradersService | None = None,
+    market_service: MarketService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Stockball API", version="0.1.0")
     request_telemetry = RequestTelemetry()
@@ -67,6 +71,10 @@ def create_app(
             repository=PostgresPortfoliosRepository(settings.database_url)
         )
         traders_service = TradersService(PostgresTradersRepository(settings.database_url))
+        market_service = MarketService(
+            PostgresMarketRepository(settings.database_url),
+            lineup_lock_minutes=settings.lineup_lock_minutes,
+        )
         trading_engine_client = HttpTradingEngineClient(
             settings.trading_engine_url,
             timeout_seconds=settings.trading_engine_timeout_seconds,
@@ -118,6 +126,7 @@ def create_app(
     app.state.auth_service = auth_service
     app.state.admin_service = admin_service
     app.state.traders_service = traders_service
+    app.state.market_service = market_service
     if not hasattr(app.state, "environment_service"):
         app.state.environment_service = None
     app.state.request_telemetry = request_telemetry
@@ -134,6 +143,7 @@ def create_app(
     app.include_router(portfolios_router)
     app.include_router(orders_router)
     app.include_router(traders_router)
+    app.include_router(market_router)
     app.include_router(admin_router)
 
     @app.get("/healthz", tags=["health"])

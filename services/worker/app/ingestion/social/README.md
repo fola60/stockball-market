@@ -36,6 +36,10 @@ title/summary in `source_text`, stores the body in `enriched_text`, and classifi
 text. Skipped pages fall back to the RSS text; transient failures remain durably queued for three
 bounded attempts. Community sources are summary-only by default.
 
+RSS and Atom entries also keep their cleaned headline in `provider_metadata.title`, which the
+public news feed displays. Entries stored before headlines were kept gain one the next time
+their feed serves them; nothing else about an existing entry changes, and it is not reprocessed.
+
 General sentiment resolution deliberately accepts a globally unique first name or surname, and
 a first name or surname that is unique inside a club identified in the text. These resolutions
 carry confidence `1.0`. Reviewed club aliases provide common football shorthand, including
