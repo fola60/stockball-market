@@ -47,7 +47,7 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
 
         <div className="flex flex-wrap items-stretch gap-5">
           <LiveTrades trades={data.trades} />
-          <TopTraders leaders={data.leaders} peopleOnBoard={data.peopleOnBoard} account={data.account} />
+          <TopTraders leaders={data.leaders} account={data.account} />
         </div>
 
         <section aria-labelledby="all-title" className={panel}>
@@ -63,10 +63,6 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
         </section>
 
         <InTheNews items={data.news} />
-
-        <p className="border-t border-[#202630] pt-6 text-[10px] leading-relaxed text-[#65707d]">
-          Stockball is a virtual market. Balances and prices are in virtual pounds and can’t be withdrawn. Prices move only when shares are traded; football data informs traders but never sets a price. Stockball’s own synthetic traders are always tagged BOT.
-        </p>
       </div>
     </Shell>
   );
