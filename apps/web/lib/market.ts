@@ -229,10 +229,9 @@ export async function getHomePageData() {
     optional(getSparklines([...new Set([...ids(weekSelection), ...valuable.map((instrument) => instrument.id)])], "1W"), {}),
     optional<MarketTrade[]>(getMarketTrades(5), []),
   ]);
-  const [news, leaders, people, portfolio] = await Promise.all([
+  const [news, leaders, portfolio] = await Promise.all([
     optional<NewsItem[]>(getMarketNews(3), []),
     optional<LeaderboardPage | null>(getLeaderboard("ALL", 5), null),
-    optional<LeaderboardPage | null>(getLeaderboard("PEOPLE", 1), null),
     account ? optional<Portfolio | null>(getPortfolio(account.portfolio.id), null) : Promise.resolve(null),
   ]);
 
@@ -271,7 +270,6 @@ export async function getHomePageData() {
     }),
     trades,
     leaders: leaders?.entries ?? [],
-    peopleOnBoard: people?.total ?? 0,
     valuable: valuable.map((instrument) => ({ instrument, prices: weekSeries[instrument.id] ?? [] })),
     news: news.flatMap((item) => {
       const instrument = byId.get(item.instrument_id);
