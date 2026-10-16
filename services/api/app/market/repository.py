@@ -298,7 +298,8 @@ class PostgresMarketRepository:
                     t.execution_price,
                     t.gross_amount,
                     t.instrument_id,
-                    p.display_name AS player_name,
+                    -- Index fund trades carry the fund's name.
+                    COALESCE(p.display_name, i.display_name) AS player_name,
                     a.id AS account_id,
                     a.display_name AS trader_name,
                     a.account_type,
@@ -306,7 +307,7 @@ class PostgresMarketRepository:
                 FROM trades AS t
                 JOIN accounts AS a ON a.id = t.account_id
                 JOIN instruments AS i ON i.id = t.instrument_id
-                JOIN players AS p ON p.id = i.player_id
+                LEFT JOIN players AS p ON p.id = i.player_id
                 LEFT JOIN synthetic_trader_bots AS bot ON bot.account_id = a.id
                 LEFT JOIN synthetic_trader_bot_configs AS config ON config.id = bot.config_id
                 WHERE t.executed_at >= now() - %(window)s

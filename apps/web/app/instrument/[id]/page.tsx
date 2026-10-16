@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Shell, panel } from "../../components/market-shell";
 import { ClubBadge, PlayerAvatar } from "../../components/player-media";
-import { getInstrumentPageData, playerName, type InstrumentFreeze } from "@/lib/api";
+import { getIndexFund, getInstrumentPageData, playerName, type InstrumentFreeze } from "@/lib/api";
 import { formatCompact, formatCurrency, formatPercent } from "@/lib/format";
 import { PriceChart } from "./price-chart";
 import { RadarChart } from "./radar-chart";
@@ -44,7 +44,11 @@ function FreezeBanner({ freeze }: { freeze: InstrumentFreeze }) {
 export default async function InstrumentPage({ params }: PageProps) {
   const { id } = await params;
   const data = await getInstrumentPageData(id);
-  if (!data) notFound();
+  if (!data) {
+    // Trade feeds and trader pages link every instrument here, team funds included.
+    if (await getIndexFund(id)) redirect(`/funds/${id}`);
+    notFound();
+  }
 
   const { account, instrument, history, stats, portfolio, tickerStocks, searchInstruments } = data;
   const name = playerName(instrument);

@@ -21,6 +21,9 @@ from app.auth.router import router as auth_router
 from app.auth.service import AuthService
 from app.clients.trading_engine import HttpTradingEngineClient
 from app.config import Settings
+from app.index_funds.repository import PostgresIndexFundsRepository
+from app.index_funds.router import router as index_funds_router
+from app.index_funds.service import IndexFundsService
 from app.instruments.repository import PostgresInstrumentsRepository
 from app.instruments.router import router as instruments_router
 from app.instruments.service import InstrumentsService
@@ -47,6 +50,7 @@ def create_app(
     admin_service: AdminService | None = None,
     traders_service: TradersService | None = None,
     market_service: MarketService | None = None,
+    index_funds_service: IndexFundsService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Stockball API", version="0.1.0")
     request_telemetry = RequestTelemetry()
@@ -64,8 +68,10 @@ def create_app(
         accounts_service = AccountsService(
             repository=PostgresAccountsRepository(settings.database_url)
         )
-        instruments_service = InstrumentsService(
-            repository=PostgresInstrumentsRepository(settings.database_url)
+        instruments_repository = PostgresInstrumentsRepository(settings.database_url)
+        instruments_service = InstrumentsService(repository=instruments_repository)
+        index_funds_service = IndexFundsService(
+            PostgresIndexFundsRepository(settings.database_url), instruments_repository
         )
         portfolios_service = PortfoliosService(
             repository=PostgresPortfoliosRepository(settings.database_url)
@@ -127,6 +133,7 @@ def create_app(
     app.state.admin_service = admin_service
     app.state.traders_service = traders_service
     app.state.market_service = market_service
+    app.state.index_funds_service = index_funds_service
     if not hasattr(app.state, "environment_service"):
         app.state.environment_service = None
     app.state.request_telemetry = request_telemetry
@@ -140,6 +147,7 @@ def create_app(
     app.include_router(accounts_router)
     app.include_router(auth_router)
     app.include_router(instruments_router)
+    app.include_router(index_funds_router)
     app.include_router(portfolios_router)
     app.include_router(orders_router)
     app.include_router(traders_router)

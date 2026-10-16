@@ -59,6 +59,7 @@ export function IngestionView({
     if (selected === "INGEST_SOCIAL_FEEDS")
       p = { provider: socialProvider, limit: Number(socialLimit) };
     if (selected === "SEED_PLAYER_SHARES") p = {};
+    if (selected === "CREATE_TEAM_INDEX_FUNDS") p = {};
     enqueue(selected, p);
   }
   return (
@@ -87,6 +88,7 @@ export function IngestionView({
         {![
           "IMPORT_MARKET_VALUES",
           "SEED_PLAYER_SHARES",
+          "CREATE_TEAM_INDEX_FUNDS",
           "INGEST_BETTING_MARKETS",
           "INGEST_TWITTER_INJURIES",
           "INGEST_SOCIAL_FEEDS",

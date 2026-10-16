@@ -45,6 +45,14 @@ writers = ["trading-engine"]
 owner = "trading-engine"
 writers = ["trading-engine"]
 
+[tables.index_funds]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
+[tables.index_constituents]
+owner = "trading-engine"
+writers = ["trading-engine"]
+
 [tables.portfolios]
 owner = "trading-engine"
 # The API creates an empty (zero-cash) portfolio with each account and removes it again if

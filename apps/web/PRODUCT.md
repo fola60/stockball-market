@@ -28,13 +28,13 @@ Stockball combines the familiarity of Premier League players with a simulated st
 
 ## Capabilities and Constraints
 
-- V1 supports Premier League `PLAYER_SHARE` instruments only.
+- V1 supports Premier League `PLAYER_SHARE` instruments and team funds. A team fund unit holds one share of every listed player at a club; buying one buys each player at their own price, so the fund moves only with its players.
 - Trading uses virtual cash; no real-money trading is offered.
 - Positions are long-only. Shorting, margin, derivatives, expiry, exercise, and settlement contracts are out of scope.
 - Users trade against a platform quote rather than a user-to-user order book.
 - Every executed buy raises the quoted price and every executed sell lowers it using the configured net-demand price curve.
 - External football statistics, sentiment, and betting-market observations can inform synthetic trader decisions but cannot mutate prices directly.
-- Team funds, national-team funds, and a transfer-window page are outside V1 scope.
+- National-team funds, other themed funds, and a transfer-window page are outside V1 scope.
 - The existing web implementation uses Next.js-compatible React, TypeScript, and Tailwind CSS.
 - The cadence for synthetic-trader credit top-ups remains undecided between weekly and monthly.
 

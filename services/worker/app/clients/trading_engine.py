@@ -25,6 +25,7 @@ class TradingEngineEndpoints:
     quote_order: str = "/internal/v1/orders/quote"
     execute_order: str = "/internal/v1/orders/execute"
     seed_player_shares: str = "/internal/v1/instruments/player-shares/seed"
+    create_index_fund: str = "/internal/v1/instruments/index-funds/create"
     apply_topup: str = "/internal/v1/ledger/topups/apply"
     issue_initial_supply: str = "/internal/v1/positions/initial-supply/issue"
     set_pre_market_price: str = "/internal/v1/instruments/pre-market-price/set"
@@ -320,6 +321,48 @@ class ReleaseFreezeRecord:
 
 
 @dataclass(frozen=True)
+class CreateIndexFundCommand:
+    """A fund over a fixed basket: each unit holds `shares_per_unit` of each player share."""
+
+    symbol: str
+    display_name: str
+    index_kind: str
+    club: str | None
+    constituents: tuple[tuple[UUID, str], ...]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "display_name": self.display_name,
+            "index_kind": self.index_kind,
+            "club": self.club,
+            "constituents": [
+                {"instrument_id": str(instrument_id), "shares_per_unit": shares_per_unit}
+                for instrument_id, shares_per_unit in self.constituents
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class CreateIndexFundRecord:
+    instrument_id: UUID
+    symbol: str
+    created: bool
+    constituent_count: int
+    unit_price: str
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "CreateIndexFundRecord":
+        return cls(
+            instrument_id=UUID(str(payload["instrument_id"])),
+            symbol=str(payload["symbol"]),
+            created=bool(payload["created"]),
+            constituent_count=int(payload["constituent_count"]),
+            unit_price=str(payload["unit_price"]),
+        )
+
+
+@dataclass(frozen=True)
 class OrderQuoteRecord:
     quantity: str
     gross_amount: str
@@ -341,6 +384,10 @@ class TradingEngineClient(Protocol):
     def seed_player_shares(self) -> SeedPlayerSharesRecord: ...
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord: ...
+
+
+class IndexFundCreator(Protocol):
+    def create_index_fund(self, command: CreateIndexFundCommand) -> CreateIndexFundRecord: ...
 
 
 class InitialSupplyIssuer(Protocol):
@@ -406,6 +453,10 @@ class HttpTradingEngineClient:
     def seed_player_shares(self) -> SeedPlayerSharesRecord:
         payload = self._post(self._endpoints.seed_player_shares, {})
         return SeedPlayerSharesRecord.from_payload(payload)
+
+    def create_index_fund(self, command: CreateIndexFundCommand) -> CreateIndexFundRecord:
+        payload = self._post(self._endpoints.create_index_fund, command.to_payload())
+        return CreateIndexFundRecord.from_payload(payload)
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord:
         payload = self._post(self._endpoints.apply_topup, command.to_payload())

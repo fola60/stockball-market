@@ -289,6 +289,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/instruments/index-funds/create:
+    post:
+      operationId: createIndexFund
+      summary: List an index fund over a fixed basket of player shares
+      description: >
+        Creates an INDEX_FUND instrument whose unit holds shares_per_unit of each
+        constituent, priced at the basket's current value. Orders for the fund go
+        through /internal/v1/orders/execute like any instrument: buying units buys
+        every constituent on its own price curve into the index fund custody
+        account, selling units sells them back, and the fund trades only while every
+        constituent is ACTIVE. Every constituent trade reprices the funds holding it.
+        Idempotent by symbol: the same symbol and basket return the existing fund.
+      tags:
+        - Instruments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIndexFundRequest"
+      responses:
+        "200":
+          description: The fund was listed, or already existed with this basket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateIndexFundResponse"
+        "404":
+          description: A constituent instrument does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The symbol belongs to another instrument or basket, or a constituent is delisted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The request or a constituent is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /internal/v1/orders/execute:
     post:
       operationId: executeOrder
@@ -435,6 +480,10 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/OrderQuoteResponse"
     SeedPlayerSharesResponse:
       $ref: "../schemas/trading.schema.json#/$defs/SeedPlayerSharesResponse"
+    CreateIndexFundRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/CreateIndexFundRequest"
+    CreateIndexFundResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/CreateIndexFundResponse"
     ApplyFreezeRequest:
       $ref: "../schemas/trading.schema.json#/$defs/ApplyFreezeRequest"
     ApplyFreezeResponse:

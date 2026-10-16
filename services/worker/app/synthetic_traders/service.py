@@ -28,8 +28,10 @@ from .config import (
     apply_config_overrides,
     parse_strategy_config,
 )
+from .config_models import AlphaDecisionConfig
 from .engines import default_engine_registry
-from .engines.base import candidate_exclusion_counts
+from .engines.base import candidate_exclusion_counts, sorted_decisions
+from .fund_decisions import INDEX_NATIVE_ENGINES, index_fund_decisions
 from .models import (
     BotPortfolioContext,
     BotTickContext,
@@ -148,7 +150,7 @@ class SyntheticTraderService:
                 if engine is None:
                     raise LookupError(f"no strategy engine registered for {strategy_engine.value}")
 
-                decisions = engine.evaluate(context, strategy_config)
+                decisions = self._evaluate(engine, strategy_engine, context, strategy_config)
                 rejection_reasons: Counter[str] = Counter()
                 recovery_decisions = self._build_recovery_decisions(
                     context=context,
@@ -267,6 +269,30 @@ class SyntheticTraderService:
             outcomes=tuple(outcomes),
             diagnostics=tuple(diagnostics),
         )
+
+    def _evaluate(
+        self,
+        engine,
+        strategy_engine: StrategyEngine,
+        context: BotTickContext,
+        strategy_config: StrategyConfig,
+    ) -> tuple[StrategyDecision, ...]:
+        """Runs the engine, judging index funds by its view of their players when the engine
+        ranks players on fundamentals that a fund does not have."""
+        if strategy_engine in INDEX_NATIVE_ENGINES:
+            return engine.evaluate(context, strategy_config)
+        players = tuple(c for c in context.candidates if not c.is_index_fund)
+        decisions = engine.evaluate(replace(context, candidates=players), strategy_config)
+        decision_config = getattr(strategy_config, "decision", None)
+        if not isinstance(decision_config, AlphaDecisionConfig):
+            return decisions
+        funds = index_fund_decisions(
+            context.candidates,
+            decisions,
+            decision_config,
+            strategy_config.universe,
+        )
+        return sorted_decisions(decisions + funds) if funds else decisions
 
     def _explanation(self, config, decisions):
         if not config.explainability.enabled:

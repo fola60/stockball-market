@@ -37,6 +37,10 @@ class InstrumentsRepository(Protocol):
 
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None: ...
 
+    def list_player_stats(self, instrument_ids: list[UUID]) -> dict[UUID, PlayerStatsRecord]: ...
+
+    def instrument_exists(self, instrument_id: UUID) -> bool: ...
+
     def get_player_image(self, instrument_id: UUID) -> ImageRecord | None: ...
 
     def get_club_badge(self, instrument_id: UUID) -> ImageRecord | None: ...
@@ -281,6 +285,16 @@ class PostgresInstrumentsRepository:
             ),
         )
 
+    def instrument_exists(self, instrument_id: UUID) -> bool:
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT EXISTS (SELECT 1 FROM instruments WHERE id = %(instrument_id)s)",
+                    {"instrument_id": str(instrument_id)},
+                )
+                row = cursor.fetchone()
+        return bool(row and row[0])
+
     def get_player_image(self, instrument_id: UUID) -> ImageRecord | None:
         return self._fetch_image(
             """
@@ -303,8 +317,10 @@ class PostgresInstrumentsRepository:
             """
             SELECT badge.image_data, badge.content_type, badge.content_sha256
             FROM instruments AS i
-            JOIN players AS p ON p.id = i.player_id
-            JOIN fotmob_club_teams AS club_team ON club_team.club = p.club
+            LEFT JOIN players AS p ON p.id = i.player_id
+            -- A team index fund shows its club's badge.
+            LEFT JOIN index_funds AS fund ON fund.instrument_id = i.id
+            JOIN fotmob_club_teams AS club_team ON club_team.club = COALESCE(p.club, fund.club)
             JOIN fotmob_team_logos AS badge
                 ON badge.provider_team_id = club_team.provider_team_id
                AND badge.status = 'READY'
@@ -354,6 +370,12 @@ class PostgresInstrumentsRepository:
         return [_build_price_snapshot_record(row) for row in rows]
 
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
+        return self.list_player_stats([instrument_id]).get(instrument_id)
+
+    def list_player_stats(self, instrument_ids: list[UUID]) -> dict[UUID, PlayerStatsRecord]:
+        """Season profiles for these player shares; players without stats are left out."""
+        if not instrument_ids:
+            return {}
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
@@ -486,19 +508,18 @@ class PostgresInstrumentsRepository:
                         FROM profiles
                         WHERE games > 0 OR keeper_games > 0
                     )
-                    SELECT ranked.*
+                    SELECT ranked.*, instrument.id AS instrument_id
                     FROM ranked
                     JOIN instruments AS instrument ON instrument.player_id = ranked.player_id
-                    WHERE instrument.id = %(instrument_id)s
+                    WHERE instrument.id = ANY(%(instrument_ids)s::uuid[])
                     """,
-                    {"instrument_id": str(instrument_id)},
+                    {"instrument_ids": [str(instrument_id) for instrument_id in instrument_ids]},
                 )
-                row = cursor.fetchone()
+                rows = cursor.fetchall()
 
-        if row is None:
-            return None
-
-        return _build_player_stats_record(row)
+        return {
+            UUID(str(row["instrument_id"])): _build_player_stats_record(row) for row in rows
+        }
 
 
 def _build_instrument_record(row: dict) -> InstrumentRecord:

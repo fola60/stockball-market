@@ -26,16 +26,30 @@ pub struct Instrument {
     pub updated_at: DateTime<Utc>,
 }
 
+/// An index fund's instrument row. It has no player and no price curve: its price is the value
+/// of its basket, which the engine resets whenever a constituent trades.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexFundInstrument {
+    pub id: Uuid,
+    pub symbol: String,
+    pub display_name: String,
+    pub current_price: Decimal,
+    pub status: InstrumentStatus,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InstrumentType {
     PlayerShare,
+    /// A fixed basket of player shares; see the `index_funds` module.
+    IndexFund,
 }
 
 impl InstrumentType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PlayerShare => "PLAYER_SHARE",
+            Self::IndexFund => "INDEX_FUND",
         }
     }
 }
@@ -52,6 +66,7 @@ impl FromStr for InstrumentType {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "PLAYER_SHARE" => Ok(Self::PlayerShare),
+            "INDEX_FUND" => Ok(Self::IndexFund),
             other => Err(InstrumentError::UnsupportedInstrumentType(other.to_owned())),
         }
     }

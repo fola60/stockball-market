@@ -352,7 +352,7 @@ class PostgresSyntheticTraderRepository:
                     SELECT
                         p.instrument_id,
                         i.player_id,
-                        player.club,
+                        COALESCE(player.club, fund.club) AS club,
                         p.quantity,
                         i.current_price,
                         latest_trade.execution_price AS last_trade_price,
@@ -363,6 +363,9 @@ class PostgresSyntheticTraderRepository:
                         ON i.id = p.instrument_id
                     LEFT JOIN players AS player
                         ON player.id = i.player_id
+                    -- A team fund counts toward its club's exposure.
+                    LEFT JOIN index_funds AS fund
+                        ON fund.instrument_id = i.id
                     LEFT JOIN LATERAL (
                         SELECT execution_price, executed_at
                         FROM trades
@@ -468,20 +471,42 @@ class PostgresSyntheticTraderRepository:
                         upcoming.fixture_count,
                         i.display_name,
                         i.current_price,
-                        i.trading_status,
-                        player.club,
-                        player.position
+                        -- A fund trades only while every constituent does.
+                        CASE
+                            WHEN basket.untradable THEN 'FROZEN'
+                            ELSE i.trading_status
+                        END AS trading_status,
+                        COALESCE(player.club, fund.club) AS club,
+                        player.position,
+                        basket.constituents
                     FROM instruments AS i
                     LEFT JOIN players AS player
                         ON player.id = i.player_id
+                    LEFT JOIN index_funds AS fund
+                        ON fund.instrument_id = i.id
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            bool_or(member.trading_status <> 'ACTIVE') AS untradable,
+                            jsonb_agg(jsonb_build_array(
+                                constituent.constituent_instrument_id,
+                                constituent.shares_per_unit::text
+                            )) AS constituents
+                        FROM index_constituents AS constituent
+                        JOIN instruments AS member
+                            ON member.id = constituent.constituent_instrument_id
+                        WHERE constituent.index_instrument_id = i.id
+                    ) AS basket ON i.instrument_type = 'INDEX_FUND'
                     LEFT JOIN LATERAL (
                         SELECT COUNT(DISTINCT (home_team_name, away_team_name, kickoff_at)) AS fixture_count
                         FROM fixtures
-                        WHERE (lower(home_team_name) = lower(player.club) OR lower(away_team_name) = lower(player.club))
+                        WHERE (
+                            lower(home_team_name) = lower(COALESCE(player.club, fund.club))
+                            OR lower(away_team_name) = lower(COALESCE(player.club, fund.club))
+                        )
                           AND kickoff_at > %(as_of)s AND kickoff_at <= %(as_of)s + interval '7 days'
                           AND COALESCE(status_short, '') NOT IN ('PST', 'CANC', 'ABD')
                     ) AS upcoming ON true
-                    WHERE i.instrument_type = 'PLAYER_SHARE'
+                    WHERE i.instrument_type IN ('PLAYER_SHARE', 'INDEX_FUND')
                     ORDER BY i.created_at DESC, i.id DESC
                     """,
                     {"as_of": as_of},
@@ -570,6 +595,10 @@ class PostgresSyntheticTraderRepository:
                         else betting_by_player.get(str(player_id), BettingMarketContext())
                     ),
                     match_event=None if player_id is None else events_by_player.get(str(player_id)),
+                    index_basket=tuple(
+                        (UUID(str(instrument_id)), Decimal(str(shares_per_unit)))
+                        for instrument_id, shares_per_unit in row.get("constituents") or ()
+                    ),
                 )
             )
 

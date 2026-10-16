@@ -144,8 +144,8 @@ class PostgresTradersRepository:
                 SELECT
                     instrument.id AS instrument_id,
                     instrument.symbol,
-                    player.display_name AS player_name,
-                    player.club AS player_club,
+                    COALESCE(player.display_name, instrument.display_name) AS player_name,
+                    COALESCE(player.club, fund.club) AS player_club,
                     player.position AS player_position,
                     position.quantity,
                     instrument.current_price,
@@ -161,7 +161,8 @@ class PostgresTradersRepository:
                 FROM positions AS position
                 JOIN portfolios AS portfolio ON portfolio.id = position.portfolio_id
                 JOIN instruments AS instrument ON instrument.id = position.instrument_id
-                JOIN players AS player ON player.id = instrument.player_id
+                LEFT JOIN players AS player ON player.id = instrument.player_id
+                LEFT JOIN index_funds AS fund ON fund.instrument_id = instrument.id
                 LEFT JOIN LATERAL (
                     SELECT snapshot.old_price AS opening_price
                     FROM price_snapshots AS snapshot
@@ -172,7 +173,7 @@ class PostgresTradersRepository:
                 ) AS opening ON TRUE
                 WHERE portfolio.account_id = %(account_id)s
                   AND position.quantity > 0
-                ORDER BY market_value DESC, player.display_name
+                ORDER BY market_value DESC, COALESCE(player.display_name, instrument.display_name)
                 """,
                 {"account_id": str(account_id)},
             )
@@ -182,7 +183,7 @@ class PostgresTradersRepository:
                 SELECT
                     trade.id AS trade_id,
                     trade.instrument_id,
-                    player.display_name AS player_name,
+                    COALESCE(player.display_name, instrument.display_name) AS player_name,
                     trade.side,
                     trade.shares,
                     trade.execution_price,
@@ -190,7 +191,7 @@ class PostgresTradersRepository:
                     trade.executed_at
                 FROM trades AS trade
                 JOIN instruments AS instrument ON instrument.id = trade.instrument_id
-                JOIN players AS player ON player.id = instrument.player_id
+                LEFT JOIN players AS player ON player.id = instrument.player_id
                 WHERE trade.account_id = %(account_id)s
                 ORDER BY trade.executed_at DESC, trade.id DESC
                 LIMIT %(limit)s

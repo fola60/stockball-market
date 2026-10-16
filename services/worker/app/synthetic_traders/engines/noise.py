@@ -49,8 +49,11 @@ class NoiseStrategyEngine:
             )
             for candidate in candidates
         }
+        # A fund's unit is a whole squad, so its price says nothing about how recognizable it is.
         price_inputs = {
-            candidate.instrument_id: float(candidate.current_price) for candidate in candidates
+            candidate.instrument_id: float(candidate.current_price)
+            for candidate in candidates
+            if not candidate.is_index_fund
         }
         popularity_ranks = rank_percentiles(popularity_inputs)
         price_ranks = rank_percentiles(price_inputs)
@@ -64,7 +67,7 @@ class NoiseStrategyEngine:
         decisions: list[StrategyDecision] = []
         for candidate in candidates:
             popularity_bias = popularity_ranks.get(candidate.instrument_id, 0.0) * 2.0 - 1.0
-            recognizable_bias = price_ranks.get(candidate.instrument_id, 0.0) * 2.0 - 1.0
+            recognizable_bias = price_ranks.get(candidate.instrument_id, 0.5) * 2.0 - 1.0
             recent_move = price_change_pct(
                 candidate.recent_prices,
                 candidate.current_price,
@@ -77,7 +80,10 @@ class NoiseStrategyEngine:
             if not config.universe.favorite_clubs and not config.universe.favorite_player_ids:
                 affinity = (
                     int.from_bytes(
-                        sha256(f"{context.bot.id}:{candidate.player_id}".encode()).digest()[:4],
+                        sha256(
+                            f"{context.bot.id}:{candidate.player_id or candidate.instrument_id}"
+                            .encode()
+                        ).digest()[:4],
                         "big",
                     )
                     / 2**32

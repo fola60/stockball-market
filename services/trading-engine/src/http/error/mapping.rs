@@ -8,8 +8,8 @@ use serde_json::json;
 
 use crate::{
     execution::ExecutionError, freezes::FreezeError, http::dto::ErrorResponse,
-    idempotency::IdempotencyError, instruments::InstrumentError, ledger::LedgerError,
-    orders::OrderError, portfolios::PortfolioError, positions::PositionError,
+    idempotency::IdempotencyError, index_funds::IndexFundError, instruments::InstrumentError,
+    ledger::LedgerError, orders::OrderError, portfolios::PortfolioError, positions::PositionError,
     price_impact::PriceImpactError, provisioning::ProvisioningError, snapshots::SnapshotError,
     topups::TopupError,
 };
@@ -66,6 +66,7 @@ impl From<ExecutionError> for ApiError {
             ),
             ExecutionError::Freeze(error) => freeze_error(error),
             ExecutionError::Idempotency(error) => idempotency_error(error),
+            ExecutionError::IndexFund(error) => index_fund_error(error),
             ExecutionError::Instrument(error) => instrument_error(error),
             ExecutionError::Ledger(error) => ledger_error(error),
             ExecutionError::Order(error) => order_error(error),
@@ -117,6 +118,12 @@ impl From<TopupError> for ApiError {
                 Some(json!({ "error": error.to_string() })),
             ),
         }
+    }
+}
+
+impl From<IndexFundError> for ApiError {
+    fn from(error: IndexFundError) -> Self {
+        index_fund_error(error)
     }
 }
 
@@ -400,6 +407,66 @@ fn instrument_error(error: InstrumentError) -> ApiError {
         InstrumentError::Database(error) => internal_error(
             "database_error",
             "Unexpected database error while working with instruments.",
+            Some(json!({ "error": error.to_string() })),
+        ),
+    }
+}
+
+fn index_fund_error(error: IndexFundError) -> ApiError {
+    let invalid = |code: &str, error: &IndexFundError, details| {
+        ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            code,
+            format!("{error}."),
+            details,
+        )
+    };
+    match error {
+        IndexFundError::EmptySymbol
+        | IndexFundError::EmptyDisplayName
+        | IndexFundError::MissingClub
+        | IndexFundError::EmptyConstituents => invalid("invalid_index_fund", &error, None),
+        IndexFundError::DuplicateConstituent(instrument_id)
+        | IndexFundError::ConstituentNotPlayerShare(instrument_id) => invalid(
+            "invalid_index_constituent",
+            &error,
+            Some(json!({ "instrument_id": instrument_id })),
+        ),
+        IndexFundError::InvalidSharesPerUnit { instrument_id, .. } => invalid(
+            "invalid_index_constituent",
+            &error,
+            Some(json!({ "instrument_id": instrument_id })),
+        ),
+        IndexFundError::UnsupportedIndexKind(ref kind) => invalid(
+            "unsupported_index_kind",
+            &error,
+            Some(json!({ "index_kind": kind })),
+        ),
+        IndexFundError::ConstituentNotListed {
+            instrument_id,
+            status,
+        } => ApiError::new(
+            StatusCode::CONFLICT,
+            "index_constituent_not_listed",
+            format!("{error}."),
+            Some(json!({ "instrument_id": instrument_id, "status": status.as_str() })),
+        ),
+        IndexFundError::SymbolTaken(ref symbol) => ApiError::new(
+            StatusCode::CONFLICT,
+            "index_fund_symbol_taken",
+            format!("{error}."),
+            Some(json!({ "symbol": symbol })),
+        ),
+        IndexFundError::MissingBasket(instrument_id) => internal_error(
+            "index_fund_without_basket",
+            "index fund has no constituents.",
+            Some(json!({ "instrument_id": instrument_id })),
+        ),
+        IndexFundError::Instrument(error) => instrument_error(error),
+        IndexFundError::Snapshot(error) => snapshot_error(error),
+        IndexFundError::Database(error) => internal_error(
+            "database_error",
+            "Unexpected database error while working with index funds.",
             Some(json!({ "error": error.to_string() })),
         ),
     }

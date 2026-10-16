@@ -5,9 +5,9 @@ mod router;
 
 pub use dto::{
     ApplyFreezeRequest, ApplyFreezeResponse, ApplyOpeningBalanceRequest,
-    ApplyOpeningBalanceResponse, ApplyTopupRequest, ApplyTopupResponse, ErrorResponse,
-    ExecuteOrderRequest, ExecuteOrderResponse, IssueInitialSupplyRequest,
-    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
+    ApplyOpeningBalanceResponse, ApplyTopupRequest, ApplyTopupResponse, CreateIndexFundRequest,
+    CreateIndexFundResponse, ErrorResponse, ExecuteOrderRequest, ExecuteOrderResponse,
+    IssueInitialSupplyRequest, IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
     RecalibratePriceCurvesRequest, RecalibratePriceCurvesResponse, ReleaseFreezeRequest,
     ReleaseFreezeResponse, SeedPlayerSharesResponse, SetPreMarketPriceRequest,
     SetPreMarketPriceResponse,

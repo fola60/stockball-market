@@ -75,6 +75,7 @@ The implementation must prevent concurrent orders from reading the same cash/pri
 | `positions` | positions | position quantity rows | cash, ledger entries, instrument prices, trades |
 | `snapshots` | price snapshots and identifying trade/instrument values | price snapshot rows | current instrument price, cash, positions, trades |
 | `freezes` | instrument freeze/status state | freeze/status state | cash, positions, trades, ledger entries |
+| `index_funds` | index funds, their baskets, constituent prices | `index_funds` and `index_constituents` rows, and a new fund's instrument row through `instruments` | cash, positions, trades, ledger entries |
 
 If a write does not appear in a module's "May Write" column, that module must not perform it.
 
@@ -254,7 +255,8 @@ Not allowed:
 
 Rule:
 
-V1 positions are long-only `PLAYER_SHARE` quantities.
+Positions are long-only quantities of player shares or index fund units. The index fund custody
+account holds the player shares behind every fund unit in issue.
 
 ## `snapshots`
 
@@ -288,6 +290,26 @@ Not allowed:
 - Detect external fixture events directly.
 - Execute trades.
 - Mutate cash or positions.
+
+## `index_funds`
+
+Owns index funds: fixed baskets of player shares traded as one instrument.
+
+Allowed:
+
+- Create a fund instrument, its fund record, and its basket.
+- Read baskets, the funds holding a player, and a basket's value at current prices.
+
+Not allowed:
+
+- Execute fund orders; `execution` trades each constituent for the custody account.
+- Change a basket after listing.
+- Mutate cash or positions.
+
+Rule:
+
+Flows that touch funds and players lock affected fund rows before player rows, each in id order.
+See `index_funds/README.md`.
 
 ## Cross-Service Rules
 

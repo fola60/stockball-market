@@ -25,7 +25,7 @@
     },
     "InstrumentType": {
       "type": "string",
-      "enum": ["PLAYER_SHARE"]
+      "enum": ["PLAYER_SHARE", "INDEX_FUND"]
     },
     "InstrumentStatus": {
       "type": "string",
@@ -49,7 +49,7 @@
     },
     "PriceSnapshotReason": {
       "type": "string",
-      "enum": ["SEED", "TRADE_BUY", "TRADE_SELL", "ADMIN_ADJUSTMENT"]
+      "enum": ["SEED", "TRADE_BUY", "TRADE_SELL", "ADMIN_ADJUSTMENT", "INDEX_REVALUATION"]
     },
     "ErrorResponse": {
       "type": "object",

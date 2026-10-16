@@ -1,16 +1,25 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { AuthTrigger } from "../components/auth-dialog";
 import { Label, Shell, panel } from "../components/market-shell";
+import { FundBadge } from "../components/fund-media";
 import { ClubBadge, PlayerAvatar } from "../components/player-media";
-import { getPortfolioPageData, playerName, type Instrument } from "@/lib/api";
+import { getPortfolioPageData, playerName } from "@/lib/api";
 import { formatCurrency, formatPercent } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Portfolio — Stockball" };
 export const dynamic = "force-dynamic";
 
 type Holding = {
-  instrument: Instrument;
+  id: string;
+  href: string;
+  name: string;
+  avatar: ReactNode;
+  detail: ReactNode;
+  /** Allocation group: the player's position, or team funds together. */
+  group: string;
+  price: number;
   quantity: number;
   value: number;
   dayChange: number;
@@ -19,7 +28,7 @@ type Holding = {
 };
 
 export default async function PortfolioPage() {
-  const { account, instruments, portfolio, activity, tickerStocks, searchInstruments } = await getPortfolioPageData();
+  const { account, instruments, funds, portfolio, activity, tickerStocks, searchInstruments } = await getPortfolioPageData();
 
   if (!account || !portfolio) {
     return (
@@ -43,14 +52,37 @@ export default async function PortfolioPage() {
   }
 
   const instrumentById = new Map(instruments.map((instrument) => [instrument.id, instrument]));
+  const fundById = new Map(funds.map((fund) => [fund.id, fund]));
   const rawHoldings = portfolio.positions.flatMap((position) => {
     const instrument = instrumentById.get(position.instrument_id);
-    if (!instrument) return [];
+    const fund = fundById.get(position.instrument_id);
+    const listing = instrument
+      ? {
+          id: instrument.id,
+          href: `/instrument/${instrument.id}`,
+          name: playerName(instrument),
+          avatar: <PlayerAvatar instrument={instrument} name={playerName(instrument)} className="size-8" />,
+          detail: <><ClubBadge instrument={instrument} className="size-3" />{instrument.player_club ?? "Club unavailable"} · {instrument.player_position ?? "—"}</>,
+          group: instrument.player_position ?? "Other",
+          price: Number(instrument.current_price),
+          dayChange: Number(instrument.price_change_24h),
+        }
+      : fund
+        ? {
+            id: fund.id,
+            href: `/funds/${fund.id}`,
+            name: fund.display_name,
+            avatar: <FundBadge fund={fund} className="size-8" />,
+            detail: <>Team fund · {fund.constituent_count} players</>,
+            group: "Team funds",
+            price: Number(fund.current_price),
+            dayChange: Number(fund.price_change_24h),
+          }
+        : null;
+    if (!listing) return [];
     const quantity = Number(position.quantity);
-    const price = Number(instrument.current_price);
-    const dayChange = Number(instrument.price_change_24h);
-    const previousPrice = 1 + dayChange / 100 > 0 ? price / (1 + dayChange / 100) : price;
-    return [{ instrument, quantity, value: quantity * price, dayChange, dayPnl: quantity * (price - previousPrice) }];
+    const previousPrice = 1 + listing.dayChange / 100 > 0 ? listing.price / (1 + listing.dayChange / 100) : listing.price;
+    return [{ ...listing, quantity, value: quantity * listing.price, dayPnl: quantity * (listing.price - previousPrice) }];
   });
   const invested = rawHoldings.reduce((total, holding) => total + holding.value, 0);
   const holdings: Holding[] = rawHoldings
@@ -61,8 +93,7 @@ export default async function PortfolioPage() {
   const dayPnl = holdings.reduce((total, holding) => total + holding.dayPnl, 0);
   const dayPercent = portfolioValue - dayPnl > 0 ? (dayPnl / (portfolioValue - dayPnl)) * 100 : 0;
   const allocation = holdings.reduce<Record<string, number>>((groups, holding) => {
-    const role = holding.instrument.player_position ?? "Other";
-    groups[role] = (groups[role] ?? 0) + holding.value;
+    groups[holding.group] = (groups[holding.group] ?? 0) + holding.value;
     return groups;
   }, {});
 
@@ -101,12 +132,12 @@ export default async function PortfolioPage() {
             {holdings.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px] border-collapse text-left">
-                  <thead className="border-y border-[#202832] bg-black/10 text-[11px] uppercase tracking-wider text-[#65707d]"><tr><th className="py-2.5 pl-5">Player</th><th>Shares</th><th>Current</th><th>Market value</th><th>24h</th><th>Allocation</th></tr></thead>
+                  <thead className="border-y border-[#202832] bg-black/10 text-[11px] uppercase tracking-wider text-[#65707d]"><tr><th className="py-2.5 pl-5">Holding</th><th>Quantity</th><th>Current</th><th>Market value</th><th>24h</th><th>Allocation</th></tr></thead>
                   <tbody>{holdings.map((holding) => (
-                    <tr key={holding.instrument.id} className="border-b border-[#202832] text-[11px] text-[#9ba5b2] hover:bg-white/[0.018]">
-                      <td className="py-3 pl-5"><div className="flex items-center gap-3"><PlayerAvatar instrument={holding.instrument} name={playerName(holding.instrument)} className="size-8" /><div className="min-w-0"><strong className="block text-xs text-white">{playerName(holding.instrument)}</strong><small className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#697481]"><ClubBadge instrument={holding.instrument} className="size-3" />{holding.instrument.player_club ?? "Club unavailable"} · {holding.instrument.player_position ?? "—"}</small></div></div></td>
+                    <tr key={holding.id} className="border-b border-[#202832] text-[11px] text-[#9ba5b2] hover:bg-white/[0.018]">
+                      <td className="py-3 pl-5"><Link prefetch={false} href={holding.href} className="flex items-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">{holding.avatar}<div className="min-w-0"><strong className="block text-xs text-white">{holding.name}</strong><small className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#697481]">{holding.detail}</small></div></Link></td>
                       <td className="font-mono">{holding.quantity.toLocaleString("en-GB", { maximumFractionDigits: 4 })}</td>
-                      <td className="font-mono font-bold text-white">{formatCurrency(holding.instrument.current_price)}</td>
+                      <td className="font-mono font-bold text-white">{formatCurrency(holding.price)}</td>
                       <td className="font-mono font-bold text-white">{formatCurrency(holding.value)}</td>
                       <td className={`font-mono ${holding.dayChange >= 0 ? "text-[#35d07f]" : "text-[#f16d73]"}`}>{formatPercent(holding.dayChange)}</td>
                       <td><div className="flex items-center gap-2"><span className="w-12 font-mono">{holding.allocation.toFixed(1)}%</span><span className="h-1 w-12 overflow-hidden rounded bg-[#242c37]"><i className="block h-full bg-[#8fb5ff]" style={{ width: `${holding.allocation}%` }}/></span></div></td>
@@ -124,7 +155,7 @@ export default async function PortfolioPage() {
           </article>
 
           <article className={`${panel} p-5`}>
-            <div className="flex items-end justify-between"><div><Label>Allocation</Label><h2 className="text-base font-bold">By position</h2></div><span className="text-[11px] text-[#77818e]">{holdings.length} holdings</span></div>
+            <div className="flex items-end justify-between"><div><Label>Allocation</Label><h2 className="text-base font-bold">By position and fund</h2></div><span className="text-[11px] text-[#77818e]">{holdings.length} holdings</span></div>
             {Object.keys(allocation).length > 0 ? (
               <div className="mt-5 space-y-4">{Object.entries(allocation).sort((a, b) => b[1] - a[1]).map(([role, value]) => {
                 const percentage = invested > 0 ? (value / invested) * 100 : 0;

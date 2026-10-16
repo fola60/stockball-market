@@ -241,6 +241,13 @@ class CandidateInstrumentContext:
     reference_price: Decimal | None = None
     fixture_score: float = 0.0
     match_event: MatchEventContext | None = None
+    # An index fund's basket: each constituent and how many of its shares back one unit.
+    # Empty for player shares.
+    index_basket: tuple[tuple[UUID, Decimal], ...] = ()
+
+    @property
+    def is_index_fund(self) -> bool:
+        return bool(self.index_basket)
 
 
 @dataclass(frozen=True)

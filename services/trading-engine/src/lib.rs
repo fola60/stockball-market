@@ -3,6 +3,7 @@ pub mod execution;
 pub mod freezes;
 pub mod http;
 pub mod idempotency;
+pub mod index_funds;
 pub mod instruments;
 pub mod ledger;
 pub mod orders;

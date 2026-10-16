@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from uuid import UUID
 
 from app.jobs.models import IngestPlayersJobPayload, JobExecutionResult, JobType
+from app.seasons import resolve_season
 from app.synthetic_traders import (
     BotStatus,
     SpawnNameStyle,
@@ -40,6 +41,23 @@ def seed_player_shares_handler(client):
             result.skipped_existing_count, 0,
             metrics={"market_value_priced": result.market_value_priced_count,
                      "fallback_priced": result.fallback_priced_count},
+        )
+    return execute
+
+
+def create_team_index_funds_handler(service):
+    def execute(payload: Mapping[str, Any]) -> JobExecutionResult:
+        result = service.create_team_funds(
+            resolve_season(int(payload.get("season") or 0)),
+            dry_run=bool(payload.get("dry_run", False)),
+        )
+        return JobExecutionResult(
+            JobType.CREATE_TEAM_INDEX_FUNDS, datetime.now(UTC), result.created_count,
+            len(result.existing) + len(result.too_small), result.failed_count,
+            metrics={"season": result.season, "dry_run": result.dry_run,
+                     "funds": {o.club: o.symbol for o in result.outcomes if o.error is None},
+                     "errors": {o.club: o.error for o in result.outcomes if o.error is not None},
+                     "existing": result.existing, "too_small": result.too_small},
         )
     return execute
 

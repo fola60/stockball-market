@@ -1,9 +1,10 @@
 use uuid::Uuid;
 
 use crate::{
-    freezes::FreezeError, idempotency::IdempotencyError, instruments::InstrumentError,
-    ledger::LedgerError, orders::OrderError, portfolios::PortfolioError, positions::PositionError,
-    price_impact::PriceImpactError, snapshots::SnapshotError,
+    freezes::FreezeError, idempotency::IdempotencyError, index_funds::IndexFundError,
+    instruments::InstrumentError, ledger::LedgerError, orders::OrderError,
+    portfolios::PortfolioError, positions::PositionError, price_impact::PriceImpactError,
+    snapshots::SnapshotError,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -16,6 +17,9 @@ pub enum ExecutionError {
 
     #[error(transparent)]
     Idempotency(#[from] IdempotencyError),
+
+    #[error(transparent)]
+    IndexFund(#[from] IndexFundError),
 
     #[error(transparent)]
     Instrument(#[from] InstrumentError),

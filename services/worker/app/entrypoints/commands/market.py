@@ -23,6 +23,7 @@ from app.entrypoints.factories import (
     configure_logging,
     trading_engine_client,
 )
+from app.index_funds import PostgresTeamIndexFundRepository, TeamIndexFundService
 from app.ingestion.social import PostgresSocialRepository, SocialSignalAggregationService
 from app.jobs import (
     IngestPlayersJobPayload,
@@ -33,6 +34,7 @@ from app.jobs import (
 )
 from app.league_roster import LeagueRosterService, PostgresLeagueRosterRepository
 from app.queue import RedisJobQueue
+from app.seasons import resolve_season
 from app.seeding import (
     BootstrapAllocationError,
     PostgresSyntheticPortfolioBootstrapRepository,
@@ -71,6 +73,40 @@ def seed_player_shares(args) -> int:
         f"{result.fallback_priced_count} fallback priced"
     )
     return 0
+
+
+def create_team_index_funds(args) -> int:
+    settings = Settings.from_env()
+    configure_logging(args.log_level)
+    service = TeamIndexFundService(
+        PostgresTeamIndexFundRepository(settings.database_url),
+        trading_engine_client(settings),
+    )
+    result = service.create_team_funds(resolve_season(args.season), dry_run=args.dry_run)
+    verb = "would list" if result.dry_run else "listed"
+    for outcome in result.outcomes:
+        if outcome.error is not None:
+            print(f"{outcome.club}: failed: {outcome.error}")
+        elif result.dry_run:
+            print(
+                f"{outcome.club}: {verb} {outcome.symbol} "
+                f"over {outcome.constituent_count} players"
+            )
+        else:
+            state = "listed" if outcome.created else "already listed"
+            print(
+                f"{outcome.club}: {state} {outcome.symbol} over {outcome.constituent_count} "
+                f"players at {outcome.unit_price} a unit"
+            )
+    for club, symbol in sorted(result.existing.items()):
+        print(f"{club}: already has {symbol}")
+    for club, count in sorted(result.too_small.items()):
+        print(f"{club}: skipped, only {count} listed players")
+    print(
+        f"season {result.season}: {verb} {len(result.outcomes) - result.failed_count} funds, "
+        f"{result.failed_count} failed"
+    )
+    return 1 if result.failed_count else 0
 
 
 def recalibrate_price_curves(args) -> int:
