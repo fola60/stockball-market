@@ -16,7 +16,6 @@ from app.instruments.models import (
 )
 from app.instruments.service import InstrumentsService
 from app.main import create_app
-from tests.test_market_api import FakeInstrumentsRepository
 
 
 def _constituent(price: str, position: str = "FW") -> IndexConstituentRecord:
@@ -84,6 +83,16 @@ def _fund(fund_id: UUID) -> IndexFundRecord:
     )
 
 
+class FakeInstrumentsRepository:
+    """Only the stats lookup the fund profile needs."""
+
+    def __init__(self, player_stats: dict[UUID, PlayerStatsRecord]) -> None:
+        self._player_stats = player_stats
+
+    def list_player_stats(self, instrument_ids: list[UUID]) -> dict[UUID, PlayerStatsRecord]:
+        return {id: self._player_stats[id] for id in instrument_ids if id in self._player_stats}
+
+
 class FakeIndexFundsRepository:
     def __init__(self, fund: IndexFundRecord, constituents: list[IndexConstituentRecord]):
         self.fund = fund
@@ -143,16 +152,13 @@ class IndexFundsApiTests(unittest.TestCase):
         self.fund_id = uuid4()
         self.constituents = [_constituent("60"), _constituent("40")]
         instruments = FakeInstrumentsRepository(
-            [],
-            {},
-            player_stats={
-                self.constituents[0].instrument_id: _stats("FW", [_axis("Shooting", 80)])
-            },
+            {self.constituents[0].instrument_id: _stats("FW", [_axis("Shooting", 80)])}
         )
         app = create_app(
             instruments_service=InstrumentsService(instruments),
             index_funds_service=IndexFundsService(
-                FakeIndexFundsRepository(_fund(self.fund_id), self.constituents), instruments
+                FakeIndexFundsRepository(_fund(self.fund_id), self.constituents),
+                instruments,
             ),
         )
         self.client = TestClient(app)
