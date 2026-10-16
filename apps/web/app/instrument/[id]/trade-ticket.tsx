@@ -9,6 +9,8 @@ import { AuthTrigger } from "@/app/components/auth-dialog";
 type Props = {
   instrumentId: string;
   playerName: string;
+  /** What the ticket trades, for copy: a player's shares or a fund's units. */
+  kind?: "player" | "fund";
   status: "ACTIVE" | "FROZEN" | "DELISTED";
   cashBalance: string | null;
   ownedQuantity: string;
@@ -24,6 +26,7 @@ export function TradeTicket(props: Props) {
   const [requestId, setRequestId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const subject = props.kind === "fund" ? "fund" : "player";
   const owned = Number(props.ownedQuantity);
   const active = props.status === "ACTIVE";
   const cashBalance = props.cashBalance;
@@ -61,7 +64,7 @@ export function TradeTicket(props: Props) {
       return;
     }
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
-      setError("A live price is not available for this player. Try again shortly.");
+      setError(`A live price is not available for this ${subject}. Try again shortly.`);
       return;
     }
     const settlementQuantity = quantityForAmount(numeric, currentPrice, side, owned, positionValue);
@@ -77,7 +80,7 @@ export function TradeTicket(props: Props) {
       });
       const body = await response.json();
       if (!response.ok) {
-        setError(orderError(body));
+        setError(orderError(body, subject));
         return;
       }
       setQuote(body);
@@ -101,7 +104,7 @@ export function TradeTicket(props: Props) {
       const body = await response.json();
       if (!response.ok) {
         setQuote(null);
-        setError(orderError(body));
+        setError(orderError(body, subject));
         return;
       }
       setExecution(body);
@@ -152,7 +155,7 @@ export function TradeTicket(props: Props) {
         <div><h2 id="trade-title" className="text-lg font-semibold">Trade {props.playerName}</h2><p className="mt-1 text-[11px] text-[#77818e]">Immediate virtual-market order</p></div>
         <span className={`rounded-md px-2 py-1 text-[11px] font-bold ${active ? "bg-[#35d07f]/10 text-[#5ee09a]" : "bg-[#f4bb55]/10 text-[#f4bb55]"}`}>{props.status}</span>
       </div>
-      {!active && <p className="mt-4 rounded-lg border border-[#f4bb55]/25 bg-[#f4bb55]/[0.06] px-3 py-2.5 text-[11px] leading-5 text-[#f4d08a]">Trading is paused for this player. Orders reopen automatically when the freeze ends.</p>}
+      {!active && <p className="mt-4 rounded-lg border border-[#f4bb55]/25 bg-[#f4bb55]/[0.06] px-3 py-2.5 text-[11px] leading-5 text-[#f4d08a]">{props.kind === "fund" ? "Trading is paused while any player in this fund is paused. Orders reopen automatically when they all trade again." : "Trading is paused for this player. Orders reopen automatically when the freeze ends."}</p>}
 
       <div className="mt-5 grid grid-cols-2 rounded-lg border border-[#273241] bg-[#090d12] p-1">
         {(["BUY", "SELL"] as const).map((value) => (
@@ -160,7 +163,7 @@ export function TradeTicket(props: Props) {
         ))}
       </div>
 
-      {!active ? <p className="mt-4 rounded-lg border border-[#f4bb55]/25 bg-[#f4bb55]/[0.06] px-3 py-3 text-xs leading-5 text-[#e3bd75]">Trading is paused for this player. You can return when the market is active.</p> : (
+      {!active ? <p className="mt-4 rounded-lg border border-[#f4bb55]/25 bg-[#f4bb55]/[0.06] px-3 py-3 text-xs leading-5 text-[#e3bd75]">Trading is paused for this {subject}. You can return when the market is active.</p> : (
         <form onSubmit={requestQuote} className="mt-5">
           <div className="flex items-end justify-between gap-3"><label htmlFor="cash-amount" className="text-xs font-semibold text-[#aab3bd]">Amount</label><span className="text-[11px] text-[#77818e]">{side === "BUY" ? "Available" : "Position value"} {formatCurrency(availableAmount)}</span></div>
           <div className="relative mt-2">
@@ -208,12 +211,13 @@ function quantityForAmount(amount: number, price: number, side: OrderSide, owned
   return quantity.toFixed(6);
 }
 
-function orderError(body: { code?: string; message?: string; detail?: unknown }) {
+function orderError(body: { code?: string; message?: string; detail?: unknown }, subject: "player" | "fund") {
+  const fund = subject === "fund";
   const messages: Record<string, string> = {
     insufficient_cash: "You do not have enough available cash for this order.",
-    insufficient_position: "You do not own enough shares to complete this sale.",
-    instrument_frozen: "Trading is currently paused for this player.",
-    instrument_not_tradable: "This player stock is not currently tradable.",
+    insufficient_position: fund ? "You do not own enough units to complete this sale." : "You do not own enough shares to complete this sale.",
+    instrument_frozen: fund ? "Trading is paused while a player in this fund is paused." : "Trading is currently paused for this player.",
+    instrument_not_tradable: fund ? "This fund is not currently tradable." : "This player stock is not currently tradable.",
     idempotency_request_mismatch: "This order changed after submission. Start a new order and try again.",
   };
   return (body.code && messages[body.code]) || body.message || "The order could not be completed. Review it and try again.";

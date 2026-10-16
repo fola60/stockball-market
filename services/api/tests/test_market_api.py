@@ -63,6 +63,12 @@ class FakeInstrumentsRepository:
     def get_player_stats(self, instrument_id: UUID) -> PlayerStatsRecord | None:
         return self._player_stats.get(instrument_id)
 
+    def list_player_stats(self, instrument_ids: list[UUID]) -> dict[UUID, PlayerStatsRecord]:
+        return {id: self._player_stats[id] for id in instrument_ids if id in self._player_stats}
+
+    def instrument_exists(self, instrument_id: UUID) -> bool:
+        return instrument_id in self._instruments or instrument_id in self._price_history
+
     def get_player_image(self, instrument_id: UUID) -> ImageRecord | None:
         return self._player_images.get(instrument_id)
 

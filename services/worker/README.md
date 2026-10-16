@@ -82,6 +82,13 @@ cp scripts/local-ingestion.env.example .env.local-ingestion
 
 `seed-player-shares` requires the trading engine to be running locally at `STOCKBALL_WORKER_TRADING_ENGINE_URL`.
 
+`create-team-index-funds` lists a team fund (`IDX-ARS`, `IDX-MUN`, ...) for every league club
+that has none, holding one share of each of the club's current-season players. Players halted
+for anything but a match day are left out, and clubs with fewer than eleven listed players are
+skipped. `--dry-run` reports what it would list. The same operation runs from the admin console
+as `CREATE_TEAM_INDEX_FUNDS`. A listed fund's basket is fixed, so re-running leaves existing
+funds alone.
+
 `recalibrate-price-curves --multiplier M --depth-divisor D --reason TEXT` reshapes every
 player-share price curve without moving any price (see
 `services/trading-engine/src/price_impact/README.md`). It is a dry run unless `--apply` is

@@ -85,7 +85,7 @@ class PostgresPortfoliosRepository:
                         t.id,
                         t.instrument_id,
                         i.symbol,
-                        p.display_name AS player_name,
+                        COALESCE(p.display_name, i.display_name) AS player_name,
                         t.side,
                         t.shares,
                         t.execution_price,
@@ -93,7 +93,7 @@ class PostgresPortfoliosRepository:
                         t.executed_at
                     FROM trades AS t
                     JOIN instruments AS i ON i.id = t.instrument_id
-                    JOIN players AS p ON p.id = i.player_id
+                    LEFT JOIN players AS p ON p.id = i.player_id
                     WHERE t.portfolio_id = %(portfolio_id)s
                     ORDER BY t.executed_at DESC, t.id DESC
                     LIMIT %(limit)s

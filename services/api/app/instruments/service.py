@@ -37,7 +37,9 @@ class InstrumentsService:
         instrument_id: UUID,
         history_range: Literal["1D", "1W", "1M", "3M", "1Y", "ALL"] = "ALL",
     ) -> list[PriceSnapshotRecord]:
-        self.get_instrument(instrument_id)
+        # Any instrument has a price history, index funds included.
+        if not self._repository.instrument_exists(instrument_id):
+            raise InstrumentNotFoundError(instrument_id)
         durations = {
             "1D": timedelta(days=1),
             "1W": timedelta(weeks=1),

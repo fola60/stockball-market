@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{FromRow, PgConnection, PgPool};
@@ -6,7 +8,9 @@ use uuid::Uuid;
 use crate::{
     freezes, idempotency,
     idempotency::IdempotencyClaim,
-    instruments, ledger, orders,
+    index_funds::{self, IndexFundError},
+    instruments::{self, IndexFundInstrument, InstrumentType},
+    ledger, orders,
     orders::{ExecuteOrderCommand, Order, OrderSide},
     portfolios, positions, price_impact,
     price_impact::PriceImpactDirection,
@@ -16,6 +20,7 @@ use crate::{
 
 use super::{
     error::ExecutionError,
+    index_fund::{execute_index_fund_order, quote_index_fund_order},
     model::{ExecuteOrderResult, OrderQuote, Trade},
 };
 
@@ -25,6 +30,13 @@ pub async fn quote_order(
 ) -> Result<OrderQuote, ExecutionError> {
     command.validate()?;
     let mut transaction = pool.begin().await?;
+    if instruments::get_instrument_type(&mut *transaction, command.instrument_id).await?
+        == InstrumentType::IndexFund
+    {
+        let quote = quote_index_fund_order(&mut transaction, &command).await?;
+        transaction.commit().await?;
+        return Ok(quote);
+    }
     let instrument =
         instruments::lock_instrument_by_id(&mut transaction, command.instrument_id).await?;
     freezes::assert_not_frozen(&instrument)?;
@@ -124,13 +136,37 @@ pub async fn execute_order(
         IdempotencyClaim::Claimed(_) => {}
     }
 
-    let instrument =
-        instruments::lock_instrument_by_id(&mut transaction, command.instrument_id).await?;
+    let result = match instruments::get_instrument_type(&mut *transaction, command.instrument_id)
+        .await?
+    {
+        InstrumentType::PlayerShare => {
+            execute_player_share_order(&mut transaction, &command).await?
+        }
+        InstrumentType::IndexFund => execute_index_fund_order(&mut transaction, &command).await?,
+    };
+
+    idempotency::complete_order_execution(&mut transaction, &command.request_id, 200, &result)
+        .await?;
+
+    transaction.commit().await?;
+
+    Ok(result)
+}
+
+async fn execute_player_share_order(
+    transaction: &mut PgConnection,
+    command: &ExecuteOrderCommand,
+) -> Result<ExecuteOrderResult, ExecutionError> {
+    // Funds holding this player are repriced by the trade, so they are locked first, the
+    // order every flow that touches both funds and players follows.
+    let fund_ids =
+        index_funds::index_ids_containing(&mut *transaction, &[command.instrument_id]).await?;
+    let funds = instruments::lock_index_fund_instruments(transaction, &fund_ids).await?;
+    let instrument = instruments::lock_instrument_by_id(transaction, command.instrument_id).await?;
     freezes::assert_not_frozen(&instrument)?;
     instruments::assert_tradable(&instrument)?;
 
-    let portfolio =
-        portfolios::lock_portfolio_by_id(&mut transaction, command.portfolio_id).await?;
+    let portfolio = portfolios::lock_portfolio_by_id(transaction, command.portfolio_id).await?;
     portfolios::assert_portfolio_belongs_to_account(&portfolio, command.account_id)?;
 
     let quote = price_impact::quote_trade(
@@ -150,12 +186,9 @@ pub async fn execute_order(
     if command.side == OrderSide::Buy {
         portfolios::assert_has_cash(&portfolio, gross_amount)?;
     } else {
-        let current_position = positions::lock_position(
-            &mut transaction,
-            command.portfolio_id,
-            command.instrument_id,
-        )
-        .await?;
+        let current_position =
+            positions::lock_position(transaction, command.portfolio_id, command.instrument_id)
+                .await?;
         let available = current_position
             .as_ref()
             .map(|position| position.quantity)
@@ -168,13 +201,13 @@ pub async fn execute_order(
         )?;
     }
 
-    let order = orders::create_pending_order(&mut transaction, &command).await?;
-    let trade = create_trade(&mut transaction, &order, execution_price, gross_amount).await?;
+    let order = orders::create_pending_order(transaction, command).await?;
+    let trade = create_trade(transaction, &order, execution_price, gross_amount, None).await?;
 
     let cash_ledger_entry = match command.side {
         OrderSide::Buy => {
             ledger::debit_trade_cash(
-                &mut transaction,
+                transaction,
                 command.account_id,
                 command.portfolio_id,
                 trade.id,
@@ -185,7 +218,7 @@ pub async fn execute_order(
         }
         OrderSide::Sell => {
             ledger::credit_trade_cash(
-                &mut transaction,
+                transaction,
                 command.account_id,
                 command.portfolio_id,
                 trade.id,
@@ -199,7 +232,7 @@ pub async fn execute_order(
     let position = match command.side {
         OrderSide::Buy => {
             positions::increase_position(
-                &mut transaction,
+                transaction,
                 command.portfolio_id,
                 command.instrument_id,
                 command.quantity,
@@ -208,7 +241,7 @@ pub async fn execute_order(
         }
         OrderSide::Sell => {
             positions::decrease_position(
-                &mut transaction,
+                transaction,
                 command.portfolio_id,
                 command.instrument_id,
                 command.quantity,
@@ -218,7 +251,7 @@ pub async fn execute_order(
     };
 
     instruments::update_market_state(
-        &mut transaction,
+        transaction,
         command.instrument_id,
         quote.new_price,
         quote.net_shares_purchased_after,
@@ -226,7 +259,7 @@ pub async fn execute_order(
     .await?;
 
     snapshots::record_price_snapshot(
-        &mut transaction,
+        transaction,
         command.instrument_id,
         quote.old_price,
         quote.new_price,
@@ -235,9 +268,11 @@ pub async fn execute_order(
     )
     .await?;
 
-    orders::mark_order_filled(&mut transaction, order.id).await?;
+    revalue_index_funds(transaction, &funds, trade.id, None).await?;
 
-    let result = ExecuteOrderResult {
+    orders::mark_order_filled(transaction, order.id).await?;
+
+    Ok(ExecuteOrderResult {
         request_id: command.request_id.clone(),
         order_id: order.id,
         trade_id: trade.id,
@@ -253,21 +288,52 @@ pub async fn execute_order(
         old_price: quote.old_price,
         new_price: quote.new_price,
         executed_at: trade.executed_at,
-    };
-
-    idempotency::complete_order_execution(&mut transaction, &command.request_id, 200, &result)
-        .await?;
-
-    transaction.commit().await?;
-
-    Ok(result)
+    })
 }
 
-async fn create_trade(
+/// Reprices locked funds to the current value of their baskets after a trade moved one or more
+/// constituents. The traded fund itself, if any, records the trade's own snapshot reason.
+pub(super) async fn revalue_index_funds(
+    connection: &mut PgConnection,
+    funds: &[IndexFundInstrument],
+    trade_id: Uuid,
+    traded_fund: Option<(Uuid, PriceSnapshotReason)>,
+) -> Result<HashMap<Uuid, Decimal>, ExecutionError> {
+    if funds.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let fund_ids: Vec<Uuid> = funds.iter().map(|fund| fund.id).collect();
+    let unit_prices = index_funds::unit_prices(&mut *connection, &fund_ids).await?;
+    for fund in funds {
+        let unit_price = *unit_prices
+            .get(&fund.id)
+            .ok_or(IndexFundError::MissingBasket(fund.id))?;
+        let reason = match traded_fund {
+            Some((traded_id, reason)) if traded_id == fund.id => reason,
+            _ if unit_price == fund.current_price => continue,
+            _ => PriceSnapshotReason::IndexRevaluation,
+        };
+        instruments::update_index_fund_price(connection, fund.id, unit_price).await?;
+        snapshots::record_price_snapshot(
+            connection,
+            fund.id,
+            fund.current_price,
+            unit_price,
+            reason,
+            Some(trade_id),
+        )
+        .await?;
+    }
+    Ok(unit_prices)
+}
+
+/// Records a fill. `index_trade_id` links a custody leg to the fund trade that caused it.
+pub(super) async fn create_trade(
     connection: &mut PgConnection,
     order: &Order,
     execution_price: Decimal,
     gross_amount: Decimal,
+    index_trade_id: Option<Uuid>,
 ) -> Result<Trade, ExecutionError> {
     let row = sqlx::query_as::<_, TradeRow>(
         r#"
@@ -279,7 +345,8 @@ async fn create_trade(
             side,
             shares,
             execution_price,
-            gross_amount
+            gross_amount,
+            index_trade_id
         ) VALUES (
             $1,
             $2,
@@ -288,7 +355,8 @@ async fn create_trade(
             $5,
             $6,
             $7,
-            $8
+            $8,
+            $9
         )
         RETURNING
             id,
@@ -312,6 +380,7 @@ async fn create_trade(
     .bind(order.quantity)
     .bind(execution_price)
     .bind(gross_amount)
+    .bind(index_trade_id)
     .fetch_one(&mut *connection)
     .await?;
 

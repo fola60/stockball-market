@@ -134,6 +134,7 @@ OPERATION_DEFINITIONS = tuple(
         _definition("SYNC_LEAGUE_ROSTER", normalizer=_ingestion),
         _definition("IMPORT_MARKET_VALUES", normalizer=_market_values),
         _definition("SEED_PLAYER_SHARES"),
+        _definition("CREATE_TEAM_INDEX_FUNDS"),
         _definition("INGEST_BETTING_MARKETS", "INGEST_BET365_ODDS"),
         _definition("INGEST_TWITTER_INJURIES"),
         _definition("INGEST_SOCIAL_FEEDS", normalizer=_social_feeds),

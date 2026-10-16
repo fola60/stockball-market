@@ -21,6 +21,7 @@ class PriceSnapshotReason(StrEnum):
     TRADE_BUY = "TRADE_BUY"
     TRADE_SELL = "TRADE_SELL"
     ADMIN_ADJUSTMENT = "ADMIN_ADJUSTMENT"
+    INDEX_REVALUATION = "INDEX_REVALUATION"
 
 
 @dataclass(frozen=True)

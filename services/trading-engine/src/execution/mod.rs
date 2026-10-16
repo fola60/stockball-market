@@ -1,4 +1,5 @@
 mod error;
+mod index_fund;
 mod model;
 mod repository;
 

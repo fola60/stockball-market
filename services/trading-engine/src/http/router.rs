@@ -8,8 +8,8 @@ use axum::{
 use crate::http::{
     error::ApiError, executor::OrderExecutor, ApplyFreezeRequest, ApplyFreezeResponse,
     ApplyOpeningBalanceRequest, ApplyOpeningBalanceResponse, ApplyTopupRequest, ApplyTopupResponse,
-    ExecuteOrderRequest, ExecuteOrderResponse, IssueInitialSupplyRequest,
-    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
+    CreateIndexFundRequest, CreateIndexFundResponse, ExecuteOrderRequest, ExecuteOrderResponse,
+    IssueInitialSupplyRequest, IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
     RecalibratePriceCurvesRequest, RecalibratePriceCurvesResponse, ReleaseFreezeRequest,
     ReleaseFreezeResponse, SeedPlayerSharesResponse, SetPreMarketPriceRequest,
     SetPreMarketPriceResponse,
@@ -36,6 +36,10 @@ where
         .route(
             "/internal/v1/instruments/player-shares/seed",
             post(seed_player_shares::<E>),
+        )
+        .route(
+            "/internal/v1/instruments/index-funds/create",
+            post(create_index_fund::<E>),
         )
         .route("/internal/v1/ledger/topups/apply", post(apply_topup::<E>))
         .route(
@@ -88,6 +92,17 @@ where
     E: OrderExecutor,
 {
     let result = state.executor.seed_player_shares().await?;
+    Ok(Json(result))
+}
+
+async fn create_index_fund<E>(
+    State(state): State<AppState<E>>,
+    JsonBody(request): JsonBody<CreateIndexFundRequest>,
+) -> Result<Json<CreateIndexFundResponse>, ApiError>
+where
+    E: OrderExecutor,
+{
+    let result = state.executor.create_index_fund(request).await?;
     Ok(Json(result))
 }
 

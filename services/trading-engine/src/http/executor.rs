@@ -7,6 +7,7 @@ use crate::{
         self, ApplyFreezeCommand, ApplyFreezeResult, FreezeError, ReleaseFreezeCommand,
         ReleaseFreezeResult,
     },
+    index_funds::{self, CreateIndexFundCommand, CreateIndexFundResult, IndexFundError},
     instruments::{self, InstrumentError, SeedPlayerSharesResult},
     ledger::CashLedgerEntry,
     orders::ExecuteOrderCommand,
@@ -33,6 +34,11 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
         -> Result<OrderQuote, ExecutionError>;
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError>;
+
+    async fn create_index_fund(
+        &self,
+        command: CreateIndexFundCommand,
+    ) -> Result<CreateIndexFundResult, IndexFundError>;
 
     async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError>;
 
@@ -106,6 +112,13 @@ impl OrderExecutor for SqlOrderExecutor {
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError> {
         instruments::seed_player_shares(&self.pool, self.seed_curve).await
+    }
+
+    async fn create_index_fund(
+        &self,
+        command: CreateIndexFundCommand,
+    ) -> Result<CreateIndexFundResult, IndexFundError> {
+        index_funds::create_index_fund(&self.pool, command).await
     }
 
     async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError> {

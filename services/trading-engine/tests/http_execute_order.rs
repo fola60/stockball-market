@@ -12,6 +12,7 @@ use stockball_trading_engine::{
         ReleaseFreezeResult,
     },
     http::{build_router, AppState, OrderExecutor},
+    index_funds::{CreateIndexFundCommand, CreateIndexFundResult, IndexFundError},
     instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
     ledger::{CashLedgerEntry, LedgerReason},
     orders::{ExecuteOrderCommand, OrderError, OrderSide},
@@ -278,6 +279,14 @@ impl OrderExecutor for StubExecutor {
         }
     }
 
+    async fn create_index_fund(
+        &self,
+        command: CreateIndexFundCommand,
+    ) -> Result<CreateIndexFundResult, IndexFundError> {
+        command.validate()?;
+        Err(IndexFundError::SymbolTaken(command.symbol))
+    }
+
     async fn apply_topup(
         &self,
         _command: ApplyTopupCommand,
@@ -517,4 +526,39 @@ async fn recalibrate_price_curves_rejects_a_curve_deeper_than_the_supply() {
     let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(body["code"], json!("invalid_curve_calibration"));
+}
+
+#[tokio::test]
+async fn create_index_fund_maps_validation_and_symbol_conflicts() {
+    let router = build_router(AppState::new(StubExecutor::success(sample_response())));
+    let request = |body: Value| {
+        Request::builder()
+            .method("POST")
+            .uri("/internal/v1/instruments/index-funds/create")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    let fund = |club: Option<&str>| {
+        json!({
+            "symbol": "IDX-ARS",
+            "display_name": "Arsenal Index",
+            "index_kind": "TEAM",
+            "club": club,
+            "constituents": [
+                { "instrument_id": Uuid::new_v4(), "shares_per_unit": "1" }
+            ]
+        })
+    };
+
+    let missing_club = router.clone().oneshot(request(fund(None))).await.unwrap();
+    assert_eq!(missing_club.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(read_body(missing_club).await["code"], "invalid_index_fund");
+
+    let taken = router
+        .oneshot(request(fund(Some("Arsenal"))))
+        .await
+        .unwrap();
+    assert_eq!(taken.status(), StatusCode::CONFLICT);
+    assert_eq!(read_body(taken).await["code"], "index_fund_symbol_taken");
 }

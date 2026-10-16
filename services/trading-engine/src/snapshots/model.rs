@@ -25,6 +25,8 @@ pub enum PriceSnapshotReason {
     TradeBuy,
     TradeSell,
     AdminAdjustment,
+    /// An index fund's price moved because one of its constituents traded.
+    IndexRevaluation,
 }
 
 impl PriceSnapshotReason {
@@ -34,6 +36,7 @@ impl PriceSnapshotReason {
             Self::TradeBuy => "TRADE_BUY",
             Self::TradeSell => "TRADE_SELL",
             Self::AdminAdjustment => "ADMIN_ADJUSTMENT",
+            Self::IndexRevaluation => "INDEX_REVALUATION",
         }
     }
 }
@@ -53,6 +56,7 @@ impl FromStr for PriceSnapshotReason {
             "TRADE_BUY" => Ok(Self::TradeBuy),
             "TRADE_SELL" => Ok(Self::TradeSell),
             "ADMIN_ADJUSTMENT" => Ok(Self::AdminAdjustment),
+            "INDEX_REVALUATION" => Ok(Self::IndexRevaluation),
             other => Err(SnapshotError::UnsupportedSnapshotReason(other.to_owned())),
         }
     }

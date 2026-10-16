@@ -161,6 +161,26 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off seed command, default: INFO",
     )
+    create_team_funds = subcommands.add_parser(
+        "create-team-index-funds",
+        help="list an index fund for every league club without one, over its current squad",
+    )
+    create_team_funds.add_argument(
+        "--season",
+        type=int,
+        default=0,
+        help="season start year whose roster to use, default: the season in progress",
+    )
+    create_team_funds.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report the funds that would be listed without creating them",
+    )
+    create_team_funds.add_argument(
+        "--log-level",
+        default="INFO",
+        help="log level for the one-off command, default: INFO",
+    )
     recalibrate_curves = subcommands.add_parser(
         "recalibrate-price-curves",
         help=(

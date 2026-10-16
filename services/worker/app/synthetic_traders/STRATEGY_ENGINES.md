@@ -20,6 +20,20 @@ The fourteen shipped profiles use seven engines: `NOISE`, `MARKET_MOMENTUM`, `ST
 Other engine names below are design proposals, not registered implementations.
 `FORM_MOMENTUM` ships as the `STATS_VALUE_FORM_CHASER` profile rather than its own engine.
 
+### Index funds (migration 0037)
+
+Team funds load as candidates alongside players, with their basket and their club, and a fund
+counts toward its club's team exposure. A fund is paused (`FROZEN`) while any of its players is.
+
+- `NOISE`, `MARKET_MOMENTUM`, and `PORTFOLIO_REBALANCER` read only prices, trades, and holdings,
+  so they trade funds as ordinary candidates. Noise ranks recognizability on player prices only,
+  since a unit's price is a whole squad's.
+- Stats, social, betting, and match-event engines rank players against each other on football
+  data a fund does not have, so funds never enter their pool. `fund_decisions.py` scores each
+  fund as the value-weighted average of the engine's decisions for its players, once the engine
+  has scored at least three of them, and applies the engine's own thresholds. Averaging pulls
+  alpha toward zero, so a fund is bought only when the engine likes most of the squad.
+
 ### FotMob match ratings (migration 0032)
 
 Behind `STOCKBALL_MATCH_RATING_SIGNALS_ENABLED` (default off), FotMob final ratings feed

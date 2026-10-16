@@ -42,6 +42,51 @@ export type InstrumentFreeze = {
   fixture_kickoff_at: string | null;
 };
 
+/**
+ * A team fund. One unit holds one share of every listed player at the club, so its price is
+ * the squad's total share price and buying a unit buys every player at their own price.
+ */
+export type IndexFund = {
+  id: string;
+  symbol: string;
+  display_name: string;
+  index_kind: "TEAM";
+  club: string | null;
+  current_price: string;
+  /** FROZEN while the fund or any of its players is paused: a unit trades as a whole. */
+  status: Instrument["status"];
+  /** Why a player in the fund is paused, MATCH_DAY first. */
+  freeze_reason: InstrumentFreeze["reason"] | null;
+  constituent_count: number;
+  units_outstanding: string;
+  price_change_24h: string;
+  price_change_7d: string;
+  volume_24h: string;
+  traded_value_24h: string;
+  club_badge_version: string | null;
+  updated_at: string;
+};
+
+export type IndexConstituent = {
+  instrument_id: string;
+  symbol: string;
+  player_name: string;
+  player_position: string | null;
+  status: Instrument["status"];
+  shares_per_unit: string;
+  current_price: string;
+  /** Share of a unit's value, in percent. */
+  weight: string;
+  price_change_24h: string;
+  player_image_version: string | null;
+};
+
+export type IndexFundDetail = IndexFund & {
+  constituents: IndexConstituent[];
+  /** The squad's radar: each axis averages its players' percentiles, weighted by value. */
+  profile: { comparison_group: string; comparison_size: number; radar_axes: RadarAxis[] } | null;
+};
+
 export type TraderKind = "PERSON" | "BOT";
 export type LeaderboardFilter = "ALL" | "PEOPLE" | "BOTS";
 
@@ -327,6 +372,19 @@ export async function getInstruments(): Promise<Instrument[]> {
   return apiRequest<Instrument[]>("/v1/instruments");
 }
 
+export async function getIndexFunds(): Promise<IndexFund[]> {
+  return apiRequest<IndexFund[]>("/v1/index-funds");
+}
+
+export async function getIndexFund(fundId: string): Promise<IndexFundDetail | null> {
+  try {
+    return await apiRequest<IndexFundDetail>(`/v1/index-funds/${fundId}`);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 422)) return null;
+    throw error;
+  }
+}
+
 export async function getPortfolio(portfolioId: string): Promise<Portfolio> {
   return apiRequest<Portfolio>(`/v1/portfolios/${portfolioId}`);
 }
@@ -385,11 +443,12 @@ export async function getLeaderboard(
 }
 
 export async function getPortfolioPageData() {
-  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
+  const [account, instruments, funds] = await Promise.all([getOptionalAccount(), getInstruments(), getIndexFunds()]);
   if (!account) {
     return {
       account: null,
       instruments,
+      funds,
       portfolio: null,
       activity: [],
       tickerStocks: toTickerStocks(instruments),
@@ -400,7 +459,7 @@ export async function getPortfolioPageData() {
     getPortfolio(account.portfolio.id),
     getPortfolioActivity(account.portfolio.id),
   ]);
-  return { account, instruments, portfolio, activity, tickerStocks: toTickerStocks(instruments), searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED") };
+  return { account, instruments, funds, portfolio, activity, tickerStocks: toTickerStocks(instruments), searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED") };
 }
 
 async function getInstrument(instrumentId: string): Promise<Instrument | null> {
@@ -435,6 +494,27 @@ export async function getInstrumentPageData(instrumentId: string) {
     tickerStocks: toTickerStocks(instruments),
     searchInstruments: instruments.filter((candidate) => candidate.status !== "DELISTED"),
   };
+}
+
+export async function getFundsPageData() {
+  const [shell, funds] = await Promise.all([getShellData(), getIndexFunds()]);
+  let prices: Record<string, number[]> = {};
+  try {
+    prices = await getSparklines(funds.map((fund) => fund.id), "1W");
+  } catch {
+    // The list still reads without its charts.
+  }
+  return { ...shell, funds, prices };
+}
+
+export async function getFundPageData(fundId: string) {
+  const [shell, fund] = await Promise.all([getShellData(), getIndexFund(fundId)]);
+  if (!fund) return null;
+  const [history, portfolio] = await Promise.all([
+    getPriceHistory(fundId, "1W"),
+    shell.account ? getPortfolio(shell.account.portfolio.id) : Promise.resolve(null),
+  ]);
+  return { ...shell, fund, history, portfolio };
 }
 
 export function shellData(account: Account | null, instruments: Instrument[]) {

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::{
     error::InstrumentError,
-    model::{Instrument, InstrumentStatus, InstrumentType},
+    model::{IndexFundInstrument, Instrument, InstrumentStatus, InstrumentType},
 };
 use crate::price_impact::CurveCalibration;
 
@@ -17,14 +17,25 @@ struct InstrumentRow {
     symbol: String,
     display_name: String,
     current_price: Decimal,
-    reference_price: Decimal,
-    shares_outstanding: Decimal,
+    // Null for index funds, which have no supply or price curve of their own.
+    reference_price: Option<Decimal>,
+    shares_outstanding: Option<Decimal>,
     net_shares_purchased: Decimal,
-    full_supply_price_multiplier: Decimal,
-    curve_depth_shares: Decimal,
+    full_supply_price_multiplier: Option<Decimal>,
+    curve_depth_shares: Option<Decimal>,
     trading_status: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, FromRow)]
+struct IndexFundInstrumentRow {
+    id: Uuid,
+    instrument_type: String,
+    symbol: String,
+    display_name: String,
+    current_price: Decimal,
+    trading_status: String,
 }
 
 pub async fn get_instrument_by_id(
@@ -184,6 +195,171 @@ pub(crate) async fn update_market_state(
     Instrument::try_from(row)
 }
 
+pub async fn get_instrument_type(
+    executor: impl PgExecutor<'_>,
+    instrument_id: Uuid,
+) -> Result<InstrumentType, InstrumentError> {
+    let instrument_type = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT instrument_type
+        FROM instruments
+        WHERE id = $1
+        "#,
+    )
+    .bind(instrument_id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(InstrumentError::NotFound(instrument_id))?;
+
+    InstrumentType::try_from(instrument_type)
+}
+
+/// Locks player-share instruments in id order, the order every multi-instrument flow uses.
+pub(crate) async fn lock_instruments_by_ids(
+    connection: &mut PgConnection,
+    instrument_ids: &[Uuid],
+) -> Result<Vec<Instrument>, InstrumentError> {
+    let mut sorted = instrument_ids.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let rows = sqlx::query_as::<_, InstrumentRow>(
+        r#"
+        SELECT
+            id,
+            instrument_type,
+            player_id,
+            symbol,
+            display_name,
+            current_price,
+            reference_price,
+            shares_outstanding,
+            net_shares_purchased,
+            full_supply_price_multiplier,
+            curve_depth_shares,
+            trading_status,
+            created_at,
+            updated_at
+        FROM instruments
+        WHERE id = ANY($1)
+        ORDER BY id
+        FOR UPDATE
+        "#,
+    )
+    .bind(&sorted)
+    .fetch_all(&mut *connection)
+    .await?;
+    if let Some(missing) = sorted
+        .iter()
+        .find(|id| !rows.iter().any(|row| row.id == **id))
+    {
+        return Err(InstrumentError::NotFound(*missing));
+    }
+
+    rows.into_iter().map(Instrument::try_from).collect()
+}
+
+/// Locks index fund instruments in id order. Every flow that changes a constituent's price
+/// locks the funds holding it first, so funds are always locked before player shares.
+pub(crate) async fn lock_index_fund_instruments(
+    connection: &mut PgConnection,
+    instrument_ids: &[Uuid],
+) -> Result<Vec<IndexFundInstrument>, InstrumentError> {
+    let mut sorted = instrument_ids.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let rows = sqlx::query_as::<_, IndexFundInstrumentRow>(
+        r#"
+        SELECT id, instrument_type, symbol, display_name, current_price, trading_status
+        FROM instruments
+        WHERE id = ANY($1)
+        ORDER BY id
+        FOR UPDATE
+        "#,
+    )
+    .bind(&sorted)
+    .fetch_all(&mut *connection)
+    .await?;
+    if let Some(missing) = sorted
+        .iter()
+        .find(|id| !rows.iter().any(|row| row.id == **id))
+    {
+        return Err(InstrumentError::NotFound(*missing));
+    }
+
+    rows.into_iter()
+        .map(IndexFundInstrument::try_from)
+        .collect()
+}
+
+/// Sets an index fund's price to the current value of its basket.
+pub(crate) async fn update_index_fund_price(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+    new_price: Decimal,
+) -> Result<(), InstrumentError> {
+    if new_price <= Decimal::ZERO {
+        return Err(InstrumentError::NegativePrice);
+    }
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE instruments
+        SET
+            current_price = $2,
+            updated_at = now()
+        WHERE id = $1
+          AND instrument_type = 'INDEX_FUND'
+        "#,
+    )
+    .bind(instrument_id)
+    .bind(new_price)
+    .execute(&mut *connection)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(InstrumentError::NotFound(instrument_id));
+    }
+    Ok(())
+}
+
+pub(crate) async fn insert_index_fund_instrument(
+    connection: &mut PgConnection,
+    symbol: &str,
+    display_name: &str,
+    current_price: Decimal,
+) -> Result<Uuid, InstrumentError> {
+    if current_price <= Decimal::ZERO {
+        return Err(InstrumentError::NegativePrice);
+    }
+
+    let instrument_id = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO instruments (
+            instrument_type,
+            symbol,
+            display_name,
+            current_price,
+            full_supply_price_multiplier,
+            trading_status
+        ) VALUES (
+            'INDEX_FUND',
+            $1,
+            $2,
+            $3,
+            NULL,
+            'ACTIVE'
+        )
+        RETURNING id
+        "#,
+    )
+    .bind(symbol)
+    .bind(display_name)
+    .bind(current_price)
+    .fetch_one(&mut *connection)
+    .await?;
+
+    Ok(instrument_id)
+}
+
 /// True once an instrument has any order, trade, or held position, i.e. it has left pre-market.
 pub(crate) async fn has_market_activity(
     connection: &mut PgConnection,
@@ -300,12 +476,19 @@ impl TryFrom<InstrumentRow> for Instrument {
     fn try_from(row: InstrumentRow) -> Result<Self, Self::Error> {
         let instrument_type = InstrumentType::try_from(row.instrument_type)?;
         let status = InstrumentStatus::try_from(row.trading_status)?;
+        let invalid = |reason: &str| InstrumentError::InvalidRecord {
+            instrument_id: row.id,
+            reason: reason.to_owned(),
+        };
+        if instrument_type != InstrumentType::PlayerShare {
+            return Err(invalid("only PLAYER_SHARE instruments have a price curve"));
+        }
         let player_id = row
             .player_id
-            .ok_or_else(|| InstrumentError::InvalidRecord {
-                instrument_id: row.id,
-                reason: "PLAYER_SHARE instruments must have a player_id".to_owned(),
-            })?;
+            .ok_or_else(|| invalid("PLAYER_SHARE instruments must have a player_id"))?;
+        let curve_term = |value: Option<Decimal>| {
+            value.ok_or_else(|| invalid("PLAYER_SHARE instruments must have price curve terms"))
+        };
 
         Ok(Self {
             id: row.id,
@@ -314,14 +497,34 @@ impl TryFrom<InstrumentRow> for Instrument {
             symbol: row.symbol,
             display_name: row.display_name,
             current_price: row.current_price,
-            reference_price: row.reference_price,
-            shares_outstanding: row.shares_outstanding,
+            reference_price: curve_term(row.reference_price)?,
+            shares_outstanding: curve_term(row.shares_outstanding)?,
             net_shares_purchased: row.net_shares_purchased,
-            full_supply_price_multiplier: row.full_supply_price_multiplier,
-            curve_depth_shares: row.curve_depth_shares,
+            full_supply_price_multiplier: curve_term(row.full_supply_price_multiplier)?,
+            curve_depth_shares: curve_term(row.curve_depth_shares)?,
             status,
             created_at: row.created_at,
             updated_at: row.updated_at,
+        })
+    }
+}
+
+impl TryFrom<IndexFundInstrumentRow> for IndexFundInstrument {
+    type Error = InstrumentError;
+
+    fn try_from(row: IndexFundInstrumentRow) -> Result<Self, Self::Error> {
+        if InstrumentType::try_from(row.instrument_type)? != InstrumentType::IndexFund {
+            return Err(InstrumentError::InvalidRecord {
+                instrument_id: row.id,
+                reason: "instrument is not an index fund".to_owned(),
+            });
+        }
+        Ok(Self {
+            id: row.id,
+            symbol: row.symbol,
+            display_name: row.display_name,
+            current_price: row.current_price,
+            status: InstrumentStatus::try_from(row.trading_status)?,
         })
     }
 }
