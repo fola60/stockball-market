@@ -42,8 +42,11 @@ Stores database migration files.
   reaction trader profiles, and rebalance the stats profiles' match-rating weight.
 - Record why each instrument is frozen, so match-day freezes and admin halts can open and
   release independently.
-- Store index funds, their fixed baskets of player shares, the custody account behind their
-  units, and the link from each custody leg to the fund trade that caused it.
+- Store index funds, their baskets of player shares, the custody account behind their units,
+  and the link from each custody leg to the fund trade that caused it.
+- Store each fund's cash per unit, an audit record of every rebalance and delisting basket
+  change, the ledger reasons for fund cash and delisting buyouts, and allow a returning player
+  a new share once their old one is delisted.
 
 ## Boundaries
 

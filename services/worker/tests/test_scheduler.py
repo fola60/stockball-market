@@ -110,7 +110,7 @@ class SchedulerServiceTests(unittest.TestCase):
         )
 
         self.assertNotIn("synthetic-trader-ticks", [item.schedule_name for item in decisions])
-        self.assertEqual(len(decisions), 5)
+        self.assertEqual(len(decisions), 6)
 
     def test_schedule_due_jobs_enqueues_topup_jobs_once_per_window(self) -> None:
         queue = InMemoryJobQueue()
@@ -121,9 +121,9 @@ class SchedulerServiceTests(unittest.TestCase):
         first_run = scheduler.schedule_due_jobs(effective_at)
         second_run = scheduler.schedule_due_jobs(effective_at)
 
-        self.assertEqual(len(first_run), 6)
+        self.assertEqual(len(first_run), 7)
         self.assertEqual(len(second_run), 0)
-        self.assertEqual(len(queue.jobs), 6)
+        self.assertEqual(len(queue.jobs), 7)
 
         weekly_payload = TopupJobPayload.from_payload(queue.jobs[0].payload)
         monthly_payload = TopupJobPayload.from_payload(queue.jobs[1].payload)
@@ -131,6 +131,8 @@ class SchedulerServiceTests(unittest.TestCase):
         synthetic_payload = SyntheticTraderTickJobPayload.from_payload(queue.jobs[3].payload)
         self.assertEqual(queue.jobs[4].job_type, JobType.SYNC_LEAGUE_ROSTER)
         stats_payload = IngestPlayerStatsJobPayload.from_payload(queue.jobs[5].payload)
+        self.assertEqual(queue.jobs[6].job_type, JobType.REVIEW_INDEX_FUNDS)
+        self.assertEqual(queue.jobs[6].payload, {"season": 2025})
         self.assertEqual(weekly_payload.cadence, TopupCadence.WEEKLY)
         self.assertEqual(monthly_payload.cadence, TopupCadence.MONTHLY)
         self.assertEqual(queue.jobs[2].job_type, JobType.CHECK_MARKET_FREEZES)

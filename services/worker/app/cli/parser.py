@@ -161,22 +161,25 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="log level for the one-off seed command, default: INFO",
     )
-    create_team_funds = subcommands.add_parser(
-        "create-team-index-funds",
-        help="list an index fund for every league club without one, over its current squad",
+    review_funds = subcommands.add_parser(
+        "review-index-funds",
+        help=(
+            "apply each index fund's rule: list a fund for every league club without one and "
+            "rebalance funds whose squad has changed"
+        ),
     )
-    create_team_funds.add_argument(
+    review_funds.add_argument(
         "--season",
         type=int,
         default=0,
         help="season start year whose roster to use, default: the season in progress",
     )
-    create_team_funds.add_argument(
+    review_funds.add_argument(
         "--dry-run",
         action="store_true",
-        help="report the funds that would be listed without creating them",
+        help="report what would be listed or rebalanced without changing anything",
     )
-    create_team_funds.add_argument(
+    review_funds.add_argument(
         "--log-level",
         default="INFO",
         help="log level for the one-off command, default: INFO",

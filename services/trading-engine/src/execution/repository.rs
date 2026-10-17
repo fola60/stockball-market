@@ -202,7 +202,14 @@ async fn execute_player_share_order(
     }
 
     let order = orders::create_pending_order(transaction, command).await?;
-    let trade = create_trade(transaction, &order, execution_price, gross_amount, None).await?;
+    let trade = create_trade(
+        transaction,
+        &order,
+        execution_price,
+        gross_amount,
+        TradeCause::Order,
+    )
+    .await?;
 
     let cash_ledger_entry = match command.side {
         OrderSide::Buy => {
@@ -268,7 +275,7 @@ async fn execute_player_share_order(
     )
     .await?;
 
-    revalue_index_funds(transaction, &funds, trade.id, None).await?;
+    revalue_index_funds(transaction, &funds, Some(trade.id), None).await?;
 
     orders::mark_order_filled(transaction, order.id).await?;
 
@@ -296,7 +303,7 @@ async fn execute_player_share_order(
 pub(super) async fn revalue_index_funds(
     connection: &mut PgConnection,
     funds: &[IndexFundInstrument],
-    trade_id: Uuid,
+    trade_id: Option<Uuid>,
     traded_fund: Option<(Uuid, PriceSnapshotReason)>,
 ) -> Result<HashMap<Uuid, Decimal>, ExecutionError> {
     if funds.is_empty() {
@@ -320,21 +327,34 @@ pub(super) async fn revalue_index_funds(
             fund.current_price,
             unit_price,
             reason,
-            Some(trade_id),
+            trade_id,
         )
         .await?;
     }
     Ok(unit_prices)
 }
 
-/// Records a fill. `index_trade_id` links a custody leg to the fund trade that caused it.
+/// What caused a custody trade: a fund unit trade or a rebalance.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum TradeCause {
+    Order,
+    FundTrade(Uuid),
+    Rebalance(Uuid),
+}
+
+/// Records a fill, linking a custody trade to the fund trade or rebalance that caused it.
 pub(super) async fn create_trade(
     connection: &mut PgConnection,
     order: &Order,
     execution_price: Decimal,
     gross_amount: Decimal,
-    index_trade_id: Option<Uuid>,
+    cause: TradeCause,
 ) -> Result<Trade, ExecutionError> {
+    let (index_trade_id, index_rebalance_id) = match cause {
+        TradeCause::Order => (None, None),
+        TradeCause::FundTrade(id) => (Some(id), None),
+        TradeCause::Rebalance(id) => (None, Some(id)),
+    };
     let row = sqlx::query_as::<_, TradeRow>(
         r#"
         INSERT INTO trades (
@@ -346,7 +366,8 @@ pub(super) async fn create_trade(
             shares,
             execution_price,
             gross_amount,
-            index_trade_id
+            index_trade_id,
+            index_rebalance_id
         ) VALUES (
             $1,
             $2,
@@ -356,7 +377,8 @@ pub(super) async fn create_trade(
             $6,
             $7,
             $8,
-            $9
+            $9,
+            $10
         )
         RETURNING
             id,
@@ -381,6 +403,7 @@ pub(super) async fn create_trade(
     .bind(execution_price)
     .bind(gross_amount)
     .bind(index_trade_id)
+    .bind(index_rebalance_id)
     .fetch_one(&mut *connection)
     .await?;
 

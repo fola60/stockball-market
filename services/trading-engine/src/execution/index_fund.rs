@@ -1,11 +1,12 @@
-//! Index fund orders. One unit holds `shares_per_unit` of each constituent, so buying units buys
-//! every constituent on its own price curve and selling units sells them back. The custody
-//! account holds the shares; the trader holds fund units and pays or receives the basket's cost.
+//! Index fund orders. One unit holds `shares_per_unit` of each constituent plus the fund's cash
+//! per unit, so buying units buys every constituent on its own price curve and pays the cash into
+//! custody, and selling units sells them back and pays the cash out. The custody account holds the
+//! shares and cash; the trader holds fund units and pays or receives the basket's cost.
 
 use std::collections::HashMap;
 
 use chrono::Utc;
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -24,16 +25,17 @@ use crate::{
 
 use super::{
     error::ExecutionError,
-    model::{ExecuteOrderResult, OrderQuote},
-    repository::{create_trade, revalue_index_funds},
+    model::{ExecuteOrderResult, OrderQuote, Trade},
+    repository::{create_trade, revalue_index_funds, TradeCause},
 };
 
 const STORED_PRICE_DECIMAL_PLACES: u32 = 12;
+const QUANTITY_DECIMAL_PLACES: u32 = 6;
 
-struct BasketLeg {
-    instrument: Instrument,
-    quantity: Decimal,
-    quote: PriceImpactQuote,
+pub(super) struct BasketLeg {
+    pub instrument: Instrument,
+    pub quantity: Decimal,
+    pub quote: PriceImpactQuote,
 }
 
 /// A fund order priced against its constituents' curves, with every row it touches locked.
@@ -41,6 +43,8 @@ struct PricedBasket {
     /// Every fund holding any constituent, including the traded fund, all locked.
     funds: Vec<IndexFundInstrument>,
     legs: Vec<BasketLeg>,
+    /// The fund's cash behind the traded units, paid into or out of custody.
+    cash_amount: Decimal,
     gross_amount: Decimal,
     execution_price: Decimal,
     unit_price_before: Decimal,
@@ -75,10 +79,13 @@ async fn price_basket(
     let direction = PriceImpactDirection::from(command.side);
     let legs = basket_legs(&constituents, players, command.quantity, direction)?;
 
+    let cash_per_unit = index_funds::cash_per_unit(&mut *connection, command.instrument_id).await?;
+    let cash_amount = (cash_per_unit * command.quantity).round_dp(STORED_PRICE_DECIMAL_PLACES);
     let gross_amount = legs
         .iter()
         .map(|leg| leg.quote.gross_amount)
-        .sum::<Decimal>();
+        .sum::<Decimal>()
+        + cash_amount;
     let old_prices: HashMap<Uuid, Decimal> = legs
         .iter()
         .map(|leg| (leg.instrument.id, leg.instrument.current_price))
@@ -91,14 +98,17 @@ async fn price_basket(
     Ok(PricedBasket {
         funds,
         legs,
+        cash_amount,
         gross_amount,
         execution_price: (gross_amount / command.quantity).round_dp(STORED_PRICE_DECIMAL_PLACES),
-        unit_price_before: index_funds::basket_value(&constituents, |id| old_prices[&id]),
-        unit_price_after: index_funds::basket_value(&constituents, |id| new_prices[&id]),
+        unit_price_before: index_funds::basket_value(&constituents, |id| old_prices[&id])
+            + cash_per_unit,
+        unit_price_after: index_funds::basket_value(&constituents, |id| new_prices[&id])
+            + cash_per_unit,
     })
 }
 
-fn assert_fund_tradable(fund: &IndexFundInstrument) -> Result<(), ExecutionError> {
+pub(super) fn assert_fund_tradable(fund: &IndexFundInstrument) -> Result<(), ExecutionError> {
     match fund.status {
         InstrumentStatus::Active => Ok(()),
         InstrumentStatus::Frozen => Err(freezes::FreezeError::Frozen {
@@ -115,6 +125,9 @@ fn assert_fund_tradable(fund: &IndexFundInstrument) -> Result<(), ExecutionError
 
 /// Quotes each constituent's share of the order. A fund trades only while every constituent
 /// does, so a match-day freeze on one club's players pauses that club's fund.
+///
+/// Buys round each leg up and sales round it down, so custody always holds at least the shares
+/// behind every unit in issue; the leftover fractions stay in custody.
 fn basket_legs(
     constituents: &[IndexConstituent],
     players: Vec<Instrument>,
@@ -130,7 +143,10 @@ fn basket_legs(
             )?;
             freezes::assert_not_frozen(&instrument)?;
             instruments::assert_tradable(&instrument)?;
-            let quantity = (constituent.shares_per_unit * units).round_dp(6);
+            let quantity = leg_quantity(constituent.shares_per_unit * units, direction);
+            if quantity.is_zero() {
+                return Ok(None);
+            }
             let quote = price_impact::quote_trade(
                 instrument.reference_price,
                 instrument.curve_depth_shares,
@@ -139,13 +155,23 @@ fn basket_legs(
                 quantity,
                 direction,
             )?;
-            Ok(BasketLeg {
+            Ok(Some(BasketLeg {
                 instrument,
                 quantity,
                 quote,
-            })
+            }))
         })
+        .filter_map(Result::transpose)
         .collect()
+}
+
+/// Shares of one constituent traded for an order, rounded toward custody keeping a surplus.
+pub(super) fn leg_quantity(shares: Decimal, direction: PriceImpactDirection) -> Decimal {
+    let strategy = match direction {
+        PriceImpactDirection::Buy => RoundingStrategy::AwayFromZero,
+        PriceImpactDirection::Sell => RoundingStrategy::ToZero,
+    };
+    shares.round_dp_with_strategy(QUANTITY_DECIMAL_PLACES, strategy)
 }
 
 pub(super) async fn quote_index_fund_order(
@@ -239,7 +265,7 @@ pub(super) async fn execute_index_fund_order(
         &order,
         basket.execution_price,
         basket.gross_amount,
-        None,
+        TradeCause::Order,
     )
     .await?;
 
@@ -288,15 +314,37 @@ pub(super) async fn execute_index_fund_order(
         }
     };
 
+    if !basket.cash_amount.is_zero() {
+        let delta = match command.side {
+            OrderSide::Buy => basket.cash_amount,
+            OrderSide::Sell => -basket.cash_amount,
+        };
+        ledger::move_index_fund_cash(
+            connection,
+            CUSTODY_ACCOUNT_ID,
+            CUSTODY_PORTFOLIO_ID,
+            trade.id,
+            delta,
+            &format!("{}:custody-cash", command.request_id),
+        )
+        .await?;
+    }
     for leg in &basket.legs {
-        execute_custody_leg(connection, command, trade.id, leg).await?;
+        execute_custody_trade(
+            connection,
+            format!("{}:{}", command.request_id, leg.instrument.id),
+            command.side,
+            leg,
+            TradeCause::FundTrade(trade.id),
+        )
+        .await?;
     }
 
     let reason = PriceSnapshotReason::from(command.side);
     let unit_prices = revalue_index_funds(
         connection,
         &basket.funds,
-        trade.id,
+        Some(trade.id),
         Some((command.instrument_id, reason)),
     )
     .await?;
@@ -324,22 +372,23 @@ pub(super) async fn execute_index_fund_order(
     })
 }
 
-/// Records the custody account's trade in one constituent. Cash moves only between the trader
-/// and the market, so the leg has an order, trade, position change, and price move, but no
-/// ledger entry of its own.
-async fn execute_custody_leg(
+/// Records the custody account's trade in one constituent: order, trade, position change,
+/// price move, and snapshot. Cash is the caller's: a unit trade moves it between the trader and
+/// the market, a rebalance through custody's own ledger.
+pub(super) async fn execute_custody_trade(
     connection: &mut PgConnection,
-    command: &ExecuteOrderCommand,
-    fund_trade_id: Uuid,
+    request_id: String,
+    side: OrderSide,
     leg: &BasketLeg,
-) -> Result<(), ExecutionError> {
+    cause: TradeCause,
+) -> Result<Trade, ExecutionError> {
     let leg_command = ExecuteOrderCommand {
         execution_limits: None,
-        request_id: format!("{}:{}", command.request_id, leg.instrument.id),
+        request_id,
         account_id: CUSTODY_ACCOUNT_ID,
         portfolio_id: CUSTODY_PORTFOLIO_ID,
         instrument_id: leg.instrument.id,
-        side: command.side,
+        side,
         quantity: leg.quantity,
     };
     let order = orders::create_pending_order(connection, &leg_command).await?;
@@ -348,10 +397,10 @@ async fn execute_custody_leg(
         &order,
         leg.quote.execution_price,
         leg.quote.gross_amount,
-        Some(fund_trade_id),
+        cause,
     )
     .await?;
-    match command.side {
+    match side {
         OrderSide::Buy => {
             positions::increase_position(
                 connection,
@@ -383,10 +432,10 @@ async fn execute_custody_leg(
         leg.instrument.id,
         leg.quote.old_price,
         leg.quote.new_price,
-        PriceSnapshotReason::from(command.side),
+        PriceSnapshotReason::from(side),
         Some(trade.id),
     )
     .await?;
     orders::mark_order_filled(connection, order.id).await?;
-    Ok(())
+    Ok(trade)
 }

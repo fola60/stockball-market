@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from app.config import Settings
-from app.index_funds import PostgresTeamIndexFundRepository, TeamIndexFundService
+from app.index_funds import IndexReviewService, PostgresIndexFundRepository
 from app.ingestion.social import PostgresSocialRepository
 from app.jobs import (
     AggregateSocialSignalsJobHandler,
@@ -31,9 +31,9 @@ from app.jobs import (
 )
 from app.jobs.admin_handlers import (
     bootstrap_portfolios_handler,
-    create_team_index_funds_handler,
     league_roster_handler,
     market_value_import_handler,
+    review_index_funds_handler,
     seed_player_shares_handler,
     set_bot_status_handler,
     spawn_traders_handler,
@@ -249,10 +249,10 @@ def _admin_handlers(settings: Settings) -> dict:
         JobType.SEED_PLAYER_SHARES: FunctionJobHandler(
             JobType.SEED_PLAYER_SHARES, seed_player_shares_handler(engine)
         ),
-        JobType.CREATE_TEAM_INDEX_FUNDS: FunctionJobHandler(
-            JobType.CREATE_TEAM_INDEX_FUNDS,
-            create_team_index_funds_handler(
-                TeamIndexFundService(PostgresTeamIndexFundRepository(settings.database_url), engine)
+        JobType.REVIEW_INDEX_FUNDS: FunctionJobHandler(
+            JobType.REVIEW_INDEX_FUNDS,
+            review_index_funds_handler(
+                IndexReviewService(PostgresIndexFundRepository(settings.database_url), engine)
             ),
         ),
         JobType.SPAWN_SYNTHETIC_TRADERS: FunctionJobHandler(

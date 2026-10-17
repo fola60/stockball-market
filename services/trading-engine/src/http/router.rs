@@ -8,11 +8,12 @@ use axum::{
 use crate::http::{
     error::ApiError, executor::OrderExecutor, ApplyFreezeRequest, ApplyFreezeResponse,
     ApplyOpeningBalanceRequest, ApplyOpeningBalanceResponse, ApplyTopupRequest, ApplyTopupResponse,
-    CreateIndexFundRequest, CreateIndexFundResponse, ExecuteOrderRequest, ExecuteOrderResponse,
-    IssueInitialSupplyRequest, IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse,
-    RecalibratePriceCurvesRequest, RecalibratePriceCurvesResponse, ReleaseFreezeRequest,
-    ReleaseFreezeResponse, SeedPlayerSharesResponse, SetPreMarketPriceRequest,
-    SetPreMarketPriceResponse,
+    CreateIndexFundRequest, CreateIndexFundResponse, DelistInstrumentRequest,
+    DelistInstrumentResponse, ExecuteOrderRequest, ExecuteOrderResponse, IssueInitialSupplyRequest,
+    IssueInitialSupplyResponse, QuoteOrderRequest, QuoteOrderResponse, RebalanceIndexFundRequest,
+    RebalanceIndexFundResponse, RecalibratePriceCurvesRequest, RecalibratePriceCurvesResponse,
+    ReleaseFreezeRequest, ReleaseFreezeResponse, SeedPlayerSharesResponse,
+    SetPreMarketPriceRequest, SetPreMarketPriceResponse,
 };
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,14 @@ where
         .route(
             "/internal/v1/instruments/index-funds/create",
             post(create_index_fund::<E>),
+        )
+        .route(
+            "/internal/v1/instruments/index-funds/rebalance",
+            post(rebalance_index_fund::<E>),
+        )
+        .route(
+            "/internal/v1/instruments/delist",
+            post(delist_instrument::<E>),
         )
         .route("/internal/v1/ledger/topups/apply", post(apply_topup::<E>))
         .route(
@@ -103,6 +112,28 @@ where
     E: OrderExecutor,
 {
     let result = state.executor.create_index_fund(request).await?;
+    Ok(Json(result))
+}
+
+async fn rebalance_index_fund<E>(
+    State(state): State<AppState<E>>,
+    JsonBody(request): JsonBody<RebalanceIndexFundRequest>,
+) -> Result<Json<RebalanceIndexFundResponse>, ApiError>
+where
+    E: OrderExecutor,
+{
+    let result = state.executor.rebalance_index_fund(request).await?;
+    Ok(Json(result))
+}
+
+async fn delist_instrument<E>(
+    State(state): State<AppState<E>>,
+    JsonBody(request): JsonBody<DelistInstrumentRequest>,
+) -> Result<Json<DelistInstrumentResponse>, ApiError>
+where
+    E: OrderExecutor,
+{
+    let result = state.executor.delist_instrument(request).await?;
     Ok(Json(result))
 }
 

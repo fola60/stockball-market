@@ -5,10 +5,16 @@ from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from app.clients import CreateIndexFundRecord, TradingEngineClientError
+from app.clients import (
+    CreateIndexFundRecord,
+    RebalanceIndexFundRecord,
+    TradingEngineClientError,
+)
 from app.index_funds import (
     MIN_TEAM_PLAYERS,
-    TeamIndexFundService,
+    IndexReviewService,
+    ReviewAction,
+    TeamFund,
     TeamRoster,
     club_code,
     team_fund_symbol,
@@ -196,24 +202,26 @@ class IndexFundTickTests(unittest.TestCase):
 
 
 class FakeFundRepository:
-    def __init__(self, rosters: list[TeamRoster], existing: dict[str, str] | None = None):
+    def __init__(self, rosters: list[TeamRoster], funds: list[TeamFund] | None = None):
         self.rosters = rosters
-        self.existing = existing or {}
+        self.funds = funds or []
 
     def team_rosters(self, season: int) -> list[TeamRoster]:
         return self.rosters
 
-    def existing_team_funds(self) -> dict[str, str]:
-        return self.existing
+    def team_funds(self) -> list[TeamFund]:
+        return self.funds
 
 
 class FakeFundEngine:
-    def __init__(self, failing_symbols: set[str] | None = None) -> None:
-        self.commands = []
+    def __init__(self, failing_symbols: set[str] | None = None, fail_rebalances: bool = False):
+        self.created = []
+        self.rebalanced = []
         self.failing_symbols = failing_symbols or set()
+        self.fail_rebalances = fail_rebalances
 
     def create_index_fund(self, command):
-        self.commands.append(command)
+        self.created.append(command)
         if command.symbol in self.failing_symbols:
             raise TradingEngineClientError(409, {"code": "conflict", "message": "taken"})
         return CreateIndexFundRecord(
@@ -224,64 +232,132 @@ class FakeFundEngine:
             unit_price="250.0",
         )
 
+    def rebalance_index_fund(self, command):
+        self.rebalanced.append(command)
+        if self.fail_rebalances:
+            raise TradingEngineClientError(409, {"code": "instrument_frozen", "message": "paused"})
+        return RebalanceIndexFundRecord(
+            rebalance_id=uuid4(),
+            instrument_id=command.instrument_id,
+            replayed=False,
+            units_outstanding="2",
+            unit_price_before="250.0",
+            unit_price_after="249.9",
+            cash_per_unit_after="0",
+            added_instrument_ids=(),
+            removed_instrument_ids=(),
+        )
+
 
 def _roster(club: str, size: int = MIN_TEAM_PLAYERS) -> TeamRoster:
     return TeamRoster(club, tuple(uuid4() for _ in range(size)))
 
 
-class TeamIndexFundServiceTests(unittest.TestCase):
+def _team_fund(roster: TeamRoster, *, halted: frozenset[UUID] = frozenset()) -> TeamFund:
+    return TeamFund(
+        instrument_id=uuid4(),
+        symbol=f"IDX-{roster.club[:3].upper()}",
+        club=roster.club,
+        members=frozenset(roster.instrument_ids) | halted,
+        halted_members=halted,
+    )
+
+
+class IndexReviewServiceTests(unittest.TestCase):
     def test_lists_a_fund_per_club_with_one_share_of_each_player(self) -> None:
         engine = FakeFundEngine()
-        service = TeamIndexFundService(
+        service = IndexReviewService(
             FakeFundRepository([_roster("Arsenal"), _roster("Manchester Utd", 25)]), engine
         )
 
-        result = service.create_team_funds(2026)
+        result = service.review(2026)
 
-        self.assertEqual(result.created_count, 2)
-        self.assertEqual([c.symbol for c in engine.commands], ["IDX-ARS", "IDX-MUN"])
-        manchester = engine.commands[1]
+        self.assertEqual(result.count(ReviewAction.CREATED), 2)
+        self.assertEqual([c.symbol for c in engine.created], ["IDX-ARS", "IDX-MUN"])
+        manchester = engine.created[1]
         self.assertEqual(manchester.display_name, "Manchester Utd Index")
         self.assertEqual(manchester.index_kind, "TEAM")
         self.assertEqual(manchester.club, "Manchester Utd")
         self.assertEqual(len(manchester.constituents), 25)
         self.assertTrue(all(shares == "1" for _, shares in manchester.constituents))
 
-    def test_leaves_listed_and_partial_squads_alone(self) -> None:
+    def test_rebalances_a_fund_to_its_rule_when_the_squad_changes(self) -> None:
+        listed = _roster("Arsenal", 12)
+        signing, sold = uuid4(), listed.instrument_ids[0]
+        fund = _team_fund(listed)
+        today = TeamRoster("Arsenal", (*listed.instrument_ids[1:], signing))
         engine = FakeFundEngine()
-        service = TeamIndexFundService(
-            FakeFundRepository(
-                [_roster("Arsenal"), _roster("Chelsea", MIN_TEAM_PLAYERS - 1)],
-                existing={"arsenal": "IDX-ARS"},
-            ),
-            engine,
+
+        result = IndexReviewService(FakeFundRepository([today], [fund]), engine).review(2026)
+
+        (review,) = result.reviews
+        self.assertEqual(review.action, ReviewAction.REBALANCED)
+        self.assertEqual((review.added, review.removed), ((signing,), (sold,)))
+        (command,) = engine.rebalanced
+        self.assertEqual(command.instrument_id, fund.instrument_id)
+        self.assertEqual(set(command.members), set(today.instrument_ids))
+        # The same target always makes the same request, so a retry replays.
+        again = FakeFundEngine()
+        IndexReviewService(FakeFundRepository([today], [fund]), again).review(2026)
+        self.assertEqual(again.rebalanced[0].request_id, command.request_id)
+
+    def test_keeps_players_waiting_for_their_buyout(self) -> None:
+        listed = _roster("Arsenal", 12)
+        departed = uuid4()
+        fund = _team_fund(listed, halted=frozenset({departed}))
+        engine = FakeFundEngine()
+
+        result = IndexReviewService(FakeFundRepository([listed], [fund]), engine).review(2026)
+
+        self.assertEqual(result.reviews[0].action, ReviewAction.UNCHANGED)
+        self.assertEqual(engine.rebalanced, [])
+
+    def test_unchanged_dry_run_failure_and_relegation(self) -> None:
+        arsenal, chelsea, burnley = _roster("Arsenal"), _roster("Chelsea"), _roster("Burnley")
+        funds = [_team_fund(arsenal), _team_fund(chelsea), _team_fund(burnley)]
+        moved = TeamRoster("Chelsea", (*chelsea.instrument_ids, uuid4()))
+        tiny = _roster("Leeds United", MIN_TEAM_PLAYERS - 1)
+
+        dry = FakeFundEngine()
+        dry_result = IndexReviewService(
+            FakeFundRepository([arsenal, moved, tiny], funds), dry
+        ).review(2026, dry_run=True)
+        self.assertEqual(
+            {r.club: r.action for r in dry_result.reviews},
+            {"Arsenal": ReviewAction.UNCHANGED, "Chelsea": ReviewAction.WOULD_REBALANCE},
         )
+        self.assertEqual((dry.created, dry.rebalanced), ([], []))
+        self.assertEqual(dry_result.too_small, {"Leeds United": MIN_TEAM_PLAYERS - 1})
+        self.assertEqual(dry_result.without_roster, ("Burnley",))
 
-        result = service.create_team_funds(2026)
+        failing = FakeFundEngine(fail_rebalances=True)
+        result = IndexReviewService(FakeFundRepository([moved], funds), failing).review(2026)
+        self.assertEqual(result.count(ReviewAction.FAILED), 1)
+        self.assertIn("paused", result.reviews[0].error or "")
 
-        self.assertEqual(engine.commands, [])
-        self.assertEqual(result.existing, {"Arsenal": "IDX-ARS"})
-        self.assertEqual(result.too_small, {"Chelsea": MIN_TEAM_PLAYERS - 1})
+    def test_reinvests_cash_from_buyouts(self) -> None:
+        listed = _roster("Arsenal", 12)
+        holding_cash = replace(_team_fund(listed), cash_per_unit="12.5", unit_price="250")
+        sliver = replace(_team_fund(listed), cash_per_unit="0.01", unit_price="250")
+        engine = FakeFundEngine()
 
-    def test_dry_run_and_failures(self) -> None:
-        dry = TeamIndexFundService(FakeFundRepository([_roster("Arsenal")]), FakeFundEngine())
-        self.assertEqual(dry.create_team_funds(2026, dry_run=True).outcomes[0].created, None)
+        result = IndexReviewService(FakeFundRepository([listed], [holding_cash]), engine).review(
+            2026
+        )
+        IndexReviewService(FakeFundRepository([listed], [sliver]), engine).review(2026)
 
-        engine = FakeFundEngine(failing_symbols={"IDX-ARS"})
-        result = TeamIndexFundService(
-            FakeFundRepository([_roster("Arsenal"), _roster("Chelsea")]), engine
-        ).create_team_funds(2026)
-
-        self.assertEqual(result.failed_count, 1)
-        self.assertEqual(result.created_count, 1)
+        self.assertEqual(result.reviews[0].action, ReviewAction.REBALANCED)
+        (command,) = engine.rebalanced
+        self.assertEqual(command.reason, "reinvesting cash from buyouts")
+        self.assertEqual(set(command.members), set(listed.instrument_ids))
 
     def test_unknown_clubs_get_distinct_symbols(self) -> None:
         engine = FakeFundEngine()
-        TeamIndexFundService(
+        IndexReviewService(
             FakeFundRepository([_roster("Riverside Rovers"), _roster("Riverton Albion")]), engine
-        ).create_team_funds(2026)
+        ).review(2026)
 
-        self.assertEqual([c.symbol for c in engine.commands], ["IDX-RIV", "IDX-RIV2"])
+        self.assertEqual([c.symbol for c in engine.created], ["IDX-RIV", "IDX-RIV2"])
 
 
 class ClubCodeTests(unittest.TestCase):

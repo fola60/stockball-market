@@ -43,8 +43,9 @@ export type InstrumentFreeze = {
 };
 
 /**
- * A team fund. One unit holds one share of every listed player at the club, so its price is
- * the squad's total share price and buying a unit buys every player at their own price.
+ * A team fund. A unit holds the same number of shares of every current player at the club,
+ * so buying a unit buys every player at their own price. The fund follows the squad: when
+ * players join or leave, it rebalances without changing what a unit is worth.
  */
 export type IndexFund = {
   id: string;
@@ -53,6 +54,8 @@ export type IndexFund = {
   index_kind: "TEAM";
   club: string | null;
   current_price: string;
+  /** Cash behind each unit from buyouts of departed players, until the next rebalance. */
+  cash_per_unit: string;
   /** FROZEN while the fund or any of its players is paused: a unit trades as a whole. */
   status: Instrument["status"];
   /** Why a player in the fund is paused, MATCH_DAY first. */
@@ -81,8 +84,20 @@ export type IndexConstituent = {
   player_image_version: string | null;
 };
 
+export type BasketChange = {
+  kind: "REBALANCE" | "DELISTING";
+  reason: string;
+  added: Array<{ instrument_id: string; player_name: string }>;
+  removed: Array<{ instrument_id: string; player_name: string }>;
+  unit_price_before: string;
+  unit_price_after: string;
+  created_at: string;
+};
+
 export type IndexFundDetail = IndexFund & {
   constituents: IndexConstituent[];
+  /** Newest first. */
+  basket_changes: BasketChange[];
   /** The squad's radar: each axis averages its players' percentiles, weighted by value. */
   profile: { comparison_group: string; comparison_size: number; radar_axes: RadarAxis[] } | null;
 };

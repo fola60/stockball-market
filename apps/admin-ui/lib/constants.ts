@@ -24,9 +24,9 @@ export const INGEST_COMMANDS = [
     "Create missing player-share instruments",
   ],
   [
-    "CREATE_TEAM_INDEX_FUNDS",
-    "Team index funds",
-    "List a fund for every league club that has none",
+    "REVIEW_INDEX_FUNDS",
+    "Index fund review",
+    "List funds for new clubs and rebalance funds whose squad changed",
   ],
   [
     "INGEST_BETTING_MARKETS",
@@ -50,7 +50,7 @@ export const RUN_OPERATION_TYPES = [
   "INGEST_PLAYER_STATS",
   "IMPORT_MARKET_VALUES",
   "SEED_PLAYER_SHARES",
-  "CREATE_TEAM_INDEX_FUNDS",
+  "REVIEW_INDEX_FUNDS",
   "INGEST_BETTING_MARKETS",
   "INGEST_TWITTER_INJURIES",
   "INGEST_SOCIAL_FEEDS",

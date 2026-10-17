@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import UUID
 
+from app.index_funds import ReviewAction
 from app.jobs.models import IngestPlayersJobPayload, JobExecutionResult, JobType
 from app.seasons import resolve_season
 from app.synthetic_traders import (
@@ -45,19 +46,25 @@ def seed_player_shares_handler(client):
     return execute
 
 
-def create_team_index_funds_handler(service):
+def review_index_funds_handler(service):
     def execute(payload: Mapping[str, Any]) -> JobExecutionResult:
-        result = service.create_team_funds(
+        result = service.review(
             resolve_season(int(payload.get("season") or 0)),
             dry_run=bool(payload.get("dry_run", False)),
         )
+        changed = result.count(
+            ReviewAction.CREATED, ReviewAction.REBALANCED,
+            ReviewAction.WOULD_CREATE, ReviewAction.WOULD_REBALANCE,
+        )
         return JobExecutionResult(
-            JobType.CREATE_TEAM_INDEX_FUNDS, datetime.now(UTC), result.created_count,
-            len(result.existing) + len(result.too_small), result.failed_count,
+            JobType.REVIEW_INDEX_FUNDS, datetime.now(UTC), changed,
+            result.count(ReviewAction.UNCHANGED) + len(result.too_small),
+            result.count(ReviewAction.FAILED),
             metrics={"season": result.season, "dry_run": result.dry_run,
-                     "funds": {o.club: o.symbol for o in result.outcomes if o.error is None},
-                     "errors": {o.club: o.error for o in result.outcomes if o.error is not None},
-                     "existing": result.existing, "too_small": result.too_small},
+                     "reviews": {r.symbol: r.action.value for r in result.reviews},
+                     "errors": {r.symbol: r.error for r in result.reviews if r.error},
+                     "too_small": result.too_small,
+                     "without_roster": list(result.without_roster)},
         )
     return execute
 
@@ -145,13 +152,14 @@ def league_roster_handler(service):
         result = service.sync(request.league, request.season)
         return JobExecutionResult(
             JobType.SYNC_LEAGUE_ROSTER, datetime.now(UTC),
-            result.halted + result.released + result.instruments_created,
+            result.halted + result.released + result.instruments_created + result.delisted,
             0 if result.skipped_reason is None else 1,
             len(result.failures),
             metrics={"season": result.season, "fetched_players": result.fetched_players,
                      "clubs_seen": result.clubs_seen,
                      "instruments_created": result.instruments_created,
                      "halted": result.halted, "released": result.released,
+                     "delisted": result.delisted,
                      "skipped_reason": result.skipped_reason,
                      "failures": list(result.failures[:25])},
         )

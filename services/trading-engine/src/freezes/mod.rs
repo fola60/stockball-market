@@ -7,3 +7,5 @@ pub use model::{
     ApplyFreezeCommand, ApplyFreezeResult, FreezeReason, ReleaseFreezeCommand, ReleaseFreezeResult,
 };
 pub use repository::{apply_freeze, assert_not_frozen, release_freeze};
+
+pub(crate) use repository::release_all_for_instrument;

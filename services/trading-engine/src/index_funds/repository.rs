@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use super::{
     error::IndexFundError,
-    model::{IndexConstituent, IndexKind},
+    model::{BasketChange, IndexConstituent, IndexKind, RebalanceIndexFundResult},
 };
 
 /// Prices are stored to twelve decimal places, like player-share prices.
@@ -16,6 +16,38 @@ const UNIT_PRICE_DECIMAL_PLACES: u32 = 12;
 struct ConstituentRow {
     constituent_instrument_id: Uuid,
     shares_per_unit: Decimal,
+}
+
+#[derive(Debug, FromRow)]
+struct RebalanceRow {
+    id: Uuid,
+    index_instrument_id: Uuid,
+    units_outstanding: Decimal,
+    unit_price_before: Decimal,
+    unit_price_after: Decimal,
+    cash_per_unit_after: Decimal,
+    new_basket: serde_json::Value,
+    added_instrument_ids: Vec<Uuid>,
+    removed_instrument_ids: Vec<Uuid>,
+}
+
+impl RebalanceRow {
+    fn into_result(self, replayed: bool) -> Result<RebalanceIndexFundResult, IndexFundError> {
+        let constituents: Vec<IndexConstituent> = serde_json::from_value(self.new_basket)
+            .map_err(|_| IndexFundError::MissingBasket(self.index_instrument_id))?;
+        Ok(RebalanceIndexFundResult {
+            rebalance_id: self.id,
+            instrument_id: self.index_instrument_id,
+            replayed,
+            units_outstanding: self.units_outstanding,
+            unit_price_before: self.unit_price_before,
+            unit_price_after: self.unit_price_after,
+            cash_per_unit_after: self.cash_per_unit_after,
+            added_instrument_ids: self.added_instrument_ids,
+            removed_instrument_ids: self.removed_instrument_ids,
+            constituents,
+        })
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -70,7 +102,7 @@ pub async fn index_ids_containing(
     Ok(ids)
 }
 
-/// What one unit of each fund is worth at its constituents' current prices.
+/// What one unit of each fund is worth: its basket at current prices plus its cash.
 pub async fn unit_prices(
     executor: impl PgExecutor<'_>,
     index_instrument_ids: &[Uuid],
@@ -78,12 +110,16 @@ pub async fn unit_prices(
     let rows = sqlx::query_as::<_, UnitPriceRow>(
         r#"
         SELECT
-            constituent.index_instrument_id,
-            SUM(constituent.shares_per_unit * instrument.current_price) AS unit_price
-        FROM index_constituents AS constituent
-        JOIN instruments AS instrument ON instrument.id = constituent.constituent_instrument_id
-        WHERE constituent.index_instrument_id = ANY($1)
-        GROUP BY constituent.index_instrument_id
+            fund.instrument_id AS index_instrument_id,
+            COALESCE(SUM(constituent.shares_per_unit * instrument.current_price), 0)
+                + fund.cash_per_unit AS unit_price
+        FROM index_funds AS fund
+        LEFT JOIN index_constituents AS constituent
+            ON constituent.index_instrument_id = fund.instrument_id
+        LEFT JOIN instruments AS instrument
+            ON instrument.id = constituent.constituent_instrument_id
+        WHERE fund.instrument_id = ANY($1)
+        GROUP BY fund.instrument_id, fund.cash_per_unit
         "#,
     )
     .bind(index_instrument_ids)
@@ -111,6 +147,108 @@ pub fn basket_value(
         .map(|constituent| constituent.shares_per_unit * price_of(constituent.instrument_id))
         .sum::<Decimal>()
         .round_dp(UNIT_PRICE_DECIMAL_PLACES)
+}
+
+/// Cash held behind each unit of a fund.
+pub async fn cash_per_unit(
+    executor: impl PgExecutor<'_>,
+    index_instrument_id: Uuid,
+) -> Result<Decimal, IndexFundError> {
+    sqlx::query_scalar::<_, Decimal>(
+        "SELECT cash_per_unit FROM index_funds WHERE instrument_id = $1",
+    )
+    .bind(index_instrument_id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(IndexFundError::NotAnIndexFund(index_instrument_id))
+}
+
+/// Units of a fund held across all portfolios. Callers hold the fund's row lock, which every
+/// unit trade takes first, so the count cannot change underneath them.
+pub async fn units_outstanding(
+    executor: impl PgExecutor<'_>,
+    index_instrument_id: Uuid,
+) -> Result<Decimal, IndexFundError> {
+    let units = sqlx::query_scalar::<_, Decimal>(
+        "SELECT COALESCE(SUM(quantity), 0) FROM positions WHERE instrument_id = $1",
+    )
+    .bind(index_instrument_id)
+    .fetch_one(executor)
+    .await?;
+    Ok(units)
+}
+
+/// Replaces a fund's basket and cash per unit.
+pub(crate) async fn replace_basket(
+    connection: &mut PgConnection,
+    index_instrument_id: Uuid,
+    constituents: &[IndexConstituent],
+    cash_per_unit: Decimal,
+) -> Result<(), IndexFundError> {
+    sqlx::query("DELETE FROM index_constituents WHERE index_instrument_id = $1")
+        .bind(index_instrument_id)
+        .execute(&mut *connection)
+        .await?;
+    insert_constituents(connection, index_instrument_id, constituents).await?;
+    sqlx::query("UPDATE index_funds SET cash_per_unit = $2 WHERE instrument_id = $1")
+        .bind(index_instrument_id)
+        .bind(cash_per_unit)
+        .execute(&mut *connection)
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn find_rebalance(
+    connection: &mut PgConnection,
+    request_id: &str,
+) -> Result<Option<RebalanceIndexFundResult>, IndexFundError> {
+    let row = sqlx::query_as::<_, RebalanceRow>(
+        r#"
+        SELECT id, index_instrument_id, units_outstanding, unit_price_before, unit_price_after,
+               cash_per_unit_after, new_basket, added_instrument_ids, removed_instrument_ids
+        FROM index_fund_rebalances
+        WHERE request_id = $1
+        "#,
+    )
+    .bind(request_id)
+    .fetch_optional(&mut *connection)
+    .await?;
+    row.map(|row| row.into_result(true)).transpose()
+}
+
+/// Records a basket change. `request_id` makes a retried rebalance replay this record.
+pub(crate) async fn record_rebalance(
+    connection: &mut PgConnection,
+    request_id: &str,
+    kind: &str,
+    reason: &str,
+    change: &BasketChange<'_>,
+) -> Result<Uuid, IndexFundError> {
+    let id = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO index_fund_rebalances (
+            request_id, index_instrument_id, kind, reason, units_outstanding,
+            unit_price_before, unit_price_after, cash_per_unit_after, old_basket, new_basket,
+            added_instrument_ids, removed_instrument_ids
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING id
+        "#,
+    )
+    .bind(request_id)
+    .bind(change.index_instrument_id)
+    .bind(kind)
+    .bind(reason)
+    .bind(change.units_outstanding)
+    .bind(change.unit_price_before)
+    .bind(change.unit_price_after)
+    .bind(change.cash_per_unit_after)
+    .bind(serde_json::to_value(change.old_basket).unwrap_or_default())
+    .bind(serde_json::to_value(change.new_basket).unwrap_or_default())
+    .bind(change.added())
+    .bind(change.removed())
+    .fetch_one(&mut *connection)
+    .await?;
+    Ok(id)
 }
 
 pub(crate) async fn find_instrument_by_symbol(
@@ -169,6 +307,14 @@ pub(crate) async fn insert_index_fund(
     .execute(&mut *connection)
     .await?;
 
+    insert_constituents(connection, instrument_id, constituents).await
+}
+
+async fn insert_constituents(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+    constituents: &[IndexConstituent],
+) -> Result<(), IndexFundError> {
     let constituent_ids: Vec<Uuid> = constituents.iter().map(|c| c.instrument_id).collect();
     let shares_per_unit: Vec<Decimal> = constituents.iter().map(|c| c.shares_per_unit).collect();
     sqlx::query(

@@ -8,16 +8,16 @@ from psycopg2.extras import RealDictCursor
 
 from app.database import connection as pooled_connection
 
-from .models import TEAM_INDEX_KIND, TeamRoster
+from .models import TEAM_INDEX_KIND, TeamFund, TeamRoster
 
 
-class TeamIndexFundRepository(Protocol):
+class IndexFundRepository(Protocol):
     def team_rosters(self, season: int) -> list[TeamRoster]: ...
 
-    def existing_team_funds(self) -> dict[str, str]: ...
+    def team_funds(self) -> list[TeamFund]: ...
 
 
-class PostgresTeamIndexFundRepository:
+class PostgresIndexFundRepository:
     """Read-only: index funds are created by the trading engine."""
 
     def __init__(self, database_url: str) -> None:
@@ -62,16 +62,58 @@ class PostgresTeamIndexFundRepository:
             rosters.setdefault(str(row["club"]), []).append(UUID(str(row["instrument_id"])))
         return [TeamRoster(club, tuple(ids)) for club, ids in rosters.items()]
 
-    def existing_team_funds(self) -> dict[str, str]:
+    def team_funds(self) -> list[TeamFund]:
         with self._cursor() as cursor:
             cursor.execute(
                 """
-                SELECT f.club, i.symbol
-                FROM index_funds AS f
-                JOIN instruments AS i ON i.id = f.instrument_id
-                WHERE f.index_kind = %(kind)s
+                SELECT
+                    fund.instrument_id,
+                    i.symbol,
+                    fund.club,
+                    fund.cash_per_unit,
+                    i.current_price,
+                    member.constituent_instrument_id AS member_id,
+                    EXISTS (
+                        SELECT 1
+                        FROM instrument_freezes AS f
+                        WHERE f.instrument_id = member.constituent_instrument_id
+                          AND f.released_at IS NULL
+                          AND f.reason <> 'MATCH_DAY'
+                    ) AS halted
+                FROM index_funds AS fund
+                JOIN instruments AS i ON i.id = fund.instrument_id
+                LEFT JOIN index_constituents AS member
+                    ON member.index_instrument_id = fund.instrument_id
+                WHERE fund.index_kind = %(kind)s
+                  AND i.trading_status <> 'DELISTED'
+                ORDER BY fund.club, member.constituent_instrument_id
                 """,
                 {"kind": TEAM_INDEX_KIND},
             )
             rows = cursor.fetchall()
-        return {str(row["club"]): str(row["symbol"]) for row in rows}
+        funds: dict[UUID, dict] = {}
+        for row in rows:
+            fund_id = UUID(str(row["instrument_id"]))
+            fund = funds.setdefault(
+                fund_id,
+                {"symbol": str(row["symbol"]), "club": str(row["club"]), "members": set(),
+                 "halted": set(), "cash": str(row["cash_per_unit"]),
+                 "price": str(row["current_price"])},
+            )
+            if row["member_id"] is not None:
+                member = UUID(str(row["member_id"]))
+                fund["members"].add(member)
+                if row["halted"]:
+                    fund["halted"].add(member)
+        return [
+            TeamFund(
+                instrument_id=fund_id,
+                symbol=fund["symbol"],
+                club=fund["club"],
+                members=frozenset(fund["members"]),
+                halted_members=frozenset(fund["halted"]),
+                cash_per_unit=fund["cash"],
+                unit_price=fund["price"],
+            )
+            for fund_id, fund in funds.items()
+        ]

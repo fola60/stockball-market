@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from app.clients import ApplyFreezeCommand, TradingEngineUnavailableError
+from app.clients import ApplyFreezeCommand, DelistInstrumentRecord, TradingEngineUnavailableError
 from app.clients.trading_engine import ApplyFreezeRecord
 from app.ingestion.players.models import PlayerSeedResult
 from app.jobs.models import IngestPlayersJobPayload, IngestPlayerStatsJobPayload, JobType
 from app.league_roster import LeagueRosterService, RosterMembership
 from app.league_roster.models import roster_source_key
 from app.scheduler.models import (
+    DailyIndexReviewPlan,
     DailyLeagueRosterPlan,
     DailyPlayerStatsIngestionPlan,
     default_scheduler_plans,
@@ -55,12 +56,21 @@ class SeasonTests(unittest.TestCase):
         assert isinstance(stats, DailyPlayerStatsIngestionPlan)
         self.assertEqual(roster.run_hour_utc, 2)
         self.assertEqual(stats.run_hour_utc, 3)
+        review = plans["daily-index-review"]
+        assert isinstance(review, DailyIndexReviewPlan)
+        self.assertEqual(review.run_hour_utc, 3)
 
 
 class FakeRosterRepository:
-    def __init__(self, memberships, open_freezes=None) -> None:
+    def __init__(self, memberships, open_freezes=None, departed=None) -> None:
         self._memberships = memberships
         self._open = open_freezes or {}
+        self._departed = departed or {}
+        self.departure_cutoffs = []
+
+    def departed_since(self, cutoff):
+        self.departure_cutoffs.append(cutoff)
+        return [instrument for instrument, since in self._departed.items() if since <= cutoff]
 
     def memberships(self, season):
         return self._memberships
@@ -163,3 +173,71 @@ class LeagueRosterServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeDelister:
+    def __init__(self, failing=None) -> None:
+        self.delisted = []
+        self.failing = failing
+
+    def delist_instrument(self, instrument_id, reason):
+        if instrument_id == self.failing:
+            raise TradingEngineUnavailableError("engine down")
+        self.delisted.append((instrument_id, reason))
+        return DelistInstrumentRecord(
+            instrument_id=instrument_id,
+            already_delisted=False,
+            settlement_price="12.5",
+            holders_paid=3,
+            shares_bought_out="40",
+            amount_paid="500",
+            index_funds_updated=(),
+        )
+
+
+class DelistingTests(unittest.TestCase):
+    def test_buys_out_players_halted_longer_than_the_grace_period(self) -> None:
+        now = datetime(2026, 10, 17, 2, 0, tzinfo=UTC)
+        long_gone, recently_gone, unreachable = UUID(int=11), UUID(int=12), UUID(int=13)
+        repository = FakeRosterRepository(
+            [],
+            departed={
+                long_gone: now - timedelta(days=10),
+                recently_gone: now - timedelta(days=2),
+                unreachable: now - timedelta(days=30),
+            },
+        )
+        delister = FakeDelister(failing=unreachable)
+        service = LeagueRosterService(
+            repository,
+            FakeEngine(),
+            FakePlayers(600, 20),
+            FakeInstruments(),
+            delister=delister,
+            delisting_grace=timedelta(days=7),
+            clock=lambda: now,
+        )
+
+        result = service.sync(9, 2026)
+
+        self.assertEqual(delister.delisted, [(long_gone, "left the league")])
+        self.assertEqual(result.delisted, 1)
+        self.assertEqual(len(result.failures), 1)
+        self.assertEqual(repository.departure_cutoffs, [now - timedelta(days=7)])
+
+    def test_an_incomplete_roster_delists_nobody(self) -> None:
+        now = datetime(2026, 10, 17, tzinfo=UTC)
+        delister = FakeDelister()
+        service = LeagueRosterService(
+            FakeRosterRepository([], departed={UUID(int=11): now - timedelta(days=30)}),
+            FakeEngine(),
+            FakePlayers(40, 3),
+            FakeInstruments(),
+            delister=delister,
+            clock=lambda: now,
+        )
+
+        result = service.sync(9, 2026)
+
+        self.assertIsNotNone(result.skipped_reason)
+        self.assertEqual(delister.delisted, [])

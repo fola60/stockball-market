@@ -9,7 +9,12 @@ from psycopg2.extras import RealDictCursor
 
 from app.common.decimal import format_decimal
 from app.database import connection as pooled_connection
-from app.index_funds.models import IndexConstituentRecord, IndexFundRecord
+from app.index_funds.models import (
+    BasketChangePlayerRecord,
+    BasketChangeRecord,
+    IndexConstituentRecord,
+    IndexFundRecord,
+)
 from app.instruments.models import InstrumentStatus
 
 
@@ -20,6 +25,8 @@ class IndexFundsRepository(Protocol):
 
     def list_constituents(self, instrument_id: UUID) -> list[IndexConstituentRecord]: ...
 
+    def list_basket_changes(self, instrument_id: UUID, limit: int) -> list[BasketChangeRecord]: ...
+
 
 _FUND_QUERY = """
     SELECT
@@ -29,6 +36,7 @@ _FUND_QUERY = """
         fund.index_kind,
         fund.club,
         i.current_price,
+        fund.cash_per_unit,
         CASE
             WHEN i.trading_status <> 'ACTIVE' THEN i.trading_status
             WHEN basket.frozen_count > 0 THEN 'FROZEN'
@@ -189,6 +197,58 @@ class PostgresIndexFundsRepository:
             for row in rows
         ]
 
+    def list_basket_changes(self, instrument_id: UUID, limit: int) -> list[BasketChangeRecord]:
+        with self._cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    change.kind,
+                    change.reason,
+                    ({_PLAYER_NAMES.format(column="change.added_instrument_ids")}) AS added,
+                    ({_PLAYER_NAMES.format(column="change.removed_instrument_ids")}) AS removed,
+                    change.unit_price_before,
+                    change.unit_price_after,
+                    change.created_at
+                FROM index_fund_rebalances AS change
+                WHERE change.index_instrument_id = %(instrument_id)s
+                ORDER BY change.created_at DESC, change.id DESC
+                LIMIT %(limit)s
+                """,
+                {"instrument_id": str(instrument_id), "limit": limit},
+            )
+            rows = cursor.fetchall()
+        return [
+            BasketChangeRecord(
+                kind=row["kind"],
+                reason=row["reason"],
+                added=_players(row["added"]),
+                removed=_players(row["removed"]),
+                unit_price_before=format_decimal(Decimal(row["unit_price_before"])),
+                unit_price_after=format_decimal(Decimal(row["unit_price_after"])),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+
+_PLAYER_NAMES = """
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'instrument_id', i.id, 'player_name', COALESCE(p.display_name, i.display_name)
+    ) ORDER BY COALESCE(p.display_name, i.display_name)), '[]'::jsonb)
+    FROM instruments AS i
+    LEFT JOIN players AS p ON p.id = i.player_id
+    WHERE i.id = ANY({column})
+"""
+
+
+def _players(names: list | None) -> list[BasketChangePlayerRecord]:
+    return [
+        BasketChangePlayerRecord(
+            instrument_id=UUID(str(item["instrument_id"])), player_name=item["player_name"]
+        )
+        for item in names or []
+    ]
+
 
 def _fund(row: dict) -> IndexFundRecord:
     return IndexFundRecord(
@@ -198,6 +258,7 @@ def _fund(row: dict) -> IndexFundRecord:
         index_kind=row["index_kind"],
         club=row["club"],
         current_price=format_decimal(Decimal(row["current_price"])),
+        cash_per_unit=format_decimal(Decimal(row["cash_per_unit"])),
         status=InstrumentStatus(row["status"]),
         freeze_reason=row["freeze_reason"],
         constituent_count=int(row["constituent_count"]),

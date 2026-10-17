@@ -44,7 +44,10 @@
         "MONTHLY_TOPUP",
         "OPENING_BALANCE",
         "ADMIN_ADJUSTMENT",
-        "REVERSAL"
+        "REVERSAL",
+        "INDEX_FUND_CASH_IN",
+        "INDEX_FUND_CASH_OUT",
+        "DELISTING_BUYOUT"
       ]
     },
     "PriceSnapshotReason": {

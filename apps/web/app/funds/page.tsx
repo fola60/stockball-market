@@ -19,7 +19,7 @@ export default async function FundsPage() {
         <header className="mb-5">
           <h1 className="text-[28px] font-semibold leading-none tracking-[-0.03em] md:text-[32px]">Team funds</h1>
           <p className="mt-3 max-w-[68ch] text-xs leading-5 text-[#8d97a3]">
-            Back a whole squad in one trade. A unit holds one share of every listed player at the club, so its price is the squad&apos;s total share price. Buying a unit buys each player at their own price, so a fund moves with its players, and pricier players carry more weight.
+            Back a whole squad in one trade. A unit holds the same number of shares of every current player at the club, so buying a unit buys each player at their own price and pricier players carry more weight. Funds follow their squad: when players join or leave the club, the fund rebalances without changing what a unit is worth.
           </p>
         </header>
         <section aria-label="Team funds" className={panel}>

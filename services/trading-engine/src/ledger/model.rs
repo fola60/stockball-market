@@ -30,6 +30,12 @@ pub enum LedgerReason {
     MonthlyTopup,
     AdminAdjustment,
     Reversal,
+    /// A unit's cash moving into custody when index fund units are bought.
+    IndexFundCashIn,
+    /// A unit's cash leaving custody when index fund units are sold.
+    IndexFundCashOut,
+    /// Payment at the last price for a share that left the market.
+    DelistingBuyout,
 }
 
 impl LedgerReason {
@@ -42,6 +48,9 @@ impl LedgerReason {
             Self::MonthlyTopup => "MONTHLY_TOPUP",
             Self::AdminAdjustment => "ADMIN_ADJUSTMENT",
             Self::Reversal => "REVERSAL",
+            Self::IndexFundCashIn => "INDEX_FUND_CASH_IN",
+            Self::IndexFundCashOut => "INDEX_FUND_CASH_OUT",
+            Self::DelistingBuyout => "DELISTING_BUYOUT",
         }
     }
 }
@@ -64,6 +73,9 @@ impl FromStr for LedgerReason {
             "MONTHLY_TOPUP" => Ok(Self::MonthlyTopup),
             "ADMIN_ADJUSTMENT" => Ok(Self::AdminAdjustment),
             "REVERSAL" => Ok(Self::Reversal),
+            "INDEX_FUND_CASH_IN" => Ok(Self::IndexFundCashIn),
+            "INDEX_FUND_CASH_OUT" => Ok(Self::IndexFundCashOut),
+            "DELISTING_BUYOUT" => Ok(Self::DelistingBuyout),
             other => Err(LedgerError::UnsupportedLedgerReason(other.to_owned())),
         }
     }

@@ -28,7 +28,8 @@ Stockball combines the familiarity of Premier League players with a simulated st
 
 ## Capabilities and Constraints
 
-- V1 supports Premier League `PLAYER_SHARE` instruments and team funds. A team fund unit holds one share of every listed player at a club; buying one buys each player at their own price, so the fund moves only with its players.
+- V1 supports Premier League `PLAYER_SHARE` instruments and team funds. A team fund unit holds the same number of shares of every current player at a club; buying one buys each player at their own price, so the fund moves only with its players. Funds follow their squad, rebalancing daily without changing a unit's value.
+- A player who leaves the league is paused, then after a grace period every holder is paid the last price and the share is delisted.
 - Trading uses virtual cash; no real-money trading is offered.
 - Positions are long-only. Shorting, margin, derivatives, expiry, exercise, and settlement contracts are out of scope.
 - Users trade against a platform quote rather than a user-to-user order book.

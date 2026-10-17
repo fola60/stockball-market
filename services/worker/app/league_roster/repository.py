@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Iterator, Protocol
 from uuid import UUID
 
@@ -16,6 +17,8 @@ class LeagueRosterRepository(Protocol):
     def memberships(self, season: int) -> list[RosterMembership]: ...
 
     def open_roster_freezes(self) -> dict[str, set[UUID]]: ...
+
+    def departed_since(self, cutoff: datetime) -> list[UUID]: ...
 
 
 class PostgresLeagueRosterRepository:
@@ -75,3 +78,22 @@ class PostgresLeagueRosterRepository:
                 UUID(str(row["instrument_id"]))
             )
         return open_freezes
+
+    def departed_since(self, cutoff: datetime) -> list[UUID]:
+        """Shares halted for leaving the league since before `cutoff` and still listed."""
+        with self._cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT f.instrument_id
+                FROM instrument_freezes AS f
+                JOIN instruments AS i ON i.id = f.instrument_id
+                WHERE f.released_at IS NULL
+                  AND f.source_key LIKE %(prefix)s
+                  AND f.started_at <= %(cutoff)s
+                  AND i.trading_status <> 'DELISTED'
+                ORDER BY f.instrument_id
+                """,
+                {"prefix": f"{ROSTER_SOURCE_PREFIX}%", "cutoff": cutoff},
+            )
+            rows = cursor.fetchall()
+        return [UUID(str(row["instrument_id"])) for row in rows]

@@ -26,6 +26,8 @@ class TradingEngineEndpoints:
     execute_order: str = "/internal/v1/orders/execute"
     seed_player_shares: str = "/internal/v1/instruments/player-shares/seed"
     create_index_fund: str = "/internal/v1/instruments/index-funds/create"
+    rebalance_index_fund: str = "/internal/v1/instruments/index-funds/rebalance"
+    delist_instrument: str = "/internal/v1/instruments/delist"
     apply_topup: str = "/internal/v1/ledger/topups/apply"
     issue_initial_supply: str = "/internal/v1/positions/initial-supply/issue"
     set_pre_market_price: str = "/internal/v1/instruments/pre-market-price/set"
@@ -363,6 +365,74 @@ class CreateIndexFundRecord:
 
 
 @dataclass(frozen=True)
+class RebalanceIndexFundCommand:
+    """Moves a fund to a new membership, every member holding the same shares per unit."""
+
+    request_id: str
+    instrument_id: UUID
+    reason: str
+    members: tuple[UUID, ...]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "instrument_id": str(self.instrument_id),
+            "reason": self.reason,
+            "members": [str(member) for member in self.members],
+        }
+
+
+@dataclass(frozen=True)
+class RebalanceIndexFundRecord:
+    rebalance_id: UUID
+    instrument_id: UUID
+    replayed: bool
+    units_outstanding: str
+    unit_price_before: str
+    unit_price_after: str
+    cash_per_unit_after: str
+    added_instrument_ids: tuple[UUID, ...]
+    removed_instrument_ids: tuple[UUID, ...]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RebalanceIndexFundRecord":
+        return cls(
+            rebalance_id=UUID(str(payload["rebalance_id"])),
+            instrument_id=UUID(str(payload["instrument_id"])),
+            replayed=bool(payload["replayed"]),
+            units_outstanding=str(payload["units_outstanding"]),
+            unit_price_before=str(payload["unit_price_before"]),
+            unit_price_after=str(payload["unit_price_after"]),
+            cash_per_unit_after=str(payload["cash_per_unit_after"]),
+            added_instrument_ids=tuple(UUID(str(i)) for i in payload["added_instrument_ids"]),
+            removed_instrument_ids=tuple(UUID(str(i)) for i in payload["removed_instrument_ids"]),
+        )
+
+
+@dataclass(frozen=True)
+class DelistInstrumentRecord:
+    instrument_id: UUID
+    already_delisted: bool
+    settlement_price: str
+    holders_paid: int
+    shares_bought_out: str
+    amount_paid: str
+    index_funds_updated: tuple[UUID, ...]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "DelistInstrumentRecord":
+        return cls(
+            instrument_id=UUID(str(payload["instrument_id"])),
+            already_delisted=bool(payload["already_delisted"]),
+            settlement_price=str(payload["settlement_price"]),
+            holders_paid=int(payload["holders_paid"]),
+            shares_bought_out=str(payload["shares_bought_out"]),
+            amount_paid=str(payload["amount_paid"]),
+            index_funds_updated=tuple(UUID(str(i)) for i in payload["index_funds_updated"]),
+        )
+
+
+@dataclass(frozen=True)
 class OrderQuoteRecord:
     quantity: str
     gross_amount: str
@@ -386,8 +456,16 @@ class TradingEngineClient(Protocol):
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord: ...
 
 
-class IndexFundCreator(Protocol):
+class IndexFundClient(Protocol):
     def create_index_fund(self, command: CreateIndexFundCommand) -> CreateIndexFundRecord: ...
+
+    def rebalance_index_fund(
+        self, command: RebalanceIndexFundCommand
+    ) -> RebalanceIndexFundRecord: ...
+
+
+class Delister(Protocol):
+    def delist_instrument(self, instrument_id: UUID, reason: str) -> DelistInstrumentRecord: ...
 
 
 class InitialSupplyIssuer(Protocol):
@@ -457,6 +535,19 @@ class HttpTradingEngineClient:
     def create_index_fund(self, command: CreateIndexFundCommand) -> CreateIndexFundRecord:
         payload = self._post(self._endpoints.create_index_fund, command.to_payload())
         return CreateIndexFundRecord.from_payload(payload)
+
+    def rebalance_index_fund(
+        self, command: RebalanceIndexFundCommand
+    ) -> RebalanceIndexFundRecord:
+        payload = self._post(self._endpoints.rebalance_index_fund, command.to_payload())
+        return RebalanceIndexFundRecord.from_payload(payload)
+
+    def delist_instrument(self, instrument_id: UUID, reason: str) -> DelistInstrumentRecord:
+        payload = self._post(
+            self._endpoints.delist_instrument,
+            {"instrument_id": str(instrument_id), "reason": reason},
+        )
+        return DelistInstrumentRecord.from_payload(payload)
 
     def apply_topup(self, command: ApplyTopupCommand) -> CashLedgerEntryRecord:
         payload = self._post(self._endpoints.apply_topup, command.to_payload())

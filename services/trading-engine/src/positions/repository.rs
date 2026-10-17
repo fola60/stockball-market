@@ -70,6 +70,37 @@ pub(crate) async fn lock_position(
     row.map(Position::try_from).transpose()
 }
 
+/// Locks every non-empty position in an instrument, the given portfolio last: the index fund
+/// custody portfolio is always the last portfolio a flow locks.
+pub(crate) async fn lock_holders(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+    last_portfolio_id: Uuid,
+) -> Result<Vec<Position>, PositionError> {
+    let rows = sqlx::query_as::<_, PositionRow>(
+        r#"
+        SELECT
+            id,
+            portfolio_id,
+            instrument_id,
+            quantity,
+            created_at,
+            updated_at
+        FROM positions
+        WHERE instrument_id = $1
+          AND quantity > 0
+        ORDER BY portfolio_id = $2, portfolio_id
+        FOR UPDATE
+        "#,
+    )
+    .bind(instrument_id)
+    .bind(last_portfolio_id)
+    .fetch_all(&mut *connection)
+    .await?;
+
+    rows.into_iter().map(Position::try_from).collect()
+}
+
 pub fn assert_has_quantity(
     portfolio_id: Uuid,
     instrument_id: Uuid,

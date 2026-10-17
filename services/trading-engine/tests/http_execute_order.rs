@@ -6,13 +6,17 @@ use axum::{
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use stockball_trading_engine::{
+    delistings::{DelistInstrumentCommand, DelistInstrumentResult, DelistingError},
     execution::{ExecuteOrderResult, ExecutionError, OrderQuote},
     freezes::{
         ApplyFreezeCommand, ApplyFreezeResult, FreezeError, ReleaseFreezeCommand,
         ReleaseFreezeResult,
     },
     http::{build_router, AppState, OrderExecutor},
-    index_funds::{CreateIndexFundCommand, CreateIndexFundResult, IndexFundError},
+    index_funds::{
+        CreateIndexFundCommand, CreateIndexFundResult, IndexFundError, RebalanceIndexFundCommand,
+        RebalanceIndexFundResult,
+    },
     instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
     ledger::{CashLedgerEntry, LedgerReason},
     orders::{ExecuteOrderCommand, OrderError, OrderSide},
@@ -285,6 +289,22 @@ impl OrderExecutor for StubExecutor {
     ) -> Result<CreateIndexFundResult, IndexFundError> {
         command.validate()?;
         Err(IndexFundError::SymbolTaken(command.symbol))
+    }
+
+    async fn rebalance_index_fund(
+        &self,
+        command: RebalanceIndexFundCommand,
+    ) -> Result<RebalanceIndexFundResult, ExecutionError> {
+        command.validate()?;
+        Err(IndexFundError::NotAnIndexFund(command.instrument_id).into())
+    }
+
+    async fn delist_instrument(
+        &self,
+        command: DelistInstrumentCommand,
+    ) -> Result<DelistInstrumentResult, DelistingError> {
+        command.validate()?;
+        Err(DelistingError::StillTrading(command.instrument_id))
     }
 
     async fn apply_topup(
@@ -561,4 +581,43 @@ async fn create_index_fund_maps_validation_and_symbol_conflicts() {
         .unwrap();
     assert_eq!(taken.status(), StatusCode::CONFLICT);
     assert_eq!(read_body(taken).await["code"], "index_fund_symbol_taken");
+}
+
+#[tokio::test]
+async fn rebalance_and_delist_routes_map_their_errors() {
+    let router = build_router(AppState::new(StubExecutor::success(sample_response())));
+    let post = |uri: &str, body: Value| {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+
+    let rebalance = router
+        .clone()
+        .oneshot(post(
+            "/internal/v1/instruments/index-funds/rebalance",
+            json!({
+                "request_id": "review-1",
+                "instrument_id": Uuid::new_v4(),
+                "reason": "squad changed",
+                "members": [Uuid::new_v4()]
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(rebalance.status(), StatusCode::NOT_FOUND);
+    assert_eq!(read_body(rebalance).await["code"], "index_fund_not_found");
+
+    let delist = router
+        .oneshot(post(
+            "/internal/v1/instruments/delist",
+            json!({ "instrument_id": Uuid::new_v4(), "reason": "left the league" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(delist.status(), StatusCode::CONFLICT);
+    assert_eq!(read_body(delist).await["code"], "instrument_still_trading");
 }

@@ -173,6 +173,34 @@ class DailyLeagueRosterPlan:
 
 
 @dataclass(frozen=True)
+class DailyIndexReviewPlan:
+    """Daily, after the roster sync: list funds for new league clubs and rebalance funds whose
+    squad changed, including players the roster sync has just bought out."""
+
+    name: str = "daily-index-review"
+    run_hour_utc: int = 3
+    enabled: bool = True
+    supersede_pending: bool = True
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.run_hour_utc <= 23:
+            raise ValueError("index review run_hour_utc must be between 0 and 23")
+
+    def window_key_for(self, effective_at: datetime) -> str:
+        return self._window_start(effective_at).date().isoformat()
+
+    def build_job(self, effective_at: datetime) -> WorkerJob:
+        return WorkerJob(
+            JobType.REVIEW_INDEX_FUNDS, {"season": resolve_season(CURRENT_SEASON, effective_at)}
+        )
+
+    def _window_start(self, effective_at: datetime) -> datetime:
+        normalized = _normalize_timestamp(effective_at)
+        start = normalized.replace(hour=self.run_hour_utc, minute=0, second=0, microsecond=0)
+        return start if normalized >= start else start - timedelta(days=1)
+
+
+@dataclass(frozen=True)
 class FotMobRatingsIngestionPlan:
     name: str = "fotmob-post-match-ratings"
     enabled: bool = False
@@ -321,6 +349,8 @@ def default_scheduler_plans(
             league=player_stats_league,
             season=player_stats_season,
         ),
+        # Index funds follow the roster, so they are reviewed an hour after it.
+        DailyIndexReviewPlan(enabled=player_stats_enabled, run_hour_utc=player_stats_run_hour_utc),
         FotMobRatingsIngestionPlan(enabled=fotmob_enabled),
         Bet365OddsIngestionPlan(
             enabled=bet365_enabled,

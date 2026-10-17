@@ -1,4 +1,5 @@
 pub mod config;
+pub mod delistings;
 pub mod execution;
 pub mod freezes;
 pub mod http;
