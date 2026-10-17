@@ -334,6 +334,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/instruments/index-funds/rebalance:
+    post:
+      operationId: rebalanceIndexFund
+      summary: Rebalance an index fund to a new membership
+      description: >
+        Moves the fund's basket to the given members, each holding the same shares per
+        unit, without changing what a unit is worth apart from the trades' price impact.
+        With units in issue the custody account sells what leaves or shrinks, then spends
+        the proceeds and the fund's cash per unit on what joins or grows, scaling purchases
+        to the cash available; any remainder stays as cash per unit. A member that cannot
+        trade keeps its shares. With no units in issue the basket is rewritten without
+        trading. Idempotent by request_id.
+      tags:
+        - Instruments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RebalanceIndexFundRequest"
+      responses:
+        "200":
+          description: The fund was rebalanced, or this request had already been applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RebalanceIndexFundResponse"
+        "404":
+          description: The fund or a member does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: A player that must trade is paused, a member is delisted, or the request id belongs to another fund.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The request is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /internal/v1/instruments/delist:
+    post:
+      operationId: delistInstrument
+      summary: Buy out a halted player share and take it off the market
+      description: >
+        Pays every holder the share's last price through the ledger and closes their
+        positions, closes its open freezes, and marks it DELISTED with a suffixed symbol so
+        a later share for the same player can reuse the plain one. Each index fund holding
+        the share swaps it for the same value in cash per unit. Only a halted share can be
+        delisted; delisting twice is a no-op.
+      tags:
+        - Instruments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DelistInstrumentRequest"
+      responses:
+        "200":
+          description: The share was delisted, or already had been.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DelistInstrumentResponse"
+        "404":
+          description: The instrument does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The share is still trading.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: The request is invalid or the instrument is not a player share.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /internal/v1/orders/execute:
     post:
       operationId: executeOrder
@@ -484,6 +572,14 @@ components:
       $ref: "../schemas/trading.schema.json#/$defs/CreateIndexFundRequest"
     CreateIndexFundResponse:
       $ref: "../schemas/trading.schema.json#/$defs/CreateIndexFundResponse"
+    RebalanceIndexFundRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/RebalanceIndexFundRequest"
+    RebalanceIndexFundResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/RebalanceIndexFundResponse"
+    DelistInstrumentRequest:
+      $ref: "../schemas/trading.schema.json#/$defs/DelistInstrumentRequest"
+    DelistInstrumentResponse:
+      $ref: "../schemas/trading.schema.json#/$defs/DelistInstrumentResponse"
     ApplyFreezeRequest:
       $ref: "../schemas/trading.schema.json#/$defs/ApplyFreezeRequest"
     ApplyFreezeResponse:

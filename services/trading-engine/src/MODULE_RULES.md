@@ -75,7 +75,8 @@ The implementation must prevent concurrent orders from reading the same cash/pri
 | `positions` | positions | position quantity rows | cash, ledger entries, instrument prices, trades |
 | `snapshots` | price snapshots and identifying trade/instrument values | price snapshot rows | current instrument price, cash, positions, trades |
 | `freezes` | instrument freeze/status state | freeze/status state | cash, positions, trades, ledger entries |
-| `index_funds` | index funds, their baskets, constituent prices | `index_funds` and `index_constituents` rows, and a new fund's instrument row through `instruments` | cash, positions, trades, ledger entries |
+| `index_funds` | index funds, their baskets, constituent prices | `index_funds`, `index_constituents`, and `index_fund_rebalances` rows, and a new fund's instrument row through `instruments` | cash, positions, trades, ledger entries |
+| `delistings` | instruments, positions, portfolios, fund baskets | nothing directly: coordinates `ledger` buyouts, `positions` closures, fund baskets, `freezes`, and instrument status | prices, trades |
 
 If a write does not appear in a module's "May Write" column, that module must not perform it.
 
@@ -302,14 +303,32 @@ Allowed:
 
 Not allowed:
 
-- Execute fund orders; `execution` trades each constituent for the custody account.
-- Change a basket after listing.
+- Execute fund orders or rebalances; `execution` trades each constituent for the custody
+  account.
+- Change a basket except through a rebalance or a delisting, each recorded in
+  `index_fund_rebalances`.
 - Mutate cash or positions.
 
 Rule:
 
 Flows that touch funds and players lock affected fund rows before player rows, each in id order.
 See `index_funds/README.md`.
+
+## `delistings`
+
+Owns taking a halted player share off the market.
+
+Allowed:
+
+- Pay every holder the last price through `ledger` and close their positions through
+  `positions`.
+- Swap fund holdings of the share for cash per unit and record the basket change.
+- Close the share's freezes and mark it `DELISTED`.
+
+Not allowed:
+
+- Delist a share that is still trading.
+- Change prices or create trades.
 
 ## Cross-Service Rules
 

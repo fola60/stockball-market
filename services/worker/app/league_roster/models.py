@@ -14,6 +14,10 @@ MIN_ROSTER_PLAYERS = 300
 MIN_ROSTER_CLUBS = 18
 
 
+# The reason recorded on a buyout for a player who left the league.
+DELISTING_REASON = "left the league"
+
+
 def roster_source_key(player_id: UUID) -> str:
     return f"{ROSTER_SOURCE_PREFIX}{player_id}"
 
@@ -33,5 +37,7 @@ class RosterSyncResult:
     instruments_created: int = 0
     halted: int = 0
     released: int = 0
+    # Shares bought out and delisted after their grace period.
+    delisted: int = 0
     skipped_reason: str | None = None
     failures: tuple[str, ...] = field(default_factory=tuple)

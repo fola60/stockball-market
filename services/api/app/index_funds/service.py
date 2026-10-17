@@ -26,6 +26,10 @@ PROFILE_AXES = (
 )
 
 
+# Basket changes shown with a fund, newest first.
+BASKET_CHANGE_LIMIT = 10
+
+
 class IndexFundNotFoundError(Exception):
     def __init__(self, instrument_id: UUID) -> None:
         self.instrument_id = instrument_id
@@ -56,6 +60,9 @@ class IndexFundsService:
             fund=fund,
             constituents=constituents,
             profile=squad_profile(constituents, stats),
+            basket_changes=self._repository.list_basket_changes(
+                instrument_id, BASKET_CHANGE_LIMIT
+            ),
         )
 
 

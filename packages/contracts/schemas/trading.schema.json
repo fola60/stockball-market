@@ -570,6 +570,155 @@
         }
       }
     },
+    "RebalanceIndexFundRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "instrument_id", "reason", "members"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Idempotency key; a retried request returns the recorded rebalance."
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./common.schema.json#/$defs/Uuid"
+          },
+          "description": "The new membership; every member holds the same shares per unit."
+        }
+      }
+    },
+    "RebalanceIndexFundResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rebalance_id",
+        "instrument_id",
+        "replayed",
+        "units_outstanding",
+        "unit_price_before",
+        "unit_price_after",
+        "cash_per_unit_after",
+        "added_instrument_ids",
+        "removed_instrument_ids",
+        "constituents"
+      ],
+      "properties": {
+        "rebalance_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "units_outstanding": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "unit_price_before": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "unit_price_after": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "cash_per_unit_after": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "added_instrument_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/Uuid"
+          }
+        },
+        "removed_instrument_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/Uuid"
+          }
+        },
+        "constituents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["instrument_id", "shares_per_unit"],
+            "properties": {
+              "instrument_id": {
+                "$ref": "./common.schema.json#/$defs/Uuid"
+              },
+              "shares_per_unit": {
+                "$ref": "./common.schema.json#/$defs/DecimalString"
+              }
+            }
+          }
+        }
+      }
+    },
+    "DelistInstrumentRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instrument_id", "reason"],
+      "properties": {
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "DelistInstrumentResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instrument_id",
+        "already_delisted",
+        "settlement_price",
+        "holders_paid",
+        "shares_bought_out",
+        "amount_paid",
+        "index_funds_updated"
+      ],
+      "properties": {
+        "instrument_id": {
+          "$ref": "./common.schema.json#/$defs/Uuid"
+        },
+        "already_delisted": {
+          "type": "boolean"
+        },
+        "settlement_price": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "holders_paid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shares_bought_out": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "amount_paid": {
+          "$ref": "./common.schema.json#/$defs/DecimalString"
+        },
+        "index_funds_updated": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/Uuid"
+          }
+        }
+      }
+    },
     "SeedPlayerSharesResponse": {
       "type": "object",
       "additionalProperties": false,

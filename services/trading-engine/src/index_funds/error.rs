@@ -8,6 +8,18 @@ use crate::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum IndexFundError {
+    #[error("request_id must not be empty")]
+    EmptyRequestId,
+
+    #[error("a rebalance must give a reason")]
+    EmptyReason,
+
+    #[error("instrument {0} is not an index fund")]
+    NotAnIndexFund(Uuid),
+
+    #[error("request {0} was already used for a different fund")]
+    RequestMismatch(String),
+
     #[error("index fund symbol must not be empty")]
     EmptySymbol,
 

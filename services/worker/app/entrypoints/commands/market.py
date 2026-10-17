@@ -23,7 +23,7 @@ from app.entrypoints.factories import (
     configure_logging,
     trading_engine_client,
 )
-from app.index_funds import PostgresTeamIndexFundRepository, TeamIndexFundService
+from app.index_funds import IndexReviewService, PostgresIndexFundRepository, ReviewAction
 from app.ingestion.social import PostgresSocialRepository, SocialSignalAggregationService
 from app.jobs import (
     IngestPlayersJobPayload,
@@ -75,38 +75,39 @@ def seed_player_shares(args) -> int:
     return 0
 
 
-def create_team_index_funds(args) -> int:
+def review_index_funds(args) -> int:
     settings = Settings.from_env()
     configure_logging(args.log_level)
-    service = TeamIndexFundService(
-        PostgresTeamIndexFundRepository(settings.database_url),
+    service = IndexReviewService(
+        PostgresIndexFundRepository(settings.database_url),
         trading_engine_client(settings),
     )
-    result = service.create_team_funds(resolve_season(args.season), dry_run=args.dry_run)
-    verb = "would list" if result.dry_run else "listed"
-    for outcome in result.outcomes:
-        if outcome.error is not None:
-            print(f"{outcome.club}: failed: {outcome.error}")
-        elif result.dry_run:
+    result = service.review(resolve_season(args.season), dry_run=args.dry_run)
+    for review in result.reviews:
+        change = f"{len(review.added)} joining, {len(review.removed)} leaving"
+        if review.action is ReviewAction.FAILED:
+            print(f"{review.symbol} ({review.club}): failed: {review.error}")
+        elif review.action is ReviewAction.UNCHANGED:
             print(
-                f"{outcome.club}: {verb} {outcome.symbol} "
-                f"over {outcome.constituent_count} players"
+                f"{review.symbol} ({review.club}): unchanged, "
+                f"{review.constituent_count} players"
+            )
+        elif review.action in (ReviewAction.CREATED, ReviewAction.WOULD_CREATE):
+            verb = "would list" if result.dry_run else "listed"
+            print(
+                f"{review.symbol} ({review.club}): {verb} "
+                f"over {review.constituent_count} players"
             )
         else:
-            state = "listed" if outcome.created else "already listed"
-            print(
-                f"{outcome.club}: {state} {outcome.symbol} over {outcome.constituent_count} "
-                f"players at {outcome.unit_price} a unit"
-            )
-    for club, symbol in sorted(result.existing.items()):
-        print(f"{club}: already has {symbol}")
+            verb = "would rebalance" if result.dry_run else "rebalanced"
+            print(f"{review.symbol} ({review.club}): {verb}, {change}")
     for club, count in sorted(result.too_small.items()):
         print(f"{club}: skipped, only {count} listed players")
-    print(
-        f"season {result.season}: {verb} {len(result.outcomes) - result.failed_count} funds, "
-        f"{result.failed_count} failed"
-    )
-    return 1 if result.failed_count else 0
+    for club in result.without_roster:
+        print(f"{club}: has a fund but no listed players this season")
+    failed = result.count(ReviewAction.FAILED)
+    print(f"season {result.season}: {len(result.reviews)} funds reviewed, {failed} failed")
+    return 1 if failed else 0
 
 
 def recalibrate_price_curves(args) -> int:

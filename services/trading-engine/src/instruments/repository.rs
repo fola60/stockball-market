@@ -291,6 +291,32 @@ pub(crate) async fn lock_index_fund_instruments(
         .collect()
 }
 
+/// Takes a player share off the market. Its symbol gains a `-DL<timestamp>` suffix so a share
+/// listed for the same player later can reuse the plain symbol.
+pub(crate) async fn mark_delisted(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+) -> Result<(), InstrumentError> {
+    let updated = sqlx::query(
+        r#"
+        UPDATE instruments
+        SET
+            trading_status = 'DELISTED',
+            symbol = symbol || '-DL' || to_char(now() AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS'),
+            updated_at = now()
+        WHERE id = $1
+          AND trading_status <> 'DELISTED'
+        "#,
+    )
+    .bind(instrument_id)
+    .execute(&mut *connection)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(InstrumentError::NotFound(instrument_id));
+    }
+    Ok(())
+}
+
 /// Sets an index fund's price to the current value of its basket.
 pub(crate) async fn update_index_fund_price(
     connection: &mut PgConnection,

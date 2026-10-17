@@ -7,7 +7,7 @@ import { PlayerAvatar } from "../../components/player-media";
 import { PriceChart } from "../../instrument/[id]/price-chart";
 import { RadarChart } from "../../instrument/[id]/radar-chart";
 import { TradeTicket } from "../../instrument/[id]/trade-ticket";
-import { getFundPageData, type IndexFundDetail } from "@/lib/api";
+import { getFundPageData, type BasketChange, type IndexFundDetail } from "@/lib/api";
 import { formatChange, formatCompact, formatCurrency, formatMoneyShort, formatPercent, moveTone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,28 @@ function PausedBanner({ fund }: { fund: IndexFundDetail }) {
         </p>
       </div>
     </div>
+  );
+}
+
+function BasketChangeRow({ change }: { change: BasketChange }) {
+  const names = (players: BasketChange["added"]) => players.map((player) => player.player_name).join(", ");
+  const delisting = change.kind === "DELISTING";
+  const moved = Number(change.unit_price_after) - Number(change.unit_price_before);
+  return (
+    <li className="grid gap-1 py-3 sm:grid-cols-[120px_minmax(0,1fr)_auto] sm:items-baseline sm:gap-4">
+      <time dateTime={change.created_at} className="text-[11px] text-[#77818e]">{new Date(change.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</time>
+      <p className="min-w-0 text-xs leading-5 text-[#c5ccd4]">
+        {delisting ? (
+          <><strong className="font-semibold text-white">{names(change.removed)}</strong> left the league and was bought out; the fund holds that value as cash until its next rebalance.</>
+        ) : (
+          <>
+            {change.added.length > 0 && <><span className="text-[#35d07f]">Joined</span> <strong className="font-semibold text-white">{names(change.added)}</strong>{change.removed.length > 0 ? ". " : ""}</>}
+            {change.removed.length > 0 && <><span className="text-[#f16d73]">Left</span> <strong className="font-semibold text-white">{names(change.removed)}</strong></>}
+          </>
+        )}
+      </p>
+      <span className="text-[11px] tabular-nums text-[#77818e]">{delisting || Math.abs(moved) < 0.005 ? "Unit value unchanged" : `Unit value ${moved >= 0 ? "+" : "−"}${formatCurrency(Math.abs(moved))}`}</span>
+    </li>
   );
 }
 
@@ -120,7 +142,7 @@ export default async function FundPage({ params }: PageProps) {
         <section aria-labelledby="basket-title" className={`${panel} mt-5`}>
           <div className="border-b border-[#202630] px-4 py-5 md:px-6">
             <h2 id="basket-title" className="text-xl font-semibold tracking-[-0.02em]">What one unit holds</h2>
-            <p className="mt-1.5 text-[11px] text-[#77818e]">Weight is each player&apos;s share of the unit price.</p>
+            <p className="mt-1.5 text-[11px] text-[#77818e]">Every player holds the same number of shares, so weight is each player&apos;s share of the unit price.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-left text-[11px]">
@@ -153,9 +175,30 @@ export default async function FundPage({ params }: PageProps) {
                     </td>
                   </tr>
                 ))}
+                {Number(fund.cash_per_unit) >= 0.005 && (
+                  <tr className="border-t border-[#202630] text-[#9ba5b2]">
+                    <td className="py-2.5 pl-[18px]"><strong className="font-semibold text-white">Cash</strong><small className="mt-1 block text-[10px] text-[#818b97]">From buyouts, spent at the next rebalance</small></td>
+                    <td className="px-2 py-2.5 text-right">—</td>
+                    <td className="px-2 py-2.5 text-right tabular-nums slashed-zero">{formatCurrency(fund.cash_per_unit)}</td>
+                    <td className="px-2 py-2.5 text-right">—</td>
+                    <td className="py-2.5 pl-2 pr-[18px] tabular-nums">{((Number(fund.cash_per_unit) / price) * 100).toFixed(1)}%</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section aria-labelledby="basket-changes-title" className={`${panel} mt-5`}>
+          <div className="border-b border-[#202630] px-4 py-5 md:px-6">
+            <h2 id="basket-changes-title" className="text-xl font-semibold tracking-[-0.02em]">Squad changes</h2>
+            <p className="mt-1.5 max-w-[70ch] text-[11px] leading-5 text-[#77818e]">Each day the fund is checked against the club&apos;s current players. Joiners are bought and leavers sold with the same money, so a unit keeps its value apart from the cost of the trades.</p>
+          </div>
+          {fund.basket_changes.length > 0 ? (
+            <ul className="divide-y divide-[#202630] px-4 md:px-6">{fund.basket_changes.map((change) => <BasketChangeRow key={`${change.created_at}-${change.kind}`} change={change} />)}</ul>
+          ) : (
+            <p className="px-4 py-8 text-xs text-[#77818e] md:px-6">No squad changes since this fund was listed.</p>
+          )}
         </section>
       </div>
     </Shell>

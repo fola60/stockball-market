@@ -77,6 +77,53 @@ pub async fn credit_trade_cash(
     .await
 }
 
+/// Moves a unit's cash between custody and the market as index fund units are traded: a
+/// positive amount credits custody on a buy, a negative one debits it on a sale.
+pub async fn move_index_fund_cash(
+    connection: &mut PgConnection,
+    account_id: Uuid,
+    portfolio_id: Uuid,
+    trade_id: Uuid,
+    amount_delta: Decimal,
+    source_request_id: &str,
+) -> Result<CashLedgerEntry, LedgerError> {
+    let reason = if amount_delta.is_sign_positive() {
+        LedgerReason::IndexFundCashIn
+    } else {
+        LedgerReason::IndexFundCashOut
+    };
+    apply_cash_movement(
+        connection,
+        account_id,
+        portfolio_id,
+        Some(trade_id),
+        reason,
+        amount_delta,
+        Some(source_request_id),
+    )
+    .await
+}
+
+/// Pays a holder for shares that left the market.
+pub async fn credit_delisting_buyout(
+    connection: &mut PgConnection,
+    account_id: Uuid,
+    portfolio_id: Uuid,
+    amount: Decimal,
+    source_request_id: &str,
+) -> Result<CashLedgerEntry, LedgerError> {
+    apply_cash_movement(
+        connection,
+        account_id,
+        portfolio_id,
+        None,
+        LedgerReason::DelistingBuyout,
+        ensure_positive_amount(amount)?,
+        Some(source_request_id),
+    )
+    .await
+}
+
 /// Credits a portfolio's one-time opening balance. A portfolio can receive at most one.
 pub async fn credit_opening_balance(
     connection: &mut PgConnection,

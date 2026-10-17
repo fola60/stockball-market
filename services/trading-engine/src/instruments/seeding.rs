@@ -104,6 +104,7 @@ async fn list_seed_candidates(
         LEFT JOIN instruments AS i
             ON i.player_id = p.id
            AND i.instrument_type = 'PLAYER_SHARE'
+           AND i.trading_status <> 'DELISTED'
         LEFT JOIN LATERAL (
             SELECT value
             FROM player_market_value_observations
@@ -112,6 +113,19 @@ async fn list_seed_candidates(
             ORDER BY observed_at DESC, imported_at DESC, id DESC
             LIMIT 1
         ) AS mv ON true
+        -- A player whose share was delisted when they left the league is listed again only
+        -- once they are back in the newest season's roster.
+        WHERE i.id IS NOT NULL
+           OR NOT EXISTS (
+               SELECT 1
+               FROM instruments AS delisted
+               WHERE delisted.player_id = p.id
+                 AND delisted.instrument_type = 'PLAYER_SHARE'
+                 AND delisted.trading_status = 'DELISTED'
+           )
+           OR COALESCE(p.metadata ->> 'season', '') = (
+               SELECT MAX(metadata ->> 'season') FROM players
+           )
         ORDER BY p.display_name, p.id
         "#,
     )

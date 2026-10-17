@@ -19,6 +19,7 @@ class IndexFundResponse(BaseModel):
     index_kind: str
     club: str | None
     current_price: str
+    cash_per_unit: str
     status: InstrumentStatus
     freeze_reason: str | None
     constituent_count: int
@@ -59,9 +60,29 @@ class IndexFundProfileResponse(BaseModel):
     radar_axes: list[RadarAxisResponse]
 
 
+class BasketChangePlayerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    instrument_id: UUID
+    player_name: str
+
+
+class BasketChangeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: str
+    reason: str
+    added: list[BasketChangePlayerResponse]
+    removed: list[BasketChangePlayerResponse]
+    unit_price_before: str
+    unit_price_after: str
+    created_at: datetime
+
+
 class IndexFundDetailResponse(IndexFundResponse):
     constituents: list[IndexConstituentResponse]
     profile: IndexFundProfileResponse | None
+    basket_changes: list[BasketChangeResponse]
 
     @classmethod
     def from_detail(cls, detail: IndexFundDetailRecord) -> "IndexFundDetailResponse":
@@ -75,5 +96,9 @@ class IndexFundDetailResponse(IndexFundResponse):
                 "profile": None
                 if detail.profile is None
                 else IndexFundProfileResponse.model_validate(detail.profile),
+                "basket_changes": [
+                    BasketChangeResponse.model_validate(change)
+                    for change in detail.basket_changes
+                ],
             }
         )

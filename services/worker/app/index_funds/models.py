@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from enum import StrEnum
 from uuid import UUID
 
 TEAM_INDEX_KIND = "TEAM"
@@ -11,6 +12,9 @@ MIN_TEAM_PLAYERS = 11
 # One unit of a team fund holds one share of every player in the squad, so the unit price is
 # the squad's total share price and pricier players carry more weight.
 TEAM_SHARES_PER_UNIT = "1"
+# A fund holding at least this share of its value as cash, after a buyout, is rebalanced to
+# reinvest it. Rebalances leave a sliver of cash behind, which is too small to be worth trading.
+CASH_REINVEST_SHARE = 0.01
 
 # Conventional three-letter codes, keyed by normalized club name. Player ingestion uses
 # FBref's short names ("Manchester Utd", "Nott'ham Forest"); full names are listed too.
@@ -76,36 +80,66 @@ def team_fund_name(club: str) -> str:
 
 @dataclass(frozen=True)
 class TeamRoster:
+    """The team rule's result for one club: its current-season players who can trade."""
+
     club: str
     instrument_ids: tuple[UUID, ...]
 
 
 @dataclass(frozen=True)
-class TeamIndexFundOutcome:
+class TeamFund:
+    """A listed team fund and its basket as it stands."""
+
+    instrument_id: UUID
+    symbol: str
+    club: str
+    members: frozenset[UUID]
+    # Members halted for anything but a match day: players waiting for their buyout. A
+    # rebalance cannot sell them, so they stay until delisting turns them into cash.
+    halted_members: frozenset[UUID] = frozenset()
+    # Cash behind each unit and what a unit is worth, as decimal strings.
+    cash_per_unit: str = "0"
+    unit_price: str = "0"
+
+    @property
+    def cash_share(self) -> float:
+        """The part of a unit's value held as cash."""
+        price = float(self.unit_price)
+        return float(self.cash_per_unit) / price if price > 0 else 0.0
+
+
+class ReviewAction(StrEnum):
+    CREATED = "CREATED"
+    REBALANCED = "REBALANCED"
+    UNCHANGED = "UNCHANGED"
+    FAILED = "FAILED"
+    # Dry runs.
+    WOULD_CREATE = "WOULD_CREATE"
+    WOULD_REBALANCE = "WOULD_REBALANCE"
+
+
+@dataclass(frozen=True)
+class FundReview:
     club: str
     symbol: str
+    action: ReviewAction
     constituent_count: int
-    # None on a dry run.
-    created: bool | None = None
+    added: tuple[UUID, ...] = ()
+    removed: tuple[UUID, ...] = ()
     instrument_id: UUID | None = None
     unit_price: str | None = None
     error: str | None = None
 
 
 @dataclass(frozen=True)
-class TeamIndexFundsResult:
+class IndexReviewResult:
     season: int
     dry_run: bool
-    outcomes: tuple[TeamIndexFundOutcome, ...] = ()
-    # Clubs that already have a team fund, by symbol.
-    existing: dict[str, str] = field(default_factory=dict)
-    # Clubs left out because too few of their players are listed, with the count found.
+    reviews: tuple[FundReview, ...] = ()
+    # Clubs without a fund left out because too few of their players are listed.
     too_small: dict[str, int] = field(default_factory=dict)
+    # Funds whose club has no listed players this season, e.g. after relegation.
+    without_roster: tuple[str, ...] = ()
 
-    @property
-    def created_count(self) -> int:
-        return sum(1 for outcome in self.outcomes if outcome.created)
-
-    @property
-    def failed_count(self) -> int:
-        return sum(1 for outcome in self.outcomes if outcome.error is not None)
+    def count(self, *actions: ReviewAction) -> int:
+        return sum(1 for review in self.reviews if review.action in actions)

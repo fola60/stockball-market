@@ -14,8 +14,11 @@ class IndexFundRecord:
     display_name: str
     index_kind: str
     club: str | None
-    # The value of one unit's basket at its constituents' current prices.
+    # The value of one unit: its basket at current prices plus its cash.
     current_price: str
+    # Cash behind each unit, from buyouts of players who left the league, until the next
+    # rebalance spends it.
+    cash_per_unit: str
     # FROZEN while the fund or any constituent cannot trade, since a unit trades as a whole.
     status: InstrumentStatus
     # Why a constituent is frozen, MATCH_DAY first when any is paused for a match.
@@ -61,7 +64,27 @@ class IndexFundProfileRecord:
 
 
 @dataclass(frozen=True)
+class BasketChangePlayerRecord:
+    instrument_id: UUID
+    player_name: str
+
+
+@dataclass(frozen=True)
+class BasketChangeRecord:
+    """A rebalance to the fund's rule, or a player bought out after leaving the league."""
+
+    kind: str
+    reason: str
+    added: list[BasketChangePlayerRecord]
+    removed: list[BasketChangePlayerRecord]
+    unit_price_before: str
+    unit_price_after: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class IndexFundDetailRecord:
     fund: IndexFundRecord
     constituents: list[IndexConstituentRecord]
     profile: IndexFundProfileRecord | None
+    basket_changes: list[BasketChangeRecord]

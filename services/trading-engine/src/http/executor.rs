@@ -2,12 +2,16 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 
 use crate::{
+    delistings::{self, DelistInstrumentCommand, DelistInstrumentResult, DelistingError},
     execution::{self, ExecuteOrderResult, ExecutionError, OrderQuote},
     freezes::{
         self, ApplyFreezeCommand, ApplyFreezeResult, FreezeError, ReleaseFreezeCommand,
         ReleaseFreezeResult,
     },
-    index_funds::{self, CreateIndexFundCommand, CreateIndexFundResult, IndexFundError},
+    index_funds::{
+        self, CreateIndexFundCommand, CreateIndexFundResult, IndexFundError,
+        RebalanceIndexFundCommand, RebalanceIndexFundResult,
+    },
     instruments::{self, InstrumentError, SeedPlayerSharesResult},
     ledger::CashLedgerEntry,
     orders::ExecuteOrderCommand,
@@ -39,6 +43,16 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
         &self,
         command: CreateIndexFundCommand,
     ) -> Result<CreateIndexFundResult, IndexFundError>;
+
+    async fn rebalance_index_fund(
+        &self,
+        command: RebalanceIndexFundCommand,
+    ) -> Result<RebalanceIndexFundResult, ExecutionError>;
+
+    async fn delist_instrument(
+        &self,
+        command: DelistInstrumentCommand,
+    ) -> Result<DelistInstrumentResult, DelistingError>;
 
     async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError>;
 
@@ -119,6 +133,20 @@ impl OrderExecutor for SqlOrderExecutor {
         command: CreateIndexFundCommand,
     ) -> Result<CreateIndexFundResult, IndexFundError> {
         index_funds::create_index_fund(&self.pool, command).await
+    }
+
+    async fn rebalance_index_fund(
+        &self,
+        command: RebalanceIndexFundCommand,
+    ) -> Result<RebalanceIndexFundResult, ExecutionError> {
+        execution::rebalance_index_fund(&self.pool, command).await
+    }
+
+    async fn delist_instrument(
+        &self,
+        command: DelistInstrumentCommand,
+    ) -> Result<DelistInstrumentResult, DelistingError> {
+        delistings::delist_instrument(&self.pool, command).await
     }
 
     async fn apply_topup(&self, command: ApplyTopupCommand) -> Result<CashLedgerEntry, TopupError> {

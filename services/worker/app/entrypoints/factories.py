@@ -211,6 +211,8 @@ def build_league_roster_service(
         engine=engine,
         players=build_player_seed_service(fbref),
         instruments=TradingEngineInstrumentSeeder(engine),
+        delister=engine,
+        delisting_grace=timedelta(days=settings.delisting_grace_days),
     )
 
 

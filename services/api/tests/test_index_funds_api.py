@@ -6,7 +6,12 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from app.index_funds.models import IndexConstituentRecord, IndexFundRecord
+from app.index_funds.models import (
+    BasketChangePlayerRecord,
+    BasketChangeRecord,
+    IndexConstituentRecord,
+    IndexFundRecord,
+)
 from app.index_funds.service import IndexFundsService, squad_profile
 from app.instruments.models import (
     InstrumentStatus,
@@ -69,6 +74,7 @@ def _fund(fund_id: UUID) -> IndexFundRecord:
         index_kind="TEAM",
         club="Arsenal",
         current_price="100.000000000000",
+        cash_per_unit="2.5",
         status=InstrumentStatus.FROZEN,
         freeze_reason="MATCH_DAY",
         constituent_count=3,
@@ -106,6 +112,19 @@ class FakeIndexFundsRepository:
 
     def list_constituents(self, instrument_id: UUID) -> list[IndexConstituentRecord]:
         return self.constituents
+
+    def list_basket_changes(self, instrument_id: UUID, limit: int) -> list[BasketChangeRecord]:
+        return [
+            BasketChangeRecord(
+                kind="DELISTING",
+                reason="left the league",
+                added=[],
+                removed=[BasketChangePlayerRecord(uuid4(), "Departed Player")],
+                unit_price_before="100",
+                unit_price_after="100",
+                created_at=datetime(2026, 10, 17, tzinfo=UTC),
+            )
+        ][:limit]
 
 
 class SquadProfileTests(unittest.TestCase):
@@ -181,6 +200,10 @@ class IndexFundsApiTests(unittest.TestCase):
         self.assertEqual(body["profile"]["comparison_group"], "SQUAD")
         self.assertEqual(body["profile"]["radar_axes"][0]["label"], "Shooting")
         self.assertEqual(body["profile"]["radar_axes"][0]["score"], 80)
+        self.assertEqual(body["cash_per_unit"], "2.5")
+        (change,) = body["basket_changes"]
+        self.assertEqual(change["kind"], "DELISTING")
+        self.assertEqual(change["removed"][0]["player_name"], "Departed Player")
 
     def test_unknown_fund_is_404(self) -> None:
         response = self.client.get(f"/v1/index-funds/{uuid4()}")

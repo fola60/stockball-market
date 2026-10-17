@@ -82,12 +82,19 @@ cp scripts/local-ingestion.env.example .env.local-ingestion
 
 `seed-player-shares` requires the trading engine to be running locally at `STOCKBALL_WORKER_TRADING_ENGINE_URL`.
 
-`create-team-index-funds` lists a team fund (`IDX-ARS`, `IDX-MUN`, ...) for every league club
-that has none, holding one share of each of the club's current-season players. Players halted
-for anything but a match day are left out, and clubs with fewer than eleven listed players are
-skipped. `--dry-run` reports what it would list. The same operation runs from the admin console
-as `CREATE_TEAM_INDEX_FUNDS`. A listed fund's basket is fixed, so re-running leaves existing
-funds alone.
+`review-index-funds` applies each index fund's rule. The team rule picks every league club's
+current-season players, leaving out anyone halted for anything but a match day. A club with at
+least eleven such players and no fund gets one (`IDX-ARS`, `IDX-MUN`, ...). A fund whose rule
+result has changed, or that holds at least 1% of its value as cash from buyouts, is rebalanced
+to it by the engine without changing what a unit is worth. Players halted until their buyout
+stay in their fund meanwhile. `--dry-run` reports what would change. The scheduler runs it daily
+as `REVIEW_INDEX_FUNDS`, an hour after the roster sync, and the admin console can run it on
+demand. A rebalance needing a player paused for a match fails and is retried the next day.
+
+The roster sync also delists: a player halted for leaving the league for longer than
+`STOCKBALL_DELISTING_GRACE_DAYS` (default 7) is bought out at the last price, every holder is
+paid, and any fund holding them keeps that value as cash. A delisted player who returns to the
+league gets a new share when the roster sync next lists players.
 
 `recalibrate-price-curves --multiplier M --depth-divisor D --reason TEXT` reshapes every
 player-share price curve without moving any price (see

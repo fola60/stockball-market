@@ -136,6 +136,25 @@ pub async fn release_freeze(
     })
 }
 
+/// Closes every open freeze on an instrument that is leaving the market.
+pub(crate) async fn release_all_for_instrument(
+    connection: &mut PgConnection,
+    instrument_id: Uuid,
+) -> Result<u64, FreezeError> {
+    let released = sqlx::query(
+        r#"
+        UPDATE instrument_freezes
+        SET released_at = now()
+        WHERE instrument_id = $1
+          AND released_at IS NULL
+        "#,
+    )
+    .bind(instrument_id)
+    .execute(&mut *connection)
+    .await?;
+    Ok(released.rows_affected())
+}
+
 async fn set_trading_status(
     connection: &mut PgConnection,
     instrument_id: Uuid,

@@ -117,6 +117,89 @@ pub struct CreateIndexFundResult {
     pub unit_price: Decimal,
 }
 
+/// Rebalances a fund to a new membership, giving every member the same number of shares per
+/// unit. Value-neutral: custody sells what leaves or shrinks and spends the proceeds, with any
+/// cash already behind the units, on what joins or grows, so a unit keeps its value apart from
+/// the trades' price impact.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RebalanceIndexFundCommand {
+    pub request_id: String,
+    pub instrument_id: Uuid,
+    pub reason: String,
+    pub members: Vec<Uuid>,
+}
+
+impl RebalanceIndexFundCommand {
+    pub fn validate(&self) -> Result<(), IndexFundError> {
+        if self.request_id.trim().is_empty() {
+            return Err(IndexFundError::EmptyRequestId);
+        }
+        if self.reason.trim().is_empty() {
+            return Err(IndexFundError::EmptyReason);
+        }
+        if self.members.is_empty() {
+            return Err(IndexFundError::EmptyConstituents);
+        }
+        let mut seen = HashSet::with_capacity(self.members.len());
+        for member in &self.members {
+            if !seen.insert(*member) {
+                return Err(IndexFundError::DuplicateConstituent(*member));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RebalanceIndexFundResult {
+    pub rebalance_id: Uuid,
+    pub instrument_id: Uuid,
+    /// True when this request had already been applied and its record is returned.
+    pub replayed: bool,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub units_outstanding: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub unit_price_before: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub unit_price_after: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub cash_per_unit_after: Decimal,
+    pub added_instrument_ids: Vec<Uuid>,
+    pub removed_instrument_ids: Vec<Uuid>,
+    pub constituents: Vec<IndexConstituent>,
+}
+
+/// A basket change about to be recorded.
+pub(crate) struct BasketChange<'a> {
+    pub index_instrument_id: Uuid,
+    pub units_outstanding: Decimal,
+    pub unit_price_before: Decimal,
+    pub unit_price_after: Decimal,
+    pub cash_per_unit_after: Decimal,
+    pub old_basket: &'a [IndexConstituent],
+    pub new_basket: &'a [IndexConstituent],
+}
+
+impl BasketChange<'_> {
+    pub fn added(&self) -> Vec<Uuid> {
+        let old: HashSet<Uuid> = self.old_basket.iter().map(|c| c.instrument_id).collect();
+        self.new_basket
+            .iter()
+            .map(|c| c.instrument_id)
+            .filter(|id| !old.contains(id))
+            .collect()
+    }
+
+    pub fn removed(&self) -> Vec<Uuid> {
+        let new: HashSet<Uuid> = self.new_basket.iter().map(|c| c.instrument_id).collect();
+        self.old_basket
+            .iter()
+            .map(|c| c.instrument_id)
+            .filter(|id| !new.contains(id))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,11 +7,11 @@ use axum::{
 use serde_json::json;
 
 use crate::{
-    execution::ExecutionError, freezes::FreezeError, http::dto::ErrorResponse,
-    idempotency::IdempotencyError, index_funds::IndexFundError, instruments::InstrumentError,
-    ledger::LedgerError, orders::OrderError, portfolios::PortfolioError, positions::PositionError,
-    price_impact::PriceImpactError, provisioning::ProvisioningError, snapshots::SnapshotError,
-    topups::TopupError,
+    delistings::DelistingError, execution::ExecutionError, freezes::FreezeError,
+    http::dto::ErrorResponse, idempotency::IdempotencyError, index_funds::IndexFundError,
+    instruments::InstrumentError, ledger::LedgerError, orders::OrderError,
+    portfolios::PortfolioError, positions::PositionError, price_impact::PriceImpactError,
+    provisioning::ProvisioningError, snapshots::SnapshotError, topups::TopupError,
 };
 
 #[derive(Debug)]
@@ -115,6 +115,43 @@ impl From<TopupError> for ApiError {
             TopupError::Database(error) => internal_error(
                 "database_error",
                 "Unexpected database error while applying top-up.",
+                Some(json!({ "error": error.to_string() })),
+            ),
+        }
+    }
+}
+
+impl From<DelistingError> for ApiError {
+    fn from(error: DelistingError) -> Self {
+        match error {
+            DelistingError::EmptyReason => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_delisting",
+                format!("{error}."),
+                None,
+            ),
+            DelistingError::StillTrading(instrument_id) => Self::new(
+                StatusCode::CONFLICT,
+                "instrument_still_trading",
+                format!("{error}."),
+                Some(json!({ "instrument_id": instrument_id })),
+            ),
+            DelistingError::NotAPlayerShare(instrument_id) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "not_a_player_share",
+                format!("{error}."),
+                Some(json!({ "instrument_id": instrument_id })),
+            ),
+            DelistingError::Freeze(error) => freeze_error(error),
+            DelistingError::IndexFund(error) => index_fund_error(error),
+            DelistingError::Instrument(error) => instrument_error(error),
+            DelistingError::Ledger(error) => ledger_error(error),
+            DelistingError::Portfolio(error) => portfolio_error(error),
+            DelistingError::Position(error) => position_error(error),
+            DelistingError::Snapshot(error) => snapshot_error(error),
+            DelistingError::Database(error) => internal_error(
+                "database_error",
+                "Unexpected database error while delisting.",
                 Some(json!({ "error": error.to_string() })),
             ),
         }
@@ -422,6 +459,21 @@ fn index_fund_error(error: IndexFundError) -> ApiError {
         )
     };
     match error {
+        IndexFundError::EmptyRequestId | IndexFundError::EmptyReason => {
+            invalid("invalid_index_fund_rebalance", &error, None)
+        }
+        IndexFundError::NotAnIndexFund(instrument_id) => ApiError::new(
+            StatusCode::NOT_FOUND,
+            "index_fund_not_found",
+            format!("{error}."),
+            Some(json!({ "instrument_id": instrument_id })),
+        ),
+        IndexFundError::RequestMismatch(ref request_id) => ApiError::new(
+            StatusCode::CONFLICT,
+            "idempotency_request_mismatch",
+            format!("{error}."),
+            Some(json!({ "request_id": request_id })),
+        ),
         IndexFundError::EmptySymbol
         | IndexFundError::EmptyDisplayName
         | IndexFundError::MissingClub
