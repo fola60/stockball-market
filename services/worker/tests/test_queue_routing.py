@@ -23,14 +23,16 @@ class JobRoutingQueueTests(unittest.TestCase):
         queue.enqueue(WorkerJob(JobType.SYNTHETIC_TRADER_TICK, {}))
         queue.enqueue(WorkerJob(JobType.APPLY_TOPUPS, {}))
         queue.enqueue(WorkerJob(JobType.INGEST_SOCIAL_FEEDS, {}))
+        queue.enqueue(WorkerJob(JobType.REVIEW_INDEX_FUNDS, {}))
+        queue.enqueue(WorkerJob(JobType.SYNC_LEAGUE_ROSTER, {}))
 
         self.assertEqual(
             [job.job_type for job in trading.jobs],
-            [JobType.SYNTHETIC_TRADER_TICK, JobType.APPLY_TOPUPS],
+            [JobType.SYNTHETIC_TRADER_TICK, JobType.APPLY_TOPUPS, JobType.REVIEW_INDEX_FUNDS],
         )
         self.assertEqual(
             [job.job_type for job in ingestion.jobs],
-            [JobType.INGEST_SOCIAL_FEEDS],
+            [JobType.INGEST_SOCIAL_FEEDS, JobType.SYNC_LEAGUE_ROSTER],
         )
 
 

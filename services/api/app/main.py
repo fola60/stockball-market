@@ -102,6 +102,7 @@ def create_app(
                         "APPLY_TOPUPS": settings.trading_queue_name,
                         "SYNTHETIC_TRADER_TICK": settings.trading_queue_name,
                         "CHECK_MARKET_FREEZES": settings.trading_queue_name,
+                        "REVIEW_INDEX_FUNDS": settings.trading_queue_name,
                     },
                 ),
                 process_registry=RedisProcessRegistry(

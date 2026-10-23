@@ -190,3 +190,22 @@ class SchedulerServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScheduleOperationTypeTests(unittest.TestCase):
+    def test_every_schedule_records_its_runs_under_an_operation_type(self) -> None:
+        # A schedule without one crashes the scheduler the first time it falls due.
+        from app.operation_runs import SCHEDULE_OPERATION_TYPES
+        from app.scheduler.models import default_scheduler_plans
+
+        plans = default_scheduler_plans(
+            bet365_enabled=True,
+            bet365_live_enabled=True,
+            twitter_injury_enabled=True,
+            twitter_query_key="injuries",
+            fotmob_enabled=True,
+        )
+
+        self.assertEqual(
+            [plan.name for plan in plans if plan.name not in SCHEDULE_OPERATION_TYPES], []
+        )

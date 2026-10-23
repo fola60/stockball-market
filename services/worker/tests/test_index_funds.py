@@ -363,6 +363,9 @@ class IndexReviewServiceTests(unittest.TestCase):
 class ClubCodeTests(unittest.TestCase):
     def test_known_and_unknown_clubs(self) -> None:
         self.assertEqual(club_code("Nott'ham Forest"), "NFO")
+        self.assertEqual(club_code("Nottingham"), "NFO")
+        self.assertEqual(club_code("Newcastle"), "NEW")
+        self.assertEqual(club_code("Hull City"), "HUL")
         self.assertEqual(club_code("Brighton & Hove Albion"), "BHA")
         self.assertEqual(club_code("Wolves"), "WOL")
         self.assertEqual(team_fund_symbol("Tottenham"), "IDX-TOT")
