@@ -31,10 +31,17 @@ class RedisJobQueue:
         return _deserialize_job(raw_message)
 
 
-# Latency-sensitive market jobs. Everything else goes to the ingestion queue so slow scraping
-# never delays trading ticks, top-ups, or match-day freezes.
+# Market jobs that need only the database and trading engine. Everything else goes to the
+# ingestion queue so slow scraping never delays trading ticks, top-ups, or match-day freezes.
+# The index review is here too: production runs no ingestion worker of its own, and the
+# review needs no scraping.
 TRADING_QUEUE_JOB_TYPES = frozenset(
-    {JobType.APPLY_TOPUPS, JobType.SYNTHETIC_TRADER_TICK, JobType.CHECK_MARKET_FREEZES}
+    {
+        JobType.APPLY_TOPUPS,
+        JobType.SYNTHETIC_TRADER_TICK,
+        JobType.CHECK_MARKET_FREEZES,
+        JobType.REVIEW_INDEX_FUNDS,
+    }
 )
 
 

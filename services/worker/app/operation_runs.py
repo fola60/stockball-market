@@ -15,6 +15,7 @@ SCHEDULE_OPERATION_TYPES = {
     "market-freezes": "CHECK_MARKET_FREEZES",
     "daily-player-stats": "INGEST_PLAYER_STATS",
     "daily-league-roster": "SYNC_LEAGUE_ROSTER",
+    "daily-index-review": "REVIEW_INDEX_FUNDS",
     "fotmob-post-match-ratings": "INGEST_FOTMOB_RATINGS",
     "bet365-odds": "INGEST_BETTING_MARKETS",
     "bet365-live-odds": "INGEST_BETTING_MARKETS",

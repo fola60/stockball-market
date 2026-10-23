@@ -16,8 +16,9 @@ TEAM_SHARES_PER_UNIT = "1"
 # reinvest it. Rebalances leave a sliver of cash behind, which is too small to be worth trading.
 CASH_REINVEST_SHARE = 0.01
 
-# Conventional three-letter codes, keyed by normalized club name. Player ingestion uses
-# FBref's short names ("Manchester Utd", "Nott'ham Forest"); full names are listed too.
+# Conventional three-letter codes, keyed by normalized club name. Player ingestion has used
+# several providers' short names ("Manchester Utd", "Nott'ham Forest", "Nottingham",
+# "Newcastle"); full names are listed too.
 CLUB_CODES = {
     "arsenal": "ARS",
     "aston villa": "AVL",
@@ -28,9 +29,11 @@ CLUB_CODES = {
     "brighton and hove albion": "BHA",
     "burnley": "BUR",
     "chelsea": "CHE",
+    "coventry city": "COV",
     "crystal palace": "CRY",
     "everton": "EVE",
     "fulham": "FUL",
+    "hull city": "HUL",
     "ipswich town": "IPS",
     "leeds united": "LEE",
     "leicester city": "LEI",
@@ -39,8 +42,10 @@ CLUB_CODES = {
     "manchester city": "MCI",
     "manchester utd": "MUN",
     "manchester united": "MUN",
+    "newcastle": "NEW",
     "newcastle utd": "NEW",
     "newcastle united": "NEW",
+    "nottingham": "NFO",
     "nottham forest": "NFO",
     "nottingham forest": "NFO",
     "sheffield utd": "SHU",
