@@ -58,7 +58,8 @@ Deliverables:
 - trade records
 - price snapshots
 - price curve driven by net shares purchased relative to shares outstanding
-- configurable full-supply price multiplier, defaulting to `2.5`
+- configurable full-supply price multiplier and curve depth (20 over 1/15 of supply for new players)
+- a trading fee on every trader order (0.5% by default)
 - twelve-decimal internal price and cash precision, with display rounding left to clients
 - idempotency key support for retry-safe commands
 

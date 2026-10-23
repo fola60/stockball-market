@@ -2,6 +2,7 @@ use rust_decimal::{Decimal, MathematicalOps};
 use sqlx::PgPool;
 use stockball_trading_engine::{
     execution::execute_order,
+    fees::TradingFee,
     orders::{ExecuteOrderCommand, OrderSide},
     price_impact::CurveCalibration,
     provisioning::{recalibrate_price_curves, ProvisioningError, RecalibratePriceCurvesCommand},
@@ -188,6 +189,7 @@ async fn buy(
         pool,
         ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: format!("curve-buy-{}", Uuid::new_v4()),
             account_id,
             portfolio_id,
@@ -195,6 +197,7 @@ async fn buy(
             side: OrderSide::Buy,
             quantity: Decimal::from(quantity),
         },
+        TradingFee::NONE,
     )
     .await
     .unwrap();

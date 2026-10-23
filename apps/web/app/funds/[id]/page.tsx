@@ -8,7 +8,7 @@ import { PriceChart } from "../../instrument/[id]/price-chart";
 import { RadarChart } from "../../instrument/[id]/radar-chart";
 import { TradeTicket } from "../../instrument/[id]/trade-ticket";
 import { getFundPageData, type BasketChange, type IndexFundDetail } from "@/lib/api";
-import { formatChange, formatCompact, formatCurrency, formatMoneyShort, formatPercent, moveTone } from "@/lib/format";
+import { formatChange, formatCompact, formatCurrency, formatMoneyShort, moveBadgeTone, moveTone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +92,7 @@ export default async function FundPage({ params }: PageProps) {
           </div>
           <div className="md:text-right">
             <strong className="block text-3xl font-semibold tabular-nums slashed-zero md:text-[42px]">{formatCurrency(price)}</strong>
-            <span className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-xs font-semibold text-white tabular-nums slashed-zero ${change >= 0 ? "bg-[#07852f]" : "bg-[#d91c32]"}`}>{formatPercent(change)} today</span>
+            <span className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-xs font-semibold text-white tabular-nums slashed-zero ${moveBadgeTone(change)}`}>{formatChange(change)} today</span>
           </div>
         </header>
 

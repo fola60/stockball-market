@@ -167,6 +167,12 @@ def build_match_freeze_service(settings: Settings) -> MatchFreezeService:
         window=MatchFreezeWindow(
             lineup_lock=timedelta(minutes=settings.match_freeze_lineup_lock_minutes),
             settlement=timedelta(minutes=settings.match_freeze_settlement_minutes),
+            max_hold=timedelta(
+                minutes=max(
+                    settings.match_freeze_max_hold_minutes,
+                    settings.match_freeze_settlement_minutes,
+                )
+            ),
         ),
     )
 

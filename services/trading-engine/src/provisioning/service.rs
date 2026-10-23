@@ -90,11 +90,20 @@ pub async fn issue_initial_supply(
         }
 
         for allocation in allocations {
+            // Issued shares cost what the share was listed at, and count as capital given.
+            let listed_value = allocation.quantity * instrument.current_price;
             positions::increase_position(
                 &mut transaction,
                 allocation.portfolio_id,
                 allocation.instrument_id,
                 allocation.quantity,
+                listed_value,
+            )
+            .await?;
+            ledger::add_contributed_capital(
+                &mut transaction,
+                allocation.portfolio_id,
+                listed_value,
             )
             .await?;
         }

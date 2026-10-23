@@ -22,6 +22,8 @@ class PortfoliosService:
             raise PortfolioNotFoundError(portfolio_id)
         return portfolio
 
-    def list_activity(self, portfolio_id: UUID, limit: int) -> list[PortfolioActivityRecord]:
+    def list_activity(
+        self, portfolio_id: UUID, limit: int, offset: int = 0
+    ) -> list[PortfolioActivityRecord]:
         self.get_portfolio(portfolio_id)
-        return self._repository.list_activity(portfolio_id, limit)
+        return self._repository.list_activity(portfolio_id, limit, offset)

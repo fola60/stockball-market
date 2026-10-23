@@ -16,6 +16,12 @@ from app.admin.repository import PostgresAdminRepository
 from app.admin.router import router as admin_router
 from app.admin.runtime_settings import RuntimeSettingsRegistry
 from app.admin.service import RedisJobPublisher
+from app.auth.rate_limits import (
+    AuthRateLimits,
+    InMemoryRateLimiter,
+    RateLimiter,
+    RedisRateLimiter,
+)
 from app.auth.repository import PostgresAuthRepository
 from app.auth.router import router as auth_router
 from app.auth.service import AuthService
@@ -51,6 +57,7 @@ def create_app(
     traders_service: TradersService | None = None,
     market_service: MarketService | None = None,
     index_funds_service: IndexFundsService | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Stockball API", version="0.1.0")
     request_telemetry = RequestTelemetry()
@@ -86,6 +93,8 @@ def create_app(
             timeout_seconds=settings.trading_engine_timeout_seconds,
         )
         orders_service = OrdersService(trading_engine_client=trading_engine_client)
+        if rate_limiter is None:
+            rate_limiter = RedisRateLimiter(settings.redis_url)
         auth_service = AuthService(
             PostgresAuthRepository(settings.database_url),
             trading_engine=trading_engine_client,
@@ -131,6 +140,8 @@ def create_app(
     app.state.portfolios_service = portfolios_service
     app.state.orders_service = orders_service
     app.state.auth_service = auth_service
+    app.state.rate_limiter = rate_limiter or InMemoryRateLimiter()
+    app.state.auth_rate_limits = AuthRateLimits.from_env()
     app.state.admin_service = admin_service
     app.state.traders_service = traders_service
     app.state.market_service = market_service

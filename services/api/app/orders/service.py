@@ -8,6 +8,7 @@ from app.orders.models import (
     ExecuteOrderCommand,
     OrderExecutionRecord,
     OrderQuoteRecord,
+    QuoteOrderCommand,
     SubmitOrderCommand,
 )
 
@@ -29,19 +30,12 @@ class OrdersService:
             instrument_id=command.instrument_id,
             side=command.side,
             quantity=command.quantity,
+            cash_limit=command.cash_limit,
         )
         return self._trading_engine_client.execute_order(execute_command)
 
-    def quote_order(self, command: SubmitOrderCommand) -> OrderQuoteRecord:
-        execute_command = ExecuteOrderCommand(
-            request_id=command.request_id or self._request_id_factory(),
-            account_id=command.account_id,
-            portfolio_id=command.portfolio_id,
-            instrument_id=command.instrument_id,
-            side=command.side,
-            quantity=command.quantity,
-        )
-        return self._trading_engine_client.quote_order(execute_command)
+    def quote_order(self, command: QuoteOrderCommand) -> OrderQuoteRecord:
+        return self._trading_engine_client.quote_order(command)
 
 
 def _default_request_id() -> str:

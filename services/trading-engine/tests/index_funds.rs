@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use stockball_trading_engine::{
     execution::{execute_order, quote_order, ExecutionError},
+    fees::TradingFee,
     freezes::{
         apply_freeze, release_freeze, ApplyFreezeCommand, FreezeReason, ReleaseFreezeCommand,
     },
@@ -9,7 +10,7 @@ use stockball_trading_engine::{
         create_index_fund, CreateIndexFundCommand, IndexConstituent, IndexFundError, IndexKind,
         CUSTODY_ACCOUNT_ID, CUSTODY_PORTFOLIO_ID,
     },
-    orders::{ExecuteOrderCommand, ExecutionLimits, OrderSide},
+    orders::{ExecuteOrderCommand, ExecutionLimits, OrderSide, QuoteOrderCommand},
 };
 use uuid::Uuid;
 
@@ -75,6 +76,7 @@ async fn index_funds_trade_their_basket_inner() {
     let custody_before = custody_quantities(&pool, &players).await;
     let buy = ExecuteOrderCommand {
         execution_limits: None,
+        cash_limit: None,
         request_id: format!("fund-buy-{suffix}"),
         account_id: trader.account_id,
         portfolio_id: trader.portfolio_id,
@@ -82,9 +84,28 @@ async fn index_funds_trade_their_basket_inner() {
         side: OrderSide::Buy,
         quantity: decimal("2"),
     };
-    let quote = quote_order(&pool, buy.clone()).await.unwrap();
+    let quote = quote_order(&pool, buy.clone(), TradingFee::NONE)
+        .await
+        .unwrap();
     assert_eq!(quote.old_price, decimal("50"));
     assert!(quote.new_price > quote.old_price);
+
+    // Sized by cash, a fund quote spends as much of the amount as whole millionths of a unit
+    // allow, fee included, and no more.
+    let by_cash = quote_order(
+        &pool,
+        QuoteOrderCommand {
+            quantity: None,
+            cash_amount: Some(quote.gross_amount),
+            ..QuoteOrderCommand::from(buy.clone())
+        },
+        TradingFee::DEFAULT,
+    )
+    .await
+    .unwrap();
+    assert!(by_cash.cash_amount.unwrap() <= quote.gross_amount);
+    assert!(by_cash.quantity < decimal("2"));
+    assert!(by_cash.quantity > decimal("1.98"));
 
     // Execution limits bind the quoted unit price, like they bind a player's price.
     let limited = ExecuteOrderCommand {
@@ -93,16 +114,24 @@ async fn index_funds_trade_their_basket_inner() {
             expected_cash_balance: decimal("10000"),
             max_gross_amount: quote.gross_amount,
         }),
+        cash_limit: None,
         ..buy.clone()
     };
-    let bought = execute_order(&pool, limited.clone()).await.unwrap();
+    let bought = execute_order(&pool, limited.clone(), TradingFee::NONE)
+        .await
+        .unwrap();
     assert_eq!(bought.gross_amount, quote.gross_amount);
     assert_eq!(bought.position_quantity_after, decimal("2"));
     assert_eq!(
         bought.cash_balance_after,
         decimal("10000") - quote.gross_amount
     );
-    assert_eq!(execute_order(&pool, limited).await.unwrap(), bought);
+    assert_eq!(
+        execute_order(&pool, limited, TradingFee::NONE)
+            .await
+            .unwrap(),
+        bought
+    );
 
     // The custody account bought two shares of each player through their own curves.
     let custody_after = custody_quantities(&pool, &players).await;
@@ -130,6 +159,7 @@ async fn index_funds_trade_their_basket_inner() {
         &pool,
         ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: format!("player-buy-{suffix}"),
             account_id: trader.account_id,
             portfolio_id: trader.portfolio_id,
@@ -137,6 +167,7 @@ async fn index_funds_trade_their_basket_inner() {
             side: OrderSide::Buy,
             quantity: decimal("5"),
         },
+        TradingFee::NONE,
     )
     .await
     .unwrap();
@@ -166,6 +197,7 @@ async fn index_funds_trade_their_basket_inner() {
     .unwrap();
     let sell = ExecuteOrderCommand {
         execution_limits: None,
+        cash_limit: None,
         request_id: format!("fund-sell-{suffix}"),
         account_id: trader.account_id,
         portfolio_id: trader.portfolio_id,
@@ -174,7 +206,7 @@ async fn index_funds_trade_their_basket_inner() {
         quantity: decimal("1.5"),
     };
     assert!(matches!(
-        execute_order(&pool, sell.clone()).await,
+        execute_order(&pool, sell.clone(), TradingFee::NONE).await,
         Err(ExecutionError::Freeze(_))
     ));
     release_freeze(&pool, ReleaseFreezeCommand { source_key })
@@ -182,7 +214,7 @@ async fn index_funds_trade_their_basket_inner() {
         .unwrap();
 
     // Selling units sells the custody shares back and credits the trader.
-    let sold = execute_order(&pool, sell).await.unwrap();
+    let sold = execute_order(&pool, sell, TradingFee::NONE).await.unwrap();
     assert_eq!(sold.position_quantity_after, decimal("0.5"));
     assert_eq!(
         sold.cash_balance_after,
@@ -202,6 +234,7 @@ async fn index_funds_trade_their_basket_inner() {
         &pool,
         ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: format!("fund-oversell-{suffix}"),
             account_id: trader.account_id,
             portfolio_id: trader.portfolio_id,
@@ -209,6 +242,7 @@ async fn index_funds_trade_their_basket_inner() {
             side: OrderSide::Sell,
             quantity: decimal("1"),
         },
+        TradingFee::NONE,
     )
     .await;
     assert!(matches!(oversell, Err(ExecutionError::Position(_))));

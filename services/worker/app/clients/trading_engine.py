@@ -79,6 +79,8 @@ class OrderExecutionRecord:
     old_price: str
     new_price: str
     executed_at: datetime
+    fee_amount: str = "0"
+    cash_amount: str = ""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "OrderExecutionRecord":
@@ -98,6 +100,8 @@ class OrderExecutionRecord:
             old_price=str(payload["old_price"]),
             new_price=str(payload["new_price"]),
             executed_at=datetime.fromisoformat(str(payload["executed_at"])),
+            fee_amount=str(payload.get("fee_amount") or "0"),
+            cash_amount=str(payload.get("cash_amount") or payload["gross_amount"]),
         )
 
 
@@ -440,10 +444,24 @@ class OrderQuoteRecord:
     position_quantity_after: str
     old_price: str
     new_price: str
+    # The trading fee, and the cash the order moves: a buy's total cost or a sale's proceeds
+    # after the fee. An engine that predates fees reports neither.
+    fee_amount: str = "0"
+    cash_amount: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.cash_amount:
+            object.__setattr__(self, "cash_amount", self.gross_amount)
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "OrderQuoteRecord":
-        return cls(**{name: str(payload[name]) for name in cls.__dataclass_fields__})
+        return cls(
+            **{
+                name: str(payload[name])
+                for name in cls.__dataclass_fields__
+                if payload.get(name) is not None
+            }
+        )
 
 
 class TradingEngineClient(Protocol):

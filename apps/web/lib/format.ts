@@ -31,10 +31,17 @@ export function moveTone(value: number | string, decimals = 2): string {
   return sign > 0 ? "text-[#35d07f]" : sign < 0 ? "text-[#f16d73]" : "text-[#9ba5b2]";
 }
 
-/** "▲ +17.7%" or "▼ −0.01%": direction is never carried by colour alone. */
+/** "▲ +17.7%", "▼ −0.01%" or "0.00%": direction is never carried by colour alone. */
 export function formatMove(value: number | string, decimals = 2): string {
-  const formatted = formatChange(value, decimals);
-  return `${formatted.startsWith("+") ? "▲" : "▼"} ${formatted}`;
+  const sign = direction(value, decimals);
+  if (sign === 0) return `${(0).toFixed(decimals)}%`;
+  return `${sign > 0 ? "▲" : "▼"} ${formatChange(value, decimals)}`;
+}
+
+/** Background for a change badge: green up, red down, slate when unchanged. */
+export function moveBadgeTone(value: number | string, decimals = 2): string {
+  const sign = direction(value, decimals);
+  return sign > 0 ? "bg-[#07852f]" : sign < 0 ? "bg-[#d91c32]" : "bg-[#2a3441]";
 }
 
 /** Short virtual-money amounts for dense lists: £845, £766.3k, £249.9m, £1.24bn. */

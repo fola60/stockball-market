@@ -19,7 +19,7 @@ use stockball_trading_engine::{
     },
     instruments::{InstrumentError, InstrumentStatus, SeedPlayerSharesResult},
     ledger::{CashLedgerEntry, LedgerReason},
-    orders::{ExecuteOrderCommand, OrderError, OrderSide},
+    orders::{ExecuteOrderCommand, OrderError, OrderSide, QuoteOrderCommand},
     provisioning::{
         ApplyOpeningBalanceCommand, IssueInitialSupplyCommand, IssueInitialSupplyResult,
         PreMarketPriceResult, ProvisioningError, RecalibratePriceCurvesCommand,
@@ -246,10 +246,7 @@ impl StubExecutor {
 
 #[async_trait]
 impl OrderExecutor for StubExecutor {
-    async fn quote_order(
-        &self,
-        _command: ExecuteOrderCommand,
-    ) -> Result<OrderQuote, ExecutionError> {
+    async fn quote_order(&self, _command: QuoteOrderCommand) -> Result<OrderQuote, ExecutionError> {
         panic!("quote endpoint is not used by this stub")
     }
 
@@ -460,6 +457,8 @@ fn sample_response() -> ExecuteOrderResult {
         quantity: Decimal::new(10, 0),
         execution_price: "100.000458146765".parse().unwrap(),
         gross_amount: "1000.004581467652".parse().unwrap(),
+        fee_amount: Decimal::ZERO,
+        cash_amount: Some("1000.004581467652".parse().unwrap()),
         cash_balance_after: "98999.995418532348".parse().unwrap(),
         position_quantity_after: Decimal::new(10, 0),
         old_price: "100.000000000000".parse().unwrap(),

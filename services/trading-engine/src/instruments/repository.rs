@@ -219,10 +219,42 @@ pub(crate) async fn lock_instruments_by_ids(
     connection: &mut PgConnection,
     instrument_ids: &[Uuid],
 ) -> Result<Vec<Instrument>, InstrumentError> {
+    select_instruments_by_ids(connection, instrument_ids, RowLock::ForUpdate).await
+}
+
+/// Reads player-share instruments without locking them, for quotes.
+pub(crate) async fn get_instruments_by_ids(
+    connection: &mut PgConnection,
+    instrument_ids: &[Uuid],
+) -> Result<Vec<Instrument>, InstrumentError> {
+    select_instruments_by_ids(connection, instrument_ids, RowLock::None).await
+}
+
+/// Whether a read takes row locks. Orders lock what they change; quotes only read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowLock {
+    None,
+    ForUpdate,
+}
+
+impl RowLock {
+    const fn clause(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::ForUpdate => "FOR UPDATE",
+        }
+    }
+}
+
+async fn select_instruments_by_ids(
+    connection: &mut PgConnection,
+    instrument_ids: &[Uuid],
+    lock: RowLock,
+) -> Result<Vec<Instrument>, InstrumentError> {
     let mut sorted = instrument_ids.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
-    let rows = sqlx::query_as::<_, InstrumentRow>(
+    let query = format!(
         r#"
         SELECT
             id,
@@ -242,12 +274,14 @@ pub(crate) async fn lock_instruments_by_ids(
         FROM instruments
         WHERE id = ANY($1)
         ORDER BY id
-        FOR UPDATE
+        {}
         "#,
-    )
-    .bind(&sorted)
-    .fetch_all(&mut *connection)
-    .await?;
+        lock.clause()
+    );
+    let rows = sqlx::query_as::<_, InstrumentRow>(&query)
+        .bind(&sorted)
+        .fetch_all(&mut *connection)
+        .await?;
     if let Some(missing) = sorted
         .iter()
         .find(|id| !rows.iter().any(|row| row.id == **id))
@@ -264,21 +298,31 @@ pub(crate) async fn lock_index_fund_instruments(
     connection: &mut PgConnection,
     instrument_ids: &[Uuid],
 ) -> Result<Vec<IndexFundInstrument>, InstrumentError> {
+    select_index_fund_instruments(connection, instrument_ids, RowLock::ForUpdate).await
+}
+
+pub(crate) async fn select_index_fund_instruments(
+    connection: &mut PgConnection,
+    instrument_ids: &[Uuid],
+    lock: RowLock,
+) -> Result<Vec<IndexFundInstrument>, InstrumentError> {
     let mut sorted = instrument_ids.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
-    let rows = sqlx::query_as::<_, IndexFundInstrumentRow>(
+    let query = format!(
         r#"
         SELECT id, instrument_type, symbol, display_name, current_price, trading_status
         FROM instruments
         WHERE id = ANY($1)
         ORDER BY id
-        FOR UPDATE
+        {}
         "#,
-    )
-    .bind(&sorted)
-    .fetch_all(&mut *connection)
-    .await?;
+        lock.clause()
+    );
+    let rows = sqlx::query_as::<_, IndexFundInstrumentRow>(&query)
+        .bind(&sorted)
+        .fetch_all(&mut *connection)
+        .await?;
     if let Some(missing) = sorted
         .iter()
         .find(|id| !rows.iter().any(|row| row.id == **id))

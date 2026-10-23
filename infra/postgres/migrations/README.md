@@ -38,6 +38,9 @@ Stores database migration files.
 - Store password credentials, revocable opaque sessions, and auditable opening balances for
   registered users.
 - Store allowlisted runtime settings and an append-only audit trail for admin changes.
+- Record each trade's fee and the TRADE_FEE ledger reason, rebuild every position's
+  weighted-average cost basis and realised profit from its history, and track the capital each
+  portfolio was given so the leaderboard can rank by return.
 - Register the `EVENT_REACTION` engine, seed ratings-led, form-chasing and post-match
   reaction trader profiles, and rebalance the stats profiles' match-rating weight.
 - Record why each instrument is frozen, so match-day freezes and admin halts can open and

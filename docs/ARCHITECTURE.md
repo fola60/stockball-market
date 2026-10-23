@@ -351,10 +351,14 @@ Derivatives are explicitly not part of V1. V1 should not expose options, futures
 The price rule is a deterministic curve:
 
 - buys increase net shares purchased and sells decrease it
-- the curve position is net shares purchased divided by shares outstanding
+- the curve position is net shares purchased divided by the instrument's curve depth
 - the quoted price is the reference price multiplied by the full-supply multiplier raised to that
   curve position
-- the full-supply price multiplier is configurable per instrument and defaults to `2.5`
+- the multiplier and depth are stored per instrument; new players start at a multiplier of 20 over
+  a depth of 1/15 of the supply (see `PROJECT_PLAN.md` for what that means per trade)
+- every trader order pays a trading fee on its gross amount, 0.5% by default
+- quotes read one snapshot without row locks; the order placed from a quote is priced again under
+  locks, and its optional cash limit refuses the fill if the market moved too far
 - execution cost is calculated across the complete curve interval rather than from a rounded
   midpoint
 - market prices and money retain twelve decimal places internally; clients may display four

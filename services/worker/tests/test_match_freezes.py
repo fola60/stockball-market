@@ -86,11 +86,30 @@ SQUADS = {"ars": {UUID(int=10), UUID(int=11)}, "che": {UUID(int=20)}, "mci": {UU
 
 class MatchFreezeWindowTests(unittest.TestCase):
     def test_window_runs_from_lineup_lock_until_settlement(self) -> None:
-        fixture = _fixture()
+        fixture = _fixture("FT")
         self.assertFalse(fixture.is_frozen_at(KICKOFF - timedelta(minutes=61), WINDOW))
         self.assertTrue(fixture.is_frozen_at(KICKOFF - timedelta(minutes=60), WINDOW))
         self.assertTrue(fixture.is_frozen_at(KICKOFF + timedelta(minutes=149), WINDOW))
         self.assertFalse(fixture.is_frozen_at(KICKOFF + timedelta(minutes=150), WINDOW))
+
+    def test_a_match_still_in_play_stays_frozen_past_settlement(self) -> None:
+        for status in ("2H", "ET", "P", "SUSP", "INT", "NS", None):
+            self.assertTrue(
+                _fixture(status).is_frozen_at(KICKOFF + timedelta(minutes=200), WINDOW), status
+            )
+        for status in ("FT", "AET", "pen"):
+            self.assertFalse(
+                _fixture(status).is_frozen_at(KICKOFF + timedelta(minutes=200), WINDOW), status
+            )
+
+    def test_the_freeze_ends_at_the_backstop_without_a_final_status(self) -> None:
+        fixture = _fixture("2H")
+        self.assertTrue(fixture.is_frozen_at(KICKOFF + timedelta(minutes=359), WINDOW))
+        self.assertFalse(fixture.is_frozen_at(KICKOFF + timedelta(minutes=360), WINDOW))
+
+    def test_max_hold_cannot_be_shorter_than_settlement(self) -> None:
+        with self.assertRaises(ValueError):
+            MatchFreezeWindow(settlement=timedelta(minutes=150), max_hold=timedelta(minutes=100))
 
     def test_called_off_fixtures_are_never_frozen(self) -> None:
         for status in ("PST", "CANC", "abd"):
@@ -129,7 +148,8 @@ class MatchFreezeServiceTests(unittest.TestCase):
     def test_releases_after_settlement_and_for_called_off_matches(self) -> None:
         source_key = f"fixture:{UUID(int=1)}"
         for fixtures, now in (
-            ([_fixture()], KICKOFF + timedelta(minutes=150)),
+            ([_fixture("FT")], KICKOFF + timedelta(minutes=150)),
+            ([_fixture("2H")], KICKOFF + timedelta(minutes=360)),
             ([_fixture("PST")], KICKOFF),
             ([], KICKOFF + timedelta(days=1)),
         ):

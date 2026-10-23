@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use stockball_trading_engine::{
     execution::{execute_order, quote_order},
+    fees::TradingFee,
     orders::{ExecuteOrderCommand, OrderSide},
 };
 use uuid::Uuid;
@@ -38,6 +39,7 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
     let buy_request_id = format!("buy-{}", Uuid::new_v4());
     let buy_command = ExecuteOrderCommand {
         execution_limits: None,
+        cash_limit: None,
         request_id: buy_request_id.clone(),
         account_id: fixture.account_id,
         portfolio_id: fixture.portfolio_id,
@@ -46,7 +48,9 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
         quantity: Decimal::new(10, 0),
     };
 
-    let quote = quote_order(&pool, buy_command.clone()).await.unwrap();
+    let quote = quote_order(&pool, buy_command.clone(), TradingFee::NONE)
+        .await
+        .unwrap();
     assert_eq!(quote.execution_price, decimal("100.000458146765"));
     assert_eq!(quote.gross_amount, decimal("1000.004581467652"));
     assert_eq!(quote.position_quantity_after, Decimal::new(10, 0));
@@ -59,7 +63,9 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
             .unwrap();
     assert_eq!(pre_execution_order_count, 0);
 
-    let buy = execute_order(&pool, buy_command.clone()).await.unwrap();
+    let buy = execute_order(&pool, buy_command.clone(), TradingFee::NONE)
+        .await
+        .unwrap();
 
     assert_eq!(buy.execution_price, decimal("100.000458146765"));
     assert_eq!(buy.gross_amount, decimal("1000.004581467652"));
@@ -68,7 +74,9 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
     assert_eq!(buy.old_price, decimal("100.000000000000"));
     assert_eq!(buy.new_price, decimal("100.000916294930"));
 
-    let duplicate_buy = execute_order(&pool, buy_command).await.unwrap();
+    let duplicate_buy = execute_order(&pool, buy_command, TradingFee::NONE)
+        .await
+        .unwrap();
     assert_eq!(duplicate_buy, buy);
 
     let order_count = sqlx::query_scalar::<_, i64>(
@@ -88,6 +96,7 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
         &pool,
         ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: format!("sell-{}", Uuid::new_v4()),
             account_id: fixture.account_id,
             portfolio_id: fixture.portfolio_id,
@@ -95,6 +104,7 @@ async fn executes_buy_sell_and_idempotent_duplicate_inner() {
             side: OrderSide::Sell,
             quantity: Decimal::new(4, 0),
         },
+        TradingFee::NONE,
     )
     .await
     .unwrap();

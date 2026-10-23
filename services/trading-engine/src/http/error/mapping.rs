@@ -269,6 +269,34 @@ fn order_error(error: OrderError) -> ApiError {
             "Quote no longer satisfies execution limits.",
             None,
         ),
+        OrderError::CashLimitExceeded {
+            side,
+            limit,
+            cash_amount,
+        } => ApiError::new(
+            StatusCode::CONFLICT,
+            "price_moved",
+            "The price moved past the order's limit since it was quoted.",
+            Some(json!({ "side": side, "cash_limit": limit, "cash_amount": cash_amount })),
+        ),
+        OrderError::NonPositiveCashAmount(amount) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "non_positive_cash_amount",
+            "cash amounts must be greater than zero.",
+            Some(json!({ "cash_amount": amount })),
+        ),
+        OrderError::CashAmountTooSmall(amount) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "cash_amount_too_small",
+            "the amount is too small to trade any shares.",
+            Some(json!({ "cash_amount": amount })),
+        ),
+        OrderError::AmbiguousQuoteSize => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_quote_size",
+            "a quote needs exactly one of quantity and cash_amount.",
+            None,
+        ),
         OrderError::NotFound(order_id) => ApiError::new(
             StatusCode::NOT_FOUND,
             "order_not_found",
@@ -702,6 +730,11 @@ fn position_error(error: PositionError) -> ApiError {
                 "position_id": position_id,
                 "quantity": quantity
             })),
+        ),
+        PositionError::NegativeCost(cost) => internal_error(
+            "negative_position_cost",
+            "position cost is invalid.",
+            Some(json!({ "cost": cost })),
         ),
         PositionError::Database(error) => internal_error(
             "database_error",

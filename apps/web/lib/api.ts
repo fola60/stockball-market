@@ -118,6 +118,12 @@ export type TraderStanding = {
   /** Price movement of current holdings over the last 24 hours. */
   day_change: string;
   day_change_percent: string;
+  /** Capital the trader was given: opening balance, top-ups and any shares issued to them. */
+  contributed_capital: string;
+  /** Net worth less the capital given. */
+  total_return: string;
+  /** The return as a percentage of capital given; ranks follow it. Null if given nothing. */
+  return_percent: string | null;
 };
 
 export type LeaderboardPage = {
@@ -147,6 +153,7 @@ export type TraderTrade = {
   shares: string;
   execution_price: string;
   gross_amount: string;
+  fee_amount: string;
   executed_at: string;
 };
 
@@ -185,6 +192,10 @@ export type Position = {
   portfolio_id: string;
   instrument_id: string;
   quantity: string;
+  /** What the shares held cost, fees included, on a weighted-average basis. */
+  cost_basis: string;
+  /** Profit or loss locked in by sales of this holding. */
+  realized_pnl: string;
   updated_at: string;
 };
 
@@ -192,6 +203,10 @@ export type Portfolio = {
   id: string;
   account_id: string;
   cash_balance: string;
+  /** Capital the portfolio was given: opening balance and any top-ups. */
+  contributed_capital: string;
+  /** Profit or loss locked in by every sale, including holdings since closed. */
+  realized_pnl: string;
   updated_at: string;
   positions: Position[];
 };
@@ -205,6 +220,7 @@ export type PortfolioActivity = {
   shares: string;
   execution_price: string;
   gross_amount: string;
+  fee_amount: string;
   executed_at: string;
 };
 
@@ -217,7 +233,11 @@ export type OrderQuote = {
   side: OrderSide;
   quantity: string;
   execution_price: string;
+  /** The shares' cost or proceeds before the trading fee. */
   gross_amount: string;
+  fee_amount: string;
+  /** The cash the order moves: a buy's total cost or a sale's proceeds, fee included. */
+  cash_amount: string;
   cash_balance_after: string;
   position_quantity_after: string;
   old_price: string;
@@ -300,6 +320,35 @@ export type NewsItem = {
   topic: string | null;
   player_name: string;
   instrument_id: string;
+};
+
+/** What to know before trading a player. */
+export type PlayerBriefing = {
+  /** The club's next match: trading pauses at lock_at and reopens once it is settled. */
+  next_fixture: {
+    kickoff_at: string;
+    lock_at: string;
+    home_team: string;
+    away_team: string;
+    is_home: boolean;
+    locked: boolean;
+  } | null;
+  /** An open injury report from the news feeds the market reads. */
+  availability: {
+    stage: "SUSPECTED_INJURY" | "CONFIRMED_INJURY" | "SUSPECTED_RECOVERY";
+    injury_type: string | null;
+    body_area: string | null;
+    expected_absence_until: string | null;
+    last_evidence_at: string;
+  } | null;
+  news: Array<{
+    document_id: string;
+    title: string;
+    url: string;
+    source: string;
+    published_at: string;
+    topic: string | null;
+  }>;
 };
 
 export type TickerStock = {
@@ -404,8 +453,33 @@ export async function getPortfolio(portfolioId: string): Promise<Portfolio> {
   return apiRequest<Portfolio>(`/v1/portfolios/${portfolioId}`);
 }
 
-async function getPortfolioActivity(portfolioId: string): Promise<PortfolioActivity[]> {
-  return apiRequest<PortfolioActivity[]>(`/v1/portfolios/${portfolioId}/activity?limit=20`);
+async function getPortfolioActivity(
+  portfolioId: string,
+  limit = 20,
+  offset = 0,
+): Promise<PortfolioActivity[]> {
+  return apiRequest<PortfolioActivity[]>(
+    `/v1/portfolios/${portfolioId}/activity?limit=${limit}&offset=${offset}`,
+  );
+}
+
+export const HISTORY_PAGE_SIZE = 50;
+
+/** One page of the signed-in trader's trades, newest first. */
+export async function getHistoryPageData(page: number) {
+  const shell = await getShellData();
+  if (!shell.account) return { ...shell, trades: [], hasMore: false };
+  // One extra row says whether there is another page.
+  const trades = await getPortfolioActivity(
+    shell.account.portfolio.id,
+    HISTORY_PAGE_SIZE + 1,
+    (page - 1) * HISTORY_PAGE_SIZE,
+  );
+  return {
+    ...shell,
+    trades: trades.slice(0, HISTORY_PAGE_SIZE),
+    hasMore: trades.length > HISTORY_PAGE_SIZE,
+  };
 }
 
 export async function getPriceHistory(
@@ -415,6 +489,15 @@ export async function getPriceHistory(
   return apiRequest<PriceSnapshot[]>(
     `/v1/instruments/${instrumentId}/price-history?range=${range}`,
   );
+}
+
+async function getPlayerBriefing(instrumentId: string): Promise<PlayerBriefing | null> {
+  try {
+    return await apiRequest<PlayerBriefing>(`/v1/market/players/${instrumentId}/briefing`);
+  } catch {
+    // The page still works without the briefing.
+    return null;
+  }
 }
 
 async function getPlayerStats(instrumentId: string): Promise<PlayerStats | null> {
@@ -494,10 +577,11 @@ export async function getInstrumentPageData(instrumentId: string) {
   ]);
   if (!instrument) return null;
 
-  const [history, stats, portfolio] = await Promise.all([
+  const [history, stats, portfolio, briefing] = await Promise.all([
     getPriceHistory(instrumentId, "1W"),
     getPlayerStats(instrumentId),
     account ? getPortfolio(account.portfolio.id) : Promise.resolve(null),
+    getPlayerBriefing(instrumentId),
   ]);
 
   return {
@@ -506,6 +590,7 @@ export async function getInstrumentPageData(instrumentId: string) {
     history,
     stats,
     portfolio,
+    briefing,
     tickerStocks: toTickerStocks(instruments),
     searchInstruments: instruments.filter((candidate) => candidate.status !== "DELISTED"),
   };

@@ -26,6 +26,9 @@ class TraderStandingResponse(BaseModel):
     joined_at: datetime
     day_change: str
     day_change_percent: str
+    contributed_capital: str
+    total_return: str
+    return_percent: str | None
 
 
 class LeaderboardResponse(BaseModel):
@@ -68,6 +71,7 @@ class TraderTradeResponse(BaseModel):
     shares: str
     execution_price: str
     gross_amount: str
+    fee_amount: str
     executed_at: datetime
 
 

@@ -15,6 +15,8 @@ class PositionResponse(BaseModel):
     portfolio_id: UUID
     instrument_id: UUID
     quantity: str
+    cost_basis: str
+    realized_pnl: str
     created_at: datetime
     updated_at: datetime
 
@@ -29,6 +31,8 @@ class PortfolioResponse(BaseModel):
     id: UUID
     account_id: UUID
     cash_balance: str
+    contributed_capital: str
+    realized_pnl: str
     created_at: datetime
     updated_at: datetime
     positions: list[PositionResponse]
@@ -39,6 +43,8 @@ class PortfolioResponse(BaseModel):
             id=portfolio.id,
             account_id=portfolio.account_id,
             cash_balance=portfolio.cash_balance,
+            contributed_capital=portfolio.contributed_capital,
+            realized_pnl=portfolio.realized_pnl,
             created_at=portfolio.created_at,
             updated_at=portfolio.updated_at,
             positions=[PositionResponse.from_record(position) for position in portfolio.positions],
@@ -56,6 +62,7 @@ class PortfolioActivityResponse(BaseModel):
     shares: str
     execution_price: str
     gross_amount: str
+    fee_amount: str
     executed_at: datetime
 
     @classmethod
