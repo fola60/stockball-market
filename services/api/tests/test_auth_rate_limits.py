@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.accounts.models import AccountRecord, AccountStatus, AccountType, PortfolioRecord
 from app.accounts.service import AccountsService
+from app.auth.models import SessionRecord, StoredCredential
 from app.auth.rate_limits import (
     AuthRateLimits,
     InMemoryRateLimiter,
@@ -16,7 +20,62 @@ from app.auth.rate_limits import (
 )
 from app.auth.service import AuthService
 from app.main import create_app
-from tests.test_auth import FakeAuthRepository, FakeOpeningBalanceClient
+
+
+class FakeAuthRepository:
+    """Just enough of the auth repository to register, sign in and hold sessions."""
+
+    def __init__(self) -> None:
+        self.accounts = {}
+        self.credentials = {}
+        self.sessions = {}
+
+    def register_user(self, *, handle, display_name, email, password_hash):
+        account_id = uuid4()
+        now = datetime.now(UTC)
+        account = AccountRecord(
+            id=account_id,
+            handle=handle,
+            email=email,
+            display_name=display_name,
+            account_type=AccountType.USER,
+            status=AccountStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+            portfolio=PortfolioRecord(
+                id=uuid4(),
+                account_id=account_id,
+                cash_balance="0.0000",
+                created_at=now,
+                updated_at=now,
+            ),
+        )
+        self.accounts[account_id] = account
+        self.credentials[email] = StoredCredential(account=account, password_hash=password_hash)
+        return account
+
+    def delete_unfunded_registration(self, account_id):
+        return False
+
+    def get_credential_by_email(self, email):
+        return self.credentials.get(email)
+
+    def create_session(self, account_id, token_hash, expires_at):
+        record = SessionRecord(id=uuid4(), account=self.accounts[account_id], expires_at=expires_at)
+        self.sessions[token_hash] = record
+        return record
+
+    def get_session(self, token_hash, now):
+        record = self.sessions.get(token_hash)
+        return record if record is not None and record.expires_at > now else None
+
+    def revoke_session(self, token_hash):
+        self.sessions.pop(token_hash, None)
+
+
+class FakeOpeningBalanceClient:
+    def apply_opening_balance(self, *, account_id, portfolio_id, amount):
+        return None
 
 
 class Clock:
@@ -31,7 +90,7 @@ def _app(limiter: InMemoryRateLimiter):
     repository = FakeAuthRepository()
     service = AuthService(
         repository,
-        trading_engine=FakeOpeningBalanceClient(repository),
+        trading_engine=FakeOpeningBalanceClient(),
         opening_balance=Decimal("100000.0000"),
     )
     # Any service given stops create_app building the rest from the environment.
