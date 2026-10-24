@@ -18,6 +18,92 @@ pub struct ExecuteOrderCommand {
     pub side: OrderSide,
     #[serde(with = "rust_decimal::serde::str")]
     pub quantity: Decimal,
+    /// Price protection for people trading from a quote: the most cash a buy may take, fee
+    /// included, or the least a sale must pay out after its fee. The order is refused if the
+    /// market moved further than this between the quote and the order.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "rust_decimal::serde::str_option"
+    )]
+    pub cash_limit: Option<Decimal>,
+}
+
+/// A request for a quote, sized either by shares or by cash.
+///
+/// `cash_amount` asks how many shares that much cash buys, fee included, or how many must be
+/// sold to receive it after the fee. Exactly one of `quantity` and `cash_amount` is given.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuoteOrderCommand {
+    #[serde(default)]
+    pub request_id: String,
+    pub account_id: Uuid,
+    pub portfolio_id: Uuid,
+    pub instrument_id: Uuid,
+    pub side: OrderSide,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "rust_decimal::serde::str_option"
+    )]
+    pub quantity: Option<Decimal>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "rust_decimal::serde::str_option"
+    )]
+    pub cash_amount: Option<Decimal>,
+}
+
+/// How a quote is sized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuoteSize {
+    Quantity(Decimal),
+    CashAmount(Decimal),
+}
+
+impl QuoteOrderCommand {
+    pub fn size(&self) -> Result<QuoteSize, OrderError> {
+        match (self.quantity, self.cash_amount) {
+            (Some(quantity), None) => {
+                validate_quantity(quantity)?;
+                Ok(QuoteSize::Quantity(quantity))
+            }
+            (None, Some(cash_amount)) if cash_amount > Decimal::ZERO => {
+                Ok(QuoteSize::CashAmount(cash_amount))
+            }
+            (None, Some(cash_amount)) => Err(OrderError::NonPositiveCashAmount(cash_amount)),
+            _ => Err(OrderError::AmbiguousQuoteSize),
+        }
+    }
+
+    /// The order this quote would place for `quantity` shares.
+    pub fn order_for(&self, quantity: Decimal) -> ExecuteOrderCommand {
+        ExecuteOrderCommand {
+            execution_limits: None,
+            request_id: self.request_id.clone(),
+            account_id: self.account_id,
+            portfolio_id: self.portfolio_id,
+            instrument_id: self.instrument_id,
+            side: self.side,
+            quantity,
+            cash_limit: None,
+        }
+    }
+}
+
+impl From<ExecuteOrderCommand> for QuoteOrderCommand {
+    fn from(command: ExecuteOrderCommand) -> Self {
+        Self {
+            request_id: command.request_id,
+            account_id: command.account_id,
+            portfolio_id: command.portfolio_id,
+            instrument_id: command.instrument_id,
+            side: command.side,
+            quantity: Some(command.quantity),
+            cash_amount: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,15 +134,35 @@ impl ExecuteOrderCommand {
             return Err(OrderError::EmptyRequestId);
         }
 
-        if self.quantity <= Decimal::ZERO {
-            return Err(OrderError::NonPositiveQuantity(self.quantity));
-        }
+        validate_quantity(self.quantity)?;
 
-        if self.quantity.scale() > 6 {
-            return Err(OrderError::QuantityScaleTooPrecise(self.quantity));
+        if let Some(limit) = self.cash_limit {
+            if limit <= Decimal::ZERO {
+                return Err(OrderError::NonPositiveCashAmount(limit));
+            }
         }
 
         Ok(())
+    }
+
+    /// Refuses a fill whose cash, fee included, is past the order's price protection.
+    pub fn check_cash_limit(&self, cash_amount: Decimal) -> Result<(), OrderError> {
+        let Some(limit) = self.cash_limit else {
+            return Ok(());
+        };
+        let within = match self.side {
+            OrderSide::Buy => cash_amount <= limit,
+            OrderSide::Sell => cash_amount >= limit,
+        };
+        if within {
+            Ok(())
+        } else {
+            Err(OrderError::CashLimitExceeded {
+                side: self.side,
+                limit,
+                cash_amount,
+            })
+        }
     }
 
     pub fn request_fingerprint(&self) -> String {
@@ -68,7 +174,7 @@ impl ExecuteOrderCommand {
             self.side,
             self.quantity.round_dp(6).normalize()
         );
-        match &self.execution_limits {
+        let base = match &self.execution_limits {
             None => base,
             Some(limits) => format!(
                 "{base};expected_price={};expected_cash={};max_gross={}",
@@ -76,8 +182,24 @@ impl ExecuteOrderCommand {
                 limits.expected_cash_balance.normalize(),
                 limits.max_gross_amount.normalize()
             ),
+        };
+        match self.cash_limit {
+            None => base,
+            Some(limit) => format!("{base};cash_limit={}", limit.normalize()),
         }
     }
+}
+
+fn validate_quantity(quantity: Decimal) -> Result<(), OrderError> {
+    if quantity <= Decimal::ZERO {
+        return Err(OrderError::NonPositiveQuantity(quantity));
+    }
+
+    if quantity.scale() > 6 {
+        return Err(OrderError::QuantityScaleTooPrecise(quantity));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,6 +339,7 @@ mod tests {
     fn rejects_non_positive_quantity() {
         let command = ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: "req_1".to_owned(),
             account_id: Uuid::new_v4(),
             portfolio_id: Uuid::new_v4(),
@@ -239,6 +362,7 @@ mod tests {
 
         let left = ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: "req_1".to_owned(),
             account_id,
             portfolio_id,
@@ -248,6 +372,7 @@ mod tests {
         };
         let right = ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: "req_1".to_owned(),
             account_id,
             portfolio_id,

@@ -10,6 +10,7 @@ from app.market.models import (
     MarketTradeRecord,
     MatchdayRecord,
     NewsRecord,
+    PlayerBriefingRecord,
     SparklineRange,
 )
 from app.traders.models import TraderKind
@@ -113,4 +114,48 @@ class NewsItemResponse(BaseModel):
 
     @classmethod
     def from_record(cls, record: NewsRecord) -> "NewsItemResponse":
+        return cls.model_validate(record)
+
+
+class NextFixtureResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kickoff_at: datetime
+    lock_at: datetime
+    home_team: str
+    away_team: str
+    is_home: bool
+    locked: bool
+
+
+class AvailabilityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    stage: str
+    injury_type: str | None
+    body_area: str | None
+    expected_absence_until: datetime | None
+    last_evidence_at: datetime
+
+
+class PlayerNewsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: UUID
+    title: str
+    url: str
+    source: str
+    published_at: datetime
+    topic: str | None
+
+
+class PlayerBriefingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    next_fixture: NextFixtureResponse | None
+    availability: AvailabilityResponse | None
+    news: list[PlayerNewsResponse]
+
+    @classmethod
+    def from_record(cls, record: PlayerBriefingRecord) -> "PlayerBriefingResponse":
         return cls.model_validate(record)

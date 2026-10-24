@@ -20,6 +20,13 @@ pub struct ExecuteOrderResult {
     pub execution_price: Decimal,
     #[serde(with = "rust_decimal::serde::str")]
     pub gross_amount: Decimal,
+    /// The trading fee charged on the order. Absent from results stored before fees existed.
+    #[serde(default, with = "rust_decimal::serde::str")]
+    pub fee_amount: Decimal,
+    /// The cash the order moves: what a buy costs in total, or what a sale pays out, after the
+    /// fee. Results stored before fees existed fall back to the gross amount.
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub cash_amount: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str")]
     pub cash_balance_after: Decimal,
     #[serde(with = "rust_decimal::serde::str")]
@@ -43,6 +50,13 @@ pub struct OrderQuote {
     pub execution_price: Decimal,
     #[serde(with = "rust_decimal::serde::str")]
     pub gross_amount: Decimal,
+    /// The trading fee charged on the order. Absent from results stored before fees existed.
+    #[serde(default, with = "rust_decimal::serde::str")]
+    pub fee_amount: Decimal,
+    /// The cash the order moves: what a buy costs in total, or what a sale pays out, after the
+    /// fee. Results stored before fees existed fall back to the gross amount.
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub cash_amount: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str")]
     pub cash_balance_after: Decimal,
     #[serde(with = "rust_decimal::serde::str")]
@@ -65,6 +79,7 @@ pub struct Trade {
     pub quantity: Decimal,
     pub execution_price: Decimal,
     pub gross_amount: Decimal,
+    pub fee_amount: Decimal,
     pub executed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }

@@ -12,6 +12,8 @@ from app.common.decimal import format_decimal
 from app.common.images import ImageRecord
 from app.database import connection as pooled_connection
 from app.market.models import (
+    AvailabilityRecord,
+    FixtureForPlayerRow,
     FixtureRowRecord,
     FixtureTeamRecord,
     MarketTradeRecord,
@@ -43,7 +45,13 @@ class MarketRepository(Protocol):
 
     def recent_trades(self, window: timedelta, limit: int) -> list[MarketTradeRecord]: ...
 
-    def news_candidates(self, since: datetime, limit: int) -> list[NewsCandidateRecord]: ...
+    def news_candidates(
+        self, since: datetime, limit: int, instrument_id: UUID | None = None
+    ) -> list[NewsCandidateRecord]: ...
+
+    def next_fixture(self, instrument_id: UUID) -> FixtureForPlayerRow | None: ...
+
+    def availability(self, instrument_id: UUID) -> AvailabilityRecord | None: ...
 
     def club_names(self) -> dict[str, list[str]]: ...
 
@@ -341,7 +349,9 @@ class PostgresMarketRepository:
             for row in rows
         ]
 
-    def news_candidates(self, since: datetime, limit: int) -> list[NewsCandidateRecord]:
+    def news_candidates(
+        self, since: datetime, limit: int, instrument_id: UUID | None = None
+    ) -> list[NewsCandidateRecord]:
         with self._cursor() as cursor:
             cursor.execute(
                 """
@@ -372,10 +382,15 @@ class PostgresMarketRepository:
                   AND o.entity_type = 'PLAYER'
                   AND o.resolution_status = 'RESOLVED'
                   AND o.invalidated_at IS NULL
+                  AND (%(instrument_id)s::uuid IS NULL OR i.id = %(instrument_id)s::uuid)
                 ORDER BY d.published_at DESC, o.resolution_confidence DESC NULLS LAST
                 LIMIT %(limit)s
                 """,
-                {"since": since, "limit": limit},
+                {
+                    "since": since,
+                    "limit": limit,
+                    "instrument_id": None if instrument_id is None else str(instrument_id),
+                },
             )
             rows = cursor.fetchall()
 
@@ -395,6 +410,77 @@ class PostgresMarketRepository:
             )
             for row in rows
         ]
+
+    def next_fixture(self, instrument_id: UUID) -> FixtureForPlayerRow | None:
+        """The next match of the player's club that is not over or called off.
+
+        It reads the same fixture list, and the same club mapping, that match-day freezes use,
+        so the lock time shown is the one trading follows.
+        """
+        with self._cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    f.kickoff_at,
+                    f.home_team_name,
+                    f.away_team_name,
+                    f.home_team_provider_id = player.metadata->>'team_provider_id' AS is_home
+                FROM instruments AS i
+                JOIN players AS player ON player.id = i.player_id
+                JOIN fixtures AS f
+                    ON player.metadata->>'team_provider_id'
+                       IN (f.home_team_provider_id, f.away_team_provider_id)
+                WHERE i.id = %(instrument_id)s
+                  AND f.kickoff_at > now() - interval '6 hours'
+                  AND upper(COALESCE(f.status_short, ''))
+                      NOT IN ('FT', 'AET', 'PEN', 'PST', 'CANC', 'ABD', 'AWD', 'WO')
+                ORDER BY f.kickoff_at, f.id
+                LIMIT 1
+                """,
+                {"instrument_id": str(instrument_id)},
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return FixtureForPlayerRow(
+            kickoff_at=row["kickoff_at"],
+            home_team=row["home_team_name"],
+            away_team=row["away_team_name"],
+            is_home=bool(row["is_home"]),
+        )
+
+    def availability(self, instrument_id: UUID) -> AvailabilityRecord | None:
+        """The player's open injury episode, if any."""
+        with self._cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    e.stage,
+                    e.injury_type,
+                    e.body_area,
+                    e.expected_absence_until,
+                    e.last_evidence_at
+                FROM instruments AS i
+                JOIN player_injury_episodes AS e ON e.player_id = i.player_id
+                WHERE i.id = %(instrument_id)s
+                  AND e.expired_at IS NULL
+                  AND e.expires_at > now()
+                  AND e.stage <> 'CONFIRMED_RECOVERED'
+                ORDER BY e.last_evidence_at DESC
+                LIMIT 1
+                """,
+                {"instrument_id": str(instrument_id)},
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return AvailabilityRecord(
+            stage=row["stage"],
+            injury_type=row["injury_type"],
+            body_area=row["body_area"],
+            expected_absence_until=row["expected_absence_until"],
+            last_evidence_at=row["last_evidence_at"],
+        )
 
     def club_names(self) -> dict[str, list[str]]:
         """Every name FotMob uses for each canonical club's team."""

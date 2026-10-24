@@ -8,7 +8,9 @@ use tokio::net::TcpListener;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ServerConfig::from_env()?;
     let pool = config.connect_pool().await?;
-    let executor = SqlOrderExecutor::new(pool).with_seed_curve(config.seed_curve);
+    let executor = SqlOrderExecutor::new(pool)
+        .with_seed_curve(config.seed_curve)
+        .with_trading_fee(config.trading_fee);
     let app = build_router(AppState::new(executor));
     let listener = TcpListener::bind(config.bind_addr).await?;
 

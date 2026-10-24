@@ -130,3 +130,53 @@ class NewsRecord:
     topic: str | None
     player_name: str
     instrument_id: UUID
+
+
+@dataclass(frozen=True)
+class FixtureForPlayerRow:
+    kickoff_at: datetime
+    home_team: str
+    away_team: str
+    is_home: bool
+
+
+@dataclass(frozen=True)
+class NextFixtureRecord:
+    """A player's club's next match, from the fixture list match-day freezes follow."""
+
+    kickoff_at: datetime
+    # When the player's trading pauses for the match (lineup lock).
+    lock_at: datetime
+    home_team: str
+    away_team: str
+    is_home: bool
+    # True once lineup lock has passed: trading is paused until the match is settled.
+    locked: bool
+
+
+@dataclass(frozen=True)
+class AvailabilityRecord:
+    """The player's open injury episode, as reported by the news the bots read."""
+
+    stage: str
+    injury_type: str | None
+    body_area: str | None
+    expected_absence_until: datetime | None
+    last_evidence_at: datetime
+
+
+@dataclass(frozen=True)
+class PlayerNewsRecord:
+    document_id: UUID
+    title: str
+    url: str
+    source: str
+    published_at: datetime
+    topic: str | None
+
+
+@dataclass(frozen=True)
+class PlayerBriefingRecord:
+    next_fixture: NextFixtureRecord | None
+    availability: AvailabilityRecord | None
+    news: list[PlayerNewsRecord]

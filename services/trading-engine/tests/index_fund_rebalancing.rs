@@ -3,6 +3,7 @@ use sqlx::PgPool;
 use stockball_trading_engine::{
     delistings::{delist_instrument, DelistInstrumentCommand, DelistingError},
     execution::{execute_order, rebalance_index_fund, ExecutionError},
+    fees::TradingFee,
     freezes::{
         apply_freeze, release_freeze, ApplyFreezeCommand, FreezeReason, ReleaseFreezeCommand,
     },
@@ -334,6 +335,7 @@ async fn order(
         pool,
         ExecuteOrderCommand {
             execution_limits: None,
+            cash_limit: None,
             request_id: request_id.to_owned(),
             account_id: trader.account_id,
             portfolio_id: trader.portfolio_id,
@@ -341,6 +343,7 @@ async fn order(
             side,
             quantity: decimal(quantity),
         },
+        TradingFee::NONE,
     )
     .await
     .unwrap();

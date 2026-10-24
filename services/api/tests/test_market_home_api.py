@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from app.common.images import ImageRecord
 from app.main import create_app
 from app.market.models import (
+    AvailabilityRecord,
+    FixtureForPlayerRow,
     FixtureRowRecord,
     FixtureTeamRecord,
     MarketTradeRecord,
@@ -87,6 +89,8 @@ class FakeMarketRepository:
         self.sparkline_calls: list[tuple[list[UUID], timedelta, timedelta]] = []
         self.finished_round_before: int | None = None
         self.club_name_calls = 0
+        self.player_fixture: FixtureForPlayerRow | None = None
+        self.player_availability: AvailabilityRecord | None = None
 
     def sparklines(
         self, instrument_ids: list[UUID], window: timedelta, step: timedelta
@@ -127,8 +131,21 @@ class FakeMarketRepository:
     def recent_trades(self, window: timedelta, limit: int) -> list[MarketTradeRecord]:
         return self.trades[:limit]
 
-    def news_candidates(self, since: datetime, limit: int) -> list[NewsCandidateRecord]:
-        return self.candidates[:limit]
+    def news_candidates(
+        self, since: datetime, limit: int, instrument_id: UUID | None = None
+    ) -> list[NewsCandidateRecord]:
+        candidates = [
+            candidate
+            for candidate in self.candidates
+            if instrument_id is None or candidate.instrument_id == instrument_id
+        ]
+        return candidates[:limit]
+
+    def next_fixture(self, instrument_id: UUID) -> FixtureForPlayerRow | None:
+        return self.player_fixture
+
+    def availability(self, instrument_id: UUID) -> AvailabilityRecord | None:
+        return self.player_availability
 
     def club_names(self) -> dict[str, list[str]]:
         self.club_name_calls += 1
@@ -290,6 +307,51 @@ class MarketHomeApiTests(unittest.TestCase):
 
         self.client.get("/v1/market/news")
         self.assertEqual(self.repository.club_name_calls, 1)
+
+    def test_player_briefing_reports_lock_time_injury_and_that_players_news(self) -> None:
+        saka = uuid4()
+        self.repository.player_fixture = FixtureForPlayerRow(
+            kickoff_at=NOW + timedelta(minutes=90),
+            home_team="Arsenal",
+            away_team="Chelsea",
+            is_home=True,
+        )
+        self.repository.player_availability = AvailabilityRecord(
+            stage="SUSPECTED_INJURY",
+            injury_type="Ankle",
+            body_area="ankle",
+            expected_absence_until=None,
+            last_evidence_at=NOW - timedelta(hours=3),
+        )
+        self.repository.candidates = [
+            _candidate("Saka fit for the weekend", "Arsenal trained.", "Bukayo Saka", "Arsenal",
+                       instrument_id=saka),
+            _candidate("Saka misses training", "An Arsenal update.", "Bukayo Saka", "Arsenal",
+                       instrument_id=saka, minutes_ago=30),
+            _candidate("Dowman honoured", "The Arsenal teenager.", "Max Dowman", "Arsenal"),
+        ]
+
+        body = self.client.get(f"/v1/market/players/{saka}/briefing").json()
+
+        self.assertEqual(body["next_fixture"]["home_team"], "Arsenal")
+        self.assertFalse(body["next_fixture"]["locked"])
+        self.assertEqual(
+            datetime.fromisoformat(body["next_fixture"]["lock_at"]), NOW + timedelta(minutes=30)
+        )
+        self.assertEqual(body["availability"]["stage"], "SUSPECTED_INJURY")
+        self.assertEqual(
+            [item["title"] for item in body["news"]],
+            ["Saka fit for the weekend", "Saka misses training"],
+        )
+
+        self.repository.player_fixture = FixtureForPlayerRow(
+            kickoff_at=NOW + timedelta(minutes=10), home_team="Chelsea", away_team="Arsenal",
+            is_home=False,
+        )
+        self.repository.player_availability = None
+        body = self.client.get(f"/v1/market/players/{saka}/briefing").json()
+        self.assertTrue(body["next_fixture"]["locked"])
+        self.assertIsNone(body["availability"])
 
     def test_team_badge_is_served_by_team_id(self) -> None:
         response = self.client.get("/v1/market/teams/9825/badge")

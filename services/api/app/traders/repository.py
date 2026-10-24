@@ -19,9 +19,12 @@ from app.traders.models import (
     TraderTradeRecord,
 )
 
-# Every ranked account with its net worth: cash plus holdings at current prices. Ranks are
-# computed across all public traders so a person's rank doesn't change with the filter.
-# Admin and system accounts (such as the player-share reserve) are never ranked.
+# Every ranked account with its net worth (cash plus holdings at current prices) and its return:
+# net worth against the capital it was given (opening balance, top-ups and issued shares). Ranks
+# follow the return, so a trader who was given more cash, such as a bot on a top-up schedule,
+# does not outrank one who traded better. Ranks are computed across all public traders so a
+# person's rank doesn't change with the filter. Admin and system accounts (such as the
+# player-share reserve) are never ranked.
 #
 # day_change is how much the current holdings moved in price over the last 24 hours, the same
 # measure as the portfolio page's "Today" figure. Cash top-ups are not counted as gains.
@@ -60,18 +63,29 @@ _STANDINGS = """
             COALESCE(holdings.holdings_value, 0) AS holdings_value,
             COALESCE(holdings.holdings_count, 0) AS holdings_count,
             COALESCE(holdings.day_change, 0) AS day_change,
-            portfolio.cash_balance + COALESCE(holdings.holdings_value, 0) AS net_worth
+            portfolio.cash_balance + COALESCE(holdings.holdings_value, 0) AS net_worth,
+            portfolio.contributed_capital
         FROM accounts AS account
         JOIN portfolios AS portfolio ON portfolio.account_id = account.id
         LEFT JOIN holdings ON holdings.portfolio_id = portfolio.id
         WHERE account.status = 'ACTIVE'
           AND account.account_type IN ('USER', 'SYNTHETIC_TRADER')
     ),
-    ranked AS (
+    returns AS (
         SELECT
             standings.*,
-            RANK() OVER (ORDER BY net_worth DESC) AS rank
+            standings.net_worth - standings.contributed_capital AS total_return,
+            CASE
+                WHEN standings.contributed_capital > 0
+                THEN (standings.net_worth / standings.contributed_capital - 1) * 100
+            END AS return_percent
         FROM standings
+    ),
+    ranked AS (
+        SELECT
+            returns.*,
+            RANK() OVER (ORDER BY return_percent DESC NULLS LAST, net_worth DESC) AS rank
+        FROM returns
     )
 """
 
@@ -188,6 +202,7 @@ class PostgresTradersRepository:
                     trade.shares,
                     trade.execution_price,
                     trade.gross_amount,
+                    trade.fee_amount,
                     trade.executed_at
                 FROM trades AS trade
                 JOIN instruments AS instrument ON instrument.id = trade.instrument_id
@@ -221,6 +236,13 @@ def _standing(row: dict) -> TraderStandingRecord:
         day_change_percent=_day_change_percent(
             Decimal(row["net_worth"]), Decimal(row["day_change"])
         ),
+        contributed_capital=_money(row["contributed_capital"]),
+        total_return=_money(row["total_return"]),
+        return_percent=(
+            format_decimal(Decimal(row["return_percent"]).quantize(Decimal("0.0001")))
+            if row["return_percent"] is not None
+            else None
+        ),
     )
 
 
@@ -248,6 +270,7 @@ def _trade(row: dict) -> TraderTradeRecord:
         execution_price=_money(row["execution_price"]),
         gross_amount=_money(row["gross_amount"]),
         executed_at=row["executed_at"],
+        fee_amount=_money(row["fee_amount"]),
     )
 
 

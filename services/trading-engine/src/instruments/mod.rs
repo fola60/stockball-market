@@ -15,7 +15,8 @@ pub use seeding::{
 };
 
 pub(crate) use repository::{
-    has_market_activity, insert_index_fund_instrument, lock_index_fund_instruments,
-    lock_instrument_by_id, lock_instruments_by_ids, mark_delisted, recalibrate_price_curves,
-    reset_pre_market_price, update_index_fund_price, update_market_state,
+    get_instruments_by_ids, has_market_activity, insert_index_fund_instrument,
+    lock_index_fund_instruments, lock_instrument_by_id, lock_instruments_by_ids, mark_delisted,
+    recalibrate_price_curves, reset_pre_market_price, select_index_fund_instruments,
+    update_index_fund_price, update_market_state, RowLock,
 };
