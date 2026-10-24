@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import type { Account, Instrument, TickerStock } from "@/lib/api";
+import type { Account, IndexFund, Instrument, TickerStock } from "@/lib/api";
 import { formatCurrency, formatMove, initials, moveTone } from "@/lib/format";
 import { PlayerSearch } from "./player-search";
 import { AuthDialog, AuthTrigger } from "./auth-dialog";
@@ -12,7 +12,7 @@ export function Label({ children }: { children: ReactNode }) {
   return <p className="mb-2 text-[11px] font-semibold leading-none text-[#77818e]">{children}</p>;
 }
 
-function Header({ active, account, tickerStocks, searchInstruments }: { active: ShellSection; account: Account | null; tickerStocks: TickerStock[]; searchInstruments: Instrument[] }) {
+function Header({ active, account, tickerStocks, searchInstruments, searchFunds }: { active: ShellSection; account: Account | null; tickerStocks: TickerStock[]; searchInstruments: Instrument[]; searchFunds: IndexFund[] }) {
   return <>
     <header className="sticky top-0 z-20 flex h-[68px] items-center border-b border-[#202630] bg-[#080b10]/95 px-4 backdrop-blur-xl md:px-7">
       <Link href="/" aria-label="Stockball home" className="flex items-center gap-2.5 text-lg font-extrabold tracking-[-0.025em]">
@@ -26,7 +26,7 @@ function Header({ active, account, tickerStocks, searchInstruments }: { active: 
       </nav>
       <div className="ml-auto flex items-center gap-2">
         <Link href="/leaderboard" aria-label="Leaderboard" className="grid size-9 place-items-center rounded-lg border border-[#252d38] text-[#aab4c1] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] sm:hidden"><NavIcon kind="leaderboard" /></Link>
-        <PlayerSearch instruments={searchInstruments}/>
+        <PlayerSearch instruments={searchInstruments} funds={searchFunds}/>
         {account ? (
           <Link href="/portfolio" aria-label={`Open ${account.display_name}'s portfolio`} className="grid size-9 place-items-center rounded-lg bg-[#8fb5ff] text-[11px] font-extrabold text-[#080b10] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#080b10]">{initials(account.display_name)}</Link>
         ) : (
@@ -62,8 +62,8 @@ function Sidebar({ active, account }: { active: ShellSection; account: Account }
   </aside>;
 }
 
-export function Shell({ active, account, tickerStocks, searchInstruments, children, initialAuthMode = null }: { active: ShellSection; account: Account | null; tickerStocks: TickerStock[]; searchInstruments: Instrument[]; children: ReactNode; initialAuthMode?: AuthMode | null }) {
-  return <main className="min-h-screen bg-[#080b10] font-sans text-sm text-[#edf1f5]"><Header active={active} account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}/><div className={account ? "grid lg:grid-cols-[224px_minmax(0,1fr)]" : "min-w-0"}>{account && <Sidebar active={active} account={account}/>} {children}</div>{!account && <AuthDialog initialMode={initialAuthMode}/>}</main>;
+export function Shell({ active, account, tickerStocks, searchInstruments, searchFunds = [], children, initialAuthMode = null }: { active: ShellSection; account: Account | null; tickerStocks: TickerStock[]; searchInstruments: Instrument[]; searchFunds?: IndexFund[]; children: ReactNode; initialAuthMode?: AuthMode | null }) {
+  return <main className="min-h-screen bg-[#080b10] font-sans text-sm text-[#edf1f5]"><Header active={active} account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}/><div className={account ? "grid lg:grid-cols-[224px_minmax(0,1fr)]" : "min-w-0"}>{account && <Sidebar active={active} account={account}/>} {children}</div>{!account && <AuthDialog initialMode={initialAuthMode}/>}</main>;
 }
 
 export const panel = "overflow-hidden rounded-xl border border-[#222a35] bg-[#0e131a]";

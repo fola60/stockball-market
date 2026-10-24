@@ -17,11 +17,11 @@ function historyHref(page: number): string {
 export default async function HistoryPage({ searchParams }: PageProps) {
   const requested = Number((await searchParams).page ?? "1");
   const page = Number.isInteger(requested) && requested > 0 ? requested : 1;
-  const { account, trades, hasMore, tickerStocks, searchInstruments } = await getHistoryPageData(page);
+  const { account, trades, hasMore, tickerStocks, searchInstruments, searchFunds } = await getHistoryPageData(page);
 
   if (!account) {
     return (
-      <Shell active="history" account={null} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
+      <Shell active="history" account={null} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}>
         <section className="grid min-h-[calc(100vh-104px)] place-items-center px-4 py-12">
           <div className={`${panel} w-full max-w-[480px] p-8 text-center`}>
             <h1 className="text-2xl font-semibold tracking-[-0.025em]">Your trade history</h1>
@@ -36,7 +36,7 @@ export default async function HistoryPage({ searchParams }: PageProps) {
   const firstNumber = (page - 1) * HISTORY_PAGE_SIZE + 1;
 
   return (
-    <Shell active="history" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
+    <Shell active="history" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}>
       <section className="mx-auto w-full max-w-[1100px] min-w-0 px-3 py-6 md:px-7">
         <div className="mb-6">
           <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.03em] md:text-[34px]">Trade history</h1>

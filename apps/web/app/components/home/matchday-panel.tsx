@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Fixture, Instrument, Matchday } from "@/lib/api";
+import type { Fixture, IndexFund, Instrument, Matchday } from "@/lib/api";
 import { playerName } from "@/lib/api";
 import type { FixtureMarket } from "@/lib/market";
 import { formatCurrency, formatMoneyShort, formatMove, formatUkDay, formatUkTime, formatUkWeekday, moveTone } from "@/lib/format";
@@ -47,6 +47,21 @@ function Star({ instrument }: { instrument: Instrument | null }) {
   );
 }
 
+/** A club's team fund, to back the whole squad before the match. Paused with its players. */
+function FundLink({ fund }: { fund: IndexFund | null }) {
+  if (!fund) return <span />;
+  const paused = fund.status !== "ACTIVE";
+  return (
+    <Link prefetch={false} href={`/funds/${fund.id}`} className={`flex min-h-11 flex-col justify-center gap-0.5 rounded-lg border px-2 py-1.5 hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${paused ? "border-dashed border-[#3a3424]" : "border-[#2a3441]"}`}>
+      <small className="truncate text-[10px] text-[#818b97]">{fund.display_name}</small>
+      <span className="flex items-baseline justify-between gap-1.5">
+        <b className="text-xs tabular-nums slashed-zero">{formatCurrency(fund.current_price)}</b>
+        <small className={`text-[10px] font-bold ${paused ? "text-[#f4bb55]" : "text-[#8fb5ff]"}`}>{paused ? "Paused" : "Trade →"}</small>
+      </span>
+    </Link>
+  );
+}
+
 function FeaturedFixture({ market, signedIn }: { market: FixtureMarket; signedIn: boolean }) {
   const { fixture } = market;
   const pauseNote = fixture.status === "UPCOMING"
@@ -73,6 +88,12 @@ function FeaturedFixture({ market, signedIn }: { market: FixtureMarket; signedIn
         <Star instrument={market.homeStar} />
         <Star instrument={market.awayStar} />
       </div>
+      {(market.homeFund || market.awayFund) && (
+        <div className="grid grid-cols-2 gap-2">
+          <FundLink fund={market.homeFund} />
+          <FundLink fund={market.awayFund} />
+        </div>
+      )}
       {signedIn && market.holdings.names.length > 0 ? (
         <p className="text-center text-[10px] leading-relaxed text-[#aeb7c2]">You hold {market.holdings.names.slice(0, 2).join(", ")}{market.holdings.names.length > 2 ? ` and ${market.holdings.names.length - 2} more` : ""} · {formatMoneyShort(market.holdings.value)}</p>
       ) : pauseNote ? (

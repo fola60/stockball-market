@@ -551,13 +551,14 @@ export async function getPortfolioPageData() {
       activity: [],
       tickerStocks: toTickerStocks(instruments),
       searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED"),
+      searchFunds: funds.filter((fund) => fund.status !== "DELISTED"),
     };
   }
   const [portfolio, activity] = await Promise.all([
     getPortfolio(account.portfolio.id),
     getPortfolioActivity(account.portfolio.id),
   ]);
-  return { account, instruments, funds, portfolio, activity, tickerStocks: toTickerStocks(instruments), searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED") };
+  return { account, instruments, funds, portfolio, activity, tickerStocks: toTickerStocks(instruments), searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED"), searchFunds: funds.filter((fund) => fund.status !== "DELISTED") };
 }
 
 async function getInstrument(instrumentId: string): Promise<Instrument | null> {
@@ -570,10 +571,11 @@ async function getInstrument(instrumentId: string): Promise<Instrument | null> {
 }
 
 export async function getInstrumentPageData(instrumentId: string) {
-  const [account, instruments, instrument] = await Promise.all([
+  const [account, instruments, instrument, funds] = await Promise.all([
     getOptionalAccount(),
     getInstruments(),
     getInstrument(instrumentId),
+    getSearchFunds(),
   ]);
   if (!instrument) return null;
 
@@ -593,6 +595,7 @@ export async function getInstrumentPageData(instrumentId: string) {
     briefing,
     tickerStocks: toTickerStocks(instruments),
     searchInstruments: instruments.filter((candidate) => candidate.status !== "DELISTED"),
+    searchFunds: funds.filter((fund) => fund.status !== "DELISTED"),
   };
 }
 
@@ -617,17 +620,27 @@ export async function getFundPageData(fundId: string) {
   return { ...shell, fund, history, portfolio };
 }
 
-export function shellData(account: Account | null, instruments: Instrument[]) {
+export function shellData(account: Account | null, instruments: Instrument[], funds: IndexFund[] = []) {
   return {
     account,
     tickerStocks: toTickerStocks(instruments),
     searchInstruments: instruments.filter((instrument) => instrument.status !== "DELISTED"),
+    searchFunds: funds.filter((fund) => fund.status !== "DELISTED"),
   };
 }
 
+/** Funds for header search; a failure leaves search to players rather than failing the page. */
+export async function getSearchFunds(): Promise<IndexFund[]> {
+  try {
+    return await getIndexFunds();
+  } catch {
+    return [];
+  }
+}
+
 async function getShellData() {
-  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
-  return shellData(account, instruments);
+  const [account, instruments, funds] = await Promise.all([getOptionalAccount(), getInstruments(), getSearchFunds()]);
+  return shellData(account, instruments, funds);
 }
 
 export const LEADERBOARD_PAGE_SIZE = 50;

@@ -31,11 +31,11 @@ type Holding = {
 };
 
 export default async function PortfolioPage() {
-  const { account, instruments, funds, portfolio, activity, tickerStocks, searchInstruments } = await getPortfolioPageData();
+  const { account, instruments, funds, portfolio, activity, tickerStocks, searchInstruments, searchFunds } = await getPortfolioPageData();
 
   if (!account || !portfolio) {
     return (
-      <Shell active="portfolio" account={null} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
+      <Shell active="portfolio" account={null} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}>
         <section className="grid min-h-[calc(100vh-104px)] place-items-center px-4 py-12">
           <div className={`${panel} w-full max-w-[520px] p-7 text-center sm:p-10`}>
             <div className="mx-auto grid size-12 place-items-center rounded-xl bg-[#8fb5ff]/10 text-[#8fb5ff]" aria-hidden="true">
@@ -110,7 +110,7 @@ export default async function PortfolioPage() {
   }, {});
 
   return (
-    <Shell active="portfolio" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
+    <Shell active="portfolio" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}>
       <section className="mx-auto w-full max-w-[1500px] min-w-0 px-3 py-6 md:px-7">
         <div className="mb-7 flex items-end justify-between">
           <div>

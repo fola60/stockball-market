@@ -202,7 +202,7 @@ function Pagination({ page, pageCount }: { page: number; pageCount: number }) {
 export default async function LeaderboardPage({ searchParams }: PageProps) {
   const query = await searchParams;
   const requestedPage = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
-  const { account, tickerStocks, searchInstruments, leaderboard, viewerStanding } = await getLeaderboardPageData("ALL", requestedPage);
+  const { account, tickerStocks, searchInstruments, searchFunds, leaderboard, viewerStanding } = await getLeaderboardPageData("ALL", requestedPage);
   const pageCount = Math.max(1, Math.ceil(leaderboard.total / LEADERBOARD_PAGE_SIZE));
   const page = Math.min(requestedPage, pageCount);
   const viewerId = account?.id ?? null;
@@ -210,7 +210,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
   const rows = showPodium ? leaderboard.entries.slice(3) : leaderboard.entries;
 
   return (
-    <Shell active="leaderboard" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
+    <Shell active="leaderboard" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}>
       <section className="relative mx-auto w-full max-w-[1040px] min-w-0 px-3 py-7 md:px-7 md:py-10">
         <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-10 h-72 bg-[radial-gradient(60%_60%_at_50%_0%,rgba(143,181,255,0.10),transparent)]" />
         <header className="relative mb-6 text-center md:mb-8">
