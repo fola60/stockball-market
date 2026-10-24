@@ -2,8 +2,21 @@
 
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { Instrument } from "@/lib/api";
+import type { IndexFund, Instrument } from "@/lib/api";
+import { formatCurrency } from "@/lib/format";
+import { FundBadge } from "./fund-media";
 import { ClubBadge, PlayerAvatar } from "./player-media";
+
+type SearchableFund = Pick<IndexFund, "id" | "symbol" | "display_name" | "club" | "current_price" | "club_badge_version">;
+
+/** A fund matches on its name, symbol, or club, so "arsenal" finds Arsenal Index. */
+function fundRank(fund: SearchableFund, query: string): number | null {
+  const fields = [fund.display_name, fund.symbol, fund.club ?? ""].map((field) => field.toLocaleLowerCase());
+  if (fields.some((field) => field === query)) return 0;
+  if (fields.some((field) => field.startsWith(query))) return 1;
+  if (fields.some((field) => field.includes(query))) return 2;
+  return null;
+}
 
 type SearchableInstrument = Pick<
   Instrument,
@@ -26,7 +39,7 @@ function matchRank(instrument: SearchableInstrument, query: string): number | nu
   return null;
 }
 
-export function PlayerSearch({ instruments }: { instruments: SearchableInstrument[] }) {
+export function PlayerSearch({ instruments, funds = [] }: { instruments: SearchableInstrument[]; funds?: SearchableFund[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -43,6 +56,16 @@ export function PlayerSearch({ instruments }: { instruments: SearchableInstrumen
         .slice(0, 8)
       : [],
     [instruments, normalizedQuery],
+  );
+  const fundResults = useMemo(
+    () => normalizedQuery
+      ? funds
+        .map((fund) => ({ fund, rank: fundRank(fund, normalizedQuery) }))
+        .filter((match): match is { fund: SearchableFund; rank: number } => match.rank !== null)
+        .sort((a, b) => a.rank - b.rank || a.fund.display_name.localeCompare(b.fund.display_name))
+        .slice(0, 3)
+      : [],
+    [funds, normalizedQuery],
   );
 
   function showSearch() {
@@ -70,7 +93,7 @@ export function PlayerSearch({ instruments }: { instruments: SearchableInstrumen
   }, [open]);
 
   return <>
-    <button ref={triggerRef} type="button" aria-label="Search players or clubs" aria-haspopup="dialog" aria-expanded={open} aria-controls={resultsId} onClick={showSearch} className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#242c37] bg-[#0e131a] px-0 text-[#a6afba] transition-colors hover:border-[#516074] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] sm:w-52 sm:justify-start sm:px-3">
+    <button ref={triggerRef} type="button" aria-label="Search players, clubs or funds" aria-haspopup="dialog" aria-expanded={open} aria-controls={resultsId} onClick={showSearch} className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#242c37] bg-[#0e131a] px-0 text-[#a6afba] transition-colors hover:border-[#516074] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] sm:w-52 sm:justify-start sm:px-3">
       <svg viewBox="0 0 20 20" aria-hidden="true" className="size-4 shrink-0" fill="none"><circle cx="8.6" cy="8.6" r="4.9" stroke="currentColor" strokeWidth="1.6"/><path d="m12.3 12.3 4.1 4.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
       <span className="sr-only sm:not-sr-only sm:ml-2 sm:text-xs">Search</span>
       <kbd className="ml-auto hidden rounded border border-white/10 px-1 py-0.5 font-mono text-[11px] text-[#78828e] sm:block">⌘K</kbd>
@@ -82,13 +105,17 @@ export function PlayerSearch({ instruments }: { instruments: SearchableInstrumen
         <div className="flex items-center gap-3 border-b border-[#202630] px-4">
           <svg viewBox="0 0 20 20" aria-hidden="true" className="size-4 shrink-0 text-[#8fb5ff]" fill="none"><circle cx="8.6" cy="8.6" r="4.9" stroke="currentColor" strokeWidth="1.6"/><path d="m12.3 12.3 4.1 4.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
           <label htmlFor="player-stock-search" className="sr-only">Search player stocks</label>
-          <input ref={inputRef} id="player-stock-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Player, ticker or club" autoComplete="off" className="h-14 min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#697481]" />
+          <input ref={inputRef} id="player-stock-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Player, club, fund or ticker" autoComplete="off" className="h-14 min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#697481]" />
           <button type="button" onClick={closeSearch} className="rounded px-1.5 py-1 text-[11px] font-semibold text-[#8c97a5] hover:bg-white/[0.05] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">ESC</button>
         </div>
 
         <div className="max-h-[min(26rem,calc(100vh-10rem))] overflow-y-auto p-2">
-          {!normalizedQuery ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">Search by player name, ticker, or club.</p> : null}
-          {normalizedQuery && results.length === 0 ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">No player stocks match “{query.trim()}”.</p> : null}
+          {!normalizedQuery ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">Search by player, club, fund, or ticker.</p> : null}
+          {normalizedQuery && results.length === 0 && fundResults.length === 0 ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">Nothing matches “{query.trim()}”.</p> : null}
+          {fundResults.map(({ fund }) => <Link prefetch={false} key={fund.id} href={`/funds/${fund.id}`} onClick={closeSearch} className="flex items-center justify-between gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.045] focus:bg-white/[0.045] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">
+            <span className="flex min-w-0 items-center gap-3"><FundBadge fund={fund} className="size-9" /><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{fund.display_name}</strong><small className="mt-1 block truncate text-[11px] font-medium text-[#818b97]">Team fund · {formatCurrency(fund.current_price)}</small></span></span>
+            <span className="shrink-0 text-[11px] font-semibold text-[#8fb5ff]">{fund.symbol}</span>
+          </Link>)}
           {results.map(({ instrument }) => <Link prefetch={false} key={instrument.id} href={`/instrument/${instrument.id}`} onClick={closeSearch} className="flex items-center justify-between gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.045] focus:bg-white/[0.045] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">
             <span className="flex min-w-0 items-center gap-3"><PlayerAvatar instrument={instrument} name={playerName(instrument)} className="size-9" /><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{playerName(instrument)}</strong><small className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-[#818b97]"><ClubBadge instrument={instrument} /><span className="truncate">{instrument.player_club ?? "Club unavailable"} · {instrument.player_position ?? "—"}</span></small></span></span>
             <span className="shrink-0 text-[11px] font-semibold text-[#8fb5ff]">{instrument.symbol}</span>
