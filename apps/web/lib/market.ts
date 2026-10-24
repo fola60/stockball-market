@@ -1,4 +1,5 @@
 import {
+  getIndexFunds,
   getInstruments,
   getLeaderboard,
   getMarketNews,
@@ -12,6 +13,7 @@ import {
   shellData,
   type Fixture,
   type FixtureTeam,
+  type IndexFund,
   type Instrument,
   type LeaderboardPage,
   type MarketTrade,
@@ -34,6 +36,8 @@ export type Movers = { risers: MoverRow[]; fallers: MoverRow[] };
 export type ClubTile = {
   club: string;
   team: FixtureTeam | null;
+  /** The club's team fund, which the tile opens. */
+  fund: Pick<IndexFund, "id" | "symbol" | "current_price"> | null;
   marketValue: number;
   change1d: number;
   change7d: number;
@@ -46,6 +50,9 @@ export type FixtureMarket = {
   marketValue: number;
   homeStar: Instrument | null;
   awayStar: Instrument | null;
+  /** Each club's team fund, to back the whole squad before the match. */
+  homeFund: IndexFund | null;
+  awayFund: IndexFund | null;
   /** The signed-in trader's holdings in the two clubs. */
   holdings: { names: string[]; value: number };
 };
@@ -114,7 +121,10 @@ function weightedChange(instruments: Instrument[], change: (instrument: Instrume
   return before > 0 ? (now / before - 1) * 100 : 0;
 }
 
-function clubTiles(instruments: Instrument[], matchday: Matchday | null): ClubTile[] {
+type FundHolding = { fund: IndexFund; quantity: number; value: number };
+
+function clubTiles(instruments: Instrument[], matchday: Matchday | null, funds: IndexFund[]): ClubTile[] {
+  const fundByClub = new Map(funds.flatMap((fund) => (fund.club ? [[fund.club, fund] as const] : [])));
   const teams = new Map<string, FixtureTeam>();
   for (const fixture of matchday?.next_round?.fixtures ?? []) {
     for (const team of [fixture.home, fixture.away]) if (team.club) teams.set(team.club, team);
@@ -127,10 +137,15 @@ function clubTiles(instruments: Instrument[], matchday: Matchday | null): ClubTi
     byClub.set(club, [...(byClub.get(club) ?? []), instrument]);
   }
   return [...byClub.entries()]
-    .map(([club, members]) => ({
+    .map(([club, members]) => {
+      const fund = fundByClub.get(club) ?? null;
+      return {
       club,
       team: teams.get(club) ?? null,
+      fund: fund && { id: fund.id, symbol: fund.symbol, current_price: fund.current_price },
       marketValue: members.reduce((total, instrument) => total + marketValue(instrument), 0),
+      // A unit holds one share of each player, so the squad's value-weighted change is the
+      // fund's change over any period, including the days before the fund was listed.
       change1d: weightedChange(members, (instrument) => Number(instrument.price_change_24h)),
       change7d: weightedChange(members, (instrument) => Number(instrument.price_change_7d)),
       players: [...members]
@@ -142,7 +157,8 @@ function clubTiles(instruments: Instrument[], matchday: Matchday | null): ClubTi
           change1d: Number(instrument.price_change_24h),
           change7d: Number(instrument.price_change_7d),
         })),
-    }))
+      };
+    })
     .sort((a, b) => b.marketValue - a.marketValue);
 }
 
@@ -150,7 +166,10 @@ function fixtureMarkets(
   matchday: Matchday | null,
   instruments: Instrument[],
   holdings: { instrument: Instrument; value: number }[],
+  funds: IndexFund[],
+  fundHoldings: FundHolding[],
 ): FixtureMarket[] {
+  const fundByClub = new Map(funds.flatMap((fund) => (fund.club ? [[fund.club, fund] as const] : [])));
   const byClub = new Map<string, Instrument[]>();
   for (const instrument of instruments) {
     if (instrument.player_club) {
@@ -161,7 +180,14 @@ function fixtureMarkets(
     [...(team.club ? byClub.get(team.club) ?? [] : [])].sort((a, b) => marketValue(b) - marketValue(a))[0] ?? null;
   return (matchday?.next_round?.fixtures ?? []).map((fixture) => {
     const clubs = new Set([fixture.home.club, fixture.away.club].filter(Boolean));
-    const held = holdings.filter((holding) => clubs.has(holding.instrument.player_club));
+    const held = [
+      ...holdings
+        .filter((holding) => clubs.has(holding.instrument.player_club))
+        .map((holding) => ({ name: playerName(holding.instrument), value: holding.value })),
+      ...fundHoldings
+        .filter((holding) => clubs.has(holding.fund.club))
+        .map((holding) => ({ name: holding.fund.display_name, value: holding.value })),
+    ];
     return {
       fixture,
       marketValue: [...clubs].reduce(
@@ -170,8 +196,10 @@ function fixtureMarkets(
       ),
       homeStar: star(fixture.home),
       awayStar: star(fixture.away),
+      homeFund: (fixture.home.club && fundByClub.get(fixture.home.club)) || null,
+      awayFund: (fixture.away.club && fundByClub.get(fixture.away.club)) || null,
       holdings: {
-        names: held.sort((a, b) => b.value - a.value).map((holding) => playerName(holding.instrument)),
+        names: held.sort((a, b) => b.value - a.value).map((holding) => holding.name),
         value: held.reduce((total, holding) => total + holding.value, 0),
       },
     };
@@ -181,12 +209,18 @@ function fixtureMarkets(
 function summarisePortfolio(
   portfolio: Portfolio,
   holdings: { instrument: Instrument; value: number; quantity: number }[],
+  fundHoldings: FundHolding[],
   fixtures: FixtureMarket[],
 ): PortfolioSummary {
-  const invested = holdings.reduce((total, holding) => total + holding.value, 0);
+  // Fund units count toward everything except the best holding, which names a player.
+  const valued = [
+    ...holdings.map((holding) => ({ value: holding.value, change: Number(holding.instrument.price_change_24h) })),
+    ...fundHoldings.map((holding) => ({ value: holding.value, change: Number(holding.fund.price_change_24h) })),
+  ];
+  const invested = valued.reduce((total, holding) => total + holding.value, 0);
   const cash = Number(portfolio.cash_balance);
-  const dayPnl = holdings.reduce((total, holding) => {
-    const factor = 1 + Number(holding.instrument.price_change_24h) / 100;
+  const dayPnl = valued.reduce((total, holding) => {
+    const factor = 1 + holding.change / 100;
     return total + (factor > 0 ? holding.value - holding.value / factor : 0);
   }, 0);
   const netWorth = cash + invested;
@@ -207,11 +241,13 @@ function summarisePortfolio(
 }
 
 export async function getHomePageData() {
-  const [account, instruments, matchday] = await Promise.all([
+  const [account, instruments, matchday, funds] = await Promise.all([
     getOptionalAccount(),
     getInstruments(),
     optional<Matchday | null>(getMatchday(), null),
+    optional<IndexFund[]>(getIndexFunds(), []),
   ]);
+  const listedFunds = funds.filter((fund) => fund.status !== "DELISTED");
   const market = instruments.filter(isInMarket);
 
   const daySelection = selectMovers(market, (instrument) => Number(instrument.price_change_24h), 2);
@@ -241,14 +277,20 @@ export async function getHomePageData() {
     const quantity = Number(position.quantity);
     return instrument && quantity > 0 ? [{ instrument, quantity, value: quantity * Number(instrument.current_price) }] : [];
   });
-  const fixtures = fixtureMarkets(matchday, market, holdings);
+  const fundById = new Map(funds.map((fund) => [fund.id, fund]));
+  const fundHoldings = (portfolio?.positions ?? []).flatMap((position) => {
+    const fund = fundById.get(position.instrument_id);
+    const quantity = Number(position.quantity);
+    return fund && quantity > 0 ? [{ fund, quantity, value: quantity * Number(fund.current_price) }] : [];
+  });
+  const fixtures = fixtureMarkets(matchday, market, holdings, listedFunds, fundHoldings);
   const lastTrade = instruments.reduce(
     (latest, instrument) => (instrument.updated_at > latest ? instrument.updated_at : latest),
     instruments[0]?.updated_at ?? new Date().toISOString(),
   );
 
   return {
-    ...shellData(account, instruments),
+    ...shellData(account, instruments, listedFunds),
     lastTrade,
     tradingCount: market.length,
     pausedCount: listed.length - market.length,
@@ -259,7 +301,7 @@ export async function getHomePageData() {
     },
     matchday,
     fixtures,
-    clubs: clubTiles(market, matchday),
+    clubs: clubTiles(market, matchday, listedFunds),
     mostTraded: [...market]
       .filter((instrument) => Number(instrument.traded_value_24h) > 0)
       .sort((a, b) => Number(b.traded_value_24h) - Number(a.traded_value_24h))
@@ -275,7 +317,7 @@ export async function getHomePageData() {
       const instrument = byId.get(item.instrument_id);
       return instrument ? [{ item, instrument }] : [];
     }),
-    portfolio: portfolio ? summarisePortfolio(portfolio, holdings, fixtures) : null,
+    portfolio: portfolio ? summarisePortfolio(portfolio, holdings, fundHoldings, fixtures) : null,
   };
 }
 

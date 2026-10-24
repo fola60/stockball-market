@@ -9,9 +9,9 @@ import { Sparkline } from "../sparkline";
 
 type Period = "day" | "week";
 
-const PERIODS: { key: Period; label: string; caption: string; span: string }[] = [
-  { key: "day", label: "Today", caption: "Largest price changes in the last 24 hours", span: "today" },
-  { key: "week", label: "7 days", caption: "Largest price changes over the last 7 days", span: "over 7 days" },
+const PERIODS: { key: Period; label: string; span: string }[] = [
+  { key: "day", label: "Today", span: "today" },
+  { key: "week", label: "7 days", span: "over 7 days" },
 ];
 
 export function BiggestMovers({ movers, totalPlayers }: { movers: Record<Period, Movers>; totalPlayers: number }) {
@@ -32,10 +32,7 @@ export function BiggestMovers({ movers, totalPlayers }: { movers: Record<Period,
   return (
     <section aria-labelledby="movers-title" className="min-w-0 flex-[999_1_620px]">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 id="movers-title" className="text-base font-bold">Biggest movers</h2>
-          <p className="mt-1.5 text-[11px] text-[#77818e]">{current.caption}</p>
-        </div>
+        <h2 id="movers-title" className="text-base font-bold">Biggest movers</h2>
         <div role="group" aria-label="Movers period" className="flex gap-0.5 rounded-[9px] border border-[#242c37] bg-[#0e131a] p-[3px]">
           {PERIODS.map((option) => (
             <button key={option.key} type="button" aria-pressed={period === option.key} onClick={() => setPeriod(option.key)} className={`h-[30px] rounded-md px-3 text-[11px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${period === option.key ? "bg-[#8fb5ff] text-[#080b10]" : "text-[#8d97a3] hover:text-white"}`}>{option.label}</button>

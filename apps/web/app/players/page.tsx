@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Shell, panel } from "../components/market-shell";
 import { PlayersTable } from "../components/players-table";
-import { getInstruments, getOptionalAccount, getSparklines, isInMarket, shellData, type Instrument } from "@/lib/api";
+import { getInstruments, getOptionalAccount, getSearchFunds, getSparklines, isInMarket, shellData, type Instrument } from "@/lib/api";
 import { marketValue } from "@/lib/market";
 import { PlayersFilters } from "./filters";
 import { POSITIONS, SORTS, playersHref, type PlayersQuery, type PlayersSort, type Position } from "./query";
@@ -23,7 +23,7 @@ type SearchParams = { club?: string; position?: string; sort?: string; page?: st
 
 export default async function PlayersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
-  const [account, instruments] = await Promise.all([getOptionalAccount(), getInstruments()]);
+  const [account, instruments, funds] = await Promise.all([getOptionalAccount(), getInstruments(), getSearchFunds()]);
   const listed = instruments.filter((instrument) => instrument.status !== "DELISTED");
   const clubs = [...new Set(listed.flatMap((instrument) => (instrument.player_club ? [instrument.player_club] : [])))].sort();
 
@@ -49,7 +49,7 @@ export default async function PlayersPage({ searchParams }: { searchParams: Prom
   const trading = listed.filter(isInMarket).length;
 
   return (
-    <Shell active="players" {...shellData(account, instruments)}>
+    <Shell active="players" {...shellData(account, instruments, funds)}>
       <div className="mx-auto w-full max-w-[1220px] min-w-0 px-3 pb-12 pt-7 md:px-7">
         <header className="mb-5">
           <h1 className="text-[28px] font-semibold leading-none tracking-[-0.03em] md:text-[32px]">All players</h1>

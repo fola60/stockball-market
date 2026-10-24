@@ -20,7 +20,7 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
   const lastTrade = new Date(data.lastTrade);
 
   return (
-    <Shell active="market" account={data.account} tickerStocks={data.tickerStocks} searchInstruments={data.searchInstruments} initialAuthMode={auth === "register" ? "register" : auth === "login" ? "login" : null}>
+    <Shell active="market" account={data.account} tickerStocks={data.tickerStocks} searchInstruments={data.searchInstruments} searchFunds={data.searchFunds} initialAuthMode={auth === "register" ? "register" : auth === "login" ? "login" : null}>
       <div className="mx-auto flex w-full max-w-[1220px] min-w-0 flex-col gap-6 px-3 pb-12 pt-7 md:px-7">
         {data.portfolio && <PortfolioStrip summary={data.portfolio} />}
 

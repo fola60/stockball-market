@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { ClubTile } from "@/lib/market";
-import { formatMoneyShort, formatChange, moveTone } from "@/lib/format";
+import { formatChange, formatCurrency, formatMoneyShort, moveTone } from "@/lib/format";
 import { TeamBadge } from "../player-media";
 
 type Period = "day" | "week";
@@ -18,6 +18,10 @@ function heat(value: number, largest: number) {
   const alpha = (0.2 + 0.65 * Math.min(Math.abs(value) / largest, 1)).toFixed(2);
   return value > 0 ? `rgba(7, 133, 47, ${alpha})` : `rgba(217, 28, 50, ${alpha})`;
 }
+
+/** A club's tile opens its team fund, or its players while it has no fund. */
+const tileHref = (club: ClubTile) =>
+  club.fund ? `/funds/${club.fund.id}` : `/players?club=${encodeURIComponent(club.club)}`;
 
 /**
  * Rows of tiles whose areas are proportional to market value: a row's height is its share
@@ -54,10 +58,7 @@ export function MarketMap({ clubs }: { clubs: ClubTile[] }) {
   return (
     <section aria-labelledby="map-title" className="overflow-hidden rounded-xl border border-[#222a35] bg-[#0e131a]">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 pb-3 pt-4 md:px-[18px]">
-        <div>
-          <h2 id="map-title" className="text-base font-bold"><span className="md:hidden">Clubs {period === "week" ? "this week" : "today"}</span><span className="hidden md:inline">Market map</span></h2>
-          <p className="mt-1.5 hidden text-[11px] text-[#77818e] md:block">Clubs sized by market value, coloured by price change. The colour scale fits the period.</p>
-        </div>
+        <h2 id="map-title" className="text-base font-bold">Team funds</h2>
         <div className="flex flex-wrap items-center gap-3.5">
           <div aria-hidden="true" className="hidden items-center gap-1.5 text-[10px] text-[#8d97a3] md:flex">
             <span>{formatChange(-largest, decimals)}</span>
@@ -65,6 +66,7 @@ export function MarketMap({ clubs }: { clubs: ClubTile[] }) {
             <span>{formatChange(largest, decimals)}</span>
           </div>
           {toggle}
+          <Link href="/funds" className="text-[11px] font-bold text-[#8fb5ff] hover:text-[#b8d0ff] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">All funds →</Link>
         </div>
       </div>
 
@@ -74,14 +76,14 @@ export function MarketMap({ clubs }: { clubs: ClubTile[] }) {
             {row.map((club) => {
               const value = change(club, period);
               return (
-                <Link key={club.club} prefetch={false} href={`/players?club=${encodeURIComponent(club.club)}`} aria-label={`${club.club}: ${formatChange(value, decimals)}, market value ${formatMoneyShort(club.marketValue)}`} className={`flex min-w-0 flex-col justify-between gap-1.5 overflow-hidden rounded-md text-white transition-[filter] hover:brightness-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${rowIndex === 0 ? "p-3" : rowIndex === 1 ? "p-2.5" : "p-2"}`} style={{ flex: `${club.marketValue} 1 0px`, background: heat(value, largest) }}>
+                <Link key={club.club} prefetch={false} href={tileHref(club)} aria-label={club.fund ? `${club.club} Index: ${formatChange(value, decimals)}, ${formatCurrency(club.fund.current_price)} a unit` : `${club.club}: ${formatChange(value, decimals)}, market value ${formatMoneyShort(club.marketValue)}`} className={`flex min-w-0 flex-col justify-between gap-1.5 overflow-hidden rounded-md text-white transition-[filter] hover:brightness-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${rowIndex === 0 ? "p-3" : rowIndex === 1 ? "p-2.5" : "p-2"}`} style={{ flex: `${club.marketValue} 1 0px`, background: heat(value, largest) }}>
                   <span className="flex min-w-0 items-start justify-between gap-1.5">
                     <span className="min-w-0">
                       <strong className={`flex min-w-0 items-center gap-1.5 font-bold ${rowIndex === 0 ? "text-[13px]" : rowIndex === 1 ? "text-[11px]" : "text-[10px]"}`}>
                         {rowIndex < 2 && club.team && <TeamBadge teamId={club.team.team_id} version={club.team.badge_version} className="size-3.5" />}
                         <span className="truncate">{club.team?.short_name ?? club.club}</span>
                       </strong>
-                      {rowIndex < 2 && <small className="mt-0.5 block whitespace-nowrap text-[10px] text-white/70">{formatMoneyShort(club.marketValue)}</small>}
+                      {rowIndex < 2 && <small className="mt-0.5 block whitespace-nowrap text-[10px] text-white/75">{club.fund ? `${club.fund.symbol} · ${formatCurrency(club.fund.current_price)}` : formatMoneyShort(club.marketValue)}</small>}
                     </span>
                     <b className={`shrink-0 font-bold tabular-nums slashed-zero ${rowIndex === 0 ? "text-[15px]" : rowIndex === 1 ? "text-xs" : "text-[11px]"}`}>{formatChange(value, decimals)}</b>
                   </span>
@@ -90,6 +92,7 @@ export function MarketMap({ clubs }: { clubs: ClubTile[] }) {
                       {club.players.map((player) => (
                         <span key={player.id} className="flex justify-between gap-1.5"><span className="truncate">{player.name}</span><span className="tabular-nums slashed-zero">{formatChange(period === "week" ? player.change7d : player.change1d, decimals)}</span></span>
                       ))}
+                      {club.fund && <span className="mt-1 font-extrabold text-white">Trade the squad →</span>}
                     </span>
                   )}
                 </Link>
@@ -104,7 +107,7 @@ export function MarketMap({ clubs }: { clubs: ClubTile[] }) {
           const value = change(club, period);
           return (
             <li key={club.club} className="border-b border-[#222a35] last:border-b-0">
-              <Link prefetch={false} href={`/players?club=${encodeURIComponent(club.club)}`} className="grid min-h-11 grid-cols-[minmax(0,1fr)_96px_56px] items-center gap-2.5 px-4 text-[11px] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8fb5ff]">
+              <Link prefetch={false} href={tileHref(club)} className="grid min-h-11 grid-cols-[minmax(0,1fr)_96px_56px] items-center gap-2.5 px-4 text-[11px] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8fb5ff]">
                 <span className="flex min-w-0 items-center gap-2 font-semibold">{club.team && <TeamBadge teamId={club.team.team_id} version={club.team.badge_version} className="size-3.5" />}<span className="truncate">{club.team?.short_name ?? club.club}</span></span>
                 <span aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-[#1a212b]"><span className="block h-full" style={{ width: `${largest > 0 ? (Math.abs(value) / largest) * 100 : 0}%`, background: value > 0 ? "#35d07f" : "#f16d73" }} /></span>
                 <b className={`text-right font-bold tabular-nums slashed-zero ${moveTone(value, decimals)}`}>{formatChange(value, decimals)}</b>

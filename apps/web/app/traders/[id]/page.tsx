@@ -23,7 +23,7 @@ export default async function TraderPage({ params }: PageProps) {
   const data = await getTraderPageData(id);
   if (!data) notFound();
 
-  const { account, tickerStocks, searchInstruments, profile } = data;
+  const { account, tickerStocks, searchInstruments, searchFunds, profile } = data;
   const { trader, holdings, recent_trades: trades } = profile;
   const isViewer = account?.id === trader.account_id;
   const holdingsValue = Number(trader.holdings_value);
@@ -32,7 +32,7 @@ export default async function TraderPage({ params }: PageProps) {
   const instrumentsById = new Map(searchInstruments.map((instrument) => [instrument.id, instrument]));
 
   return (
-    <Shell active="leaderboard" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments}>
+    <Shell active="leaderboard" account={account} tickerStocks={tickerStocks} searchInstruments={searchInstruments} searchFunds={searchFunds}>
       <section className="mx-auto w-full max-w-[1220px] min-w-0 px-3 py-6 md:px-7 md:py-8">
         <Link href="/leaderboard" className="mb-6 inline-flex h-9 items-center gap-2 rounded-lg px-2 text-[11px] font-semibold text-[#7f8995] hover:bg-white/[0.035] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">
           <svg viewBox="0 0 20 20" aria-hidden="true" className="size-4" fill="none"><path d="m12.5 4.5-5 5.5 5 5.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
