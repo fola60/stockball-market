@@ -8,12 +8,27 @@ from app.instruments.models import InstrumentStatus, RadarAxisRecord
 
 
 @dataclass(frozen=True)
+class TopHoldingRecord:
+    instrument_id: UUID
+    player_name: str
+    # Share of the basket's value, in percent.
+    weight: str
+
+
+@dataclass(frozen=True)
 class IndexFundRecord:
     id: UUID
     symbol: str
     display_name: str
     index_kind: str
     club: str | None
+    # Rule funds: what the fund follows and how it is grouped on the site. Team funds have the
+    # "Clubs" category and no rule.
+    rule_key: str | None
+    category: str | None
+    description: str | None
+    rule: dict | None
+    weighting: str
     # The value of one unit: its basket at current prices plus its cash.
     current_price: str
     # Cash behind each unit, from buyouts of players who left the league, until the next
@@ -27,9 +42,15 @@ class IndexFundRecord:
     units_outstanding: str
     price_change_24h: str
     price_change_7d: str
+    # How today's basket has moved, in percent: its players' price changes weighted by their
+    # shares per unit. Unlike the unit price's change, this is meaningful for a new fund.
+    basket_change_24h: str
+    basket_change_7d: str
     volume_24h: str
     traded_value_24h: str
     club_badge_version: str | None
+    # The largest holdings by value, biggest first.
+    top_holdings: list[TopHoldingRecord]
     created_at: datetime
     updated_at: datetime
 

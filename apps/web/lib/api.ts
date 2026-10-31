@@ -43,16 +43,24 @@ export type InstrumentFreeze = {
 };
 
 /**
- * A team fund. A unit holds the same number of shares of every current player at the club,
- * so buying a unit buys every player at their own price. The fund follows the squad: when
- * players join or leave, it rebalances without changing what a unit is worth.
+ * An index fund: a unit holds shares of every player its rule picks, so buying a unit buys
+ * each player at their own price. TEAM funds follow one club's squad; RULE funds follow a
+ * league-wide rule, such as the 20 most valuable players. When the rule's result changes, the
+ * fund rebalances without changing what a unit is worth.
  */
 export type IndexFund = {
   id: string;
   symbol: string;
   display_name: string;
-  index_kind: "TEAM";
+  index_kind: "TEAM" | "RULE";
   club: string | null;
+  rule_key: string | null;
+  /** Groups funds on the site; team funds are "Clubs". */
+  category: string | null;
+  description: string | null;
+  rule: FundRule | null;
+  /** EQUAL_SHARES weights players by price; EQUAL_VALUE gives each the same value. */
+  weighting: "EQUAL_SHARES" | "EQUAL_VALUE";
   current_price: string;
   /** Cash behind each unit from buyouts of departed players, until the next rebalance. */
   cash_per_unit: string;
@@ -64,11 +72,28 @@ export type IndexFund = {
   units_outstanding: string;
   price_change_24h: string;
   price_change_7d: string;
+  /** How the current basket's players have moved, weighted by their shares per unit. */
+  basket_change_24h: string;
+  basket_change_7d: string;
   volume_24h: string;
   traded_value_24h: string;
   club_badge_version: string | null;
+  /** The largest holdings by value, biggest first; weight is a percent of the basket. */
+  top_holdings: Array<{ instrument_id: string; player_name: string; weight: string }>;
   updated_at: string;
 };
+
+/** How a rule fund picks its players, as the worker evaluates it. */
+export type FundRule = {
+  rank_by: string | null;
+  size: number | null;
+  rank_from: number;
+  buffer: number;
+  one_per_club: boolean;
+  review_days: number;
+  eligibility: Record<string, unknown>;
+};
+
 
 export type IndexConstituent = {
   instrument_id: string;
@@ -514,11 +539,23 @@ export async function getInstrumentPageData(instrumentId: string) {
   };
 }
 
+/** Sparklines for any number of instruments, a request per batch the API allows. */
+export async function getSparklinesInBatches(instrumentIds: string[], range: SparklineRange) {
+  const batches: string[][] = [];
+  for (let start = 0; start < instrumentIds.length; start += SPARKLINE_BATCH) {
+    batches.push(instrumentIds.slice(start, start + SPARKLINE_BATCH));
+  }
+  const results = await Promise.all(batches.map((batch) => getSparklines(batch, range)));
+  return Object.assign({}, ...results) as Record<string, number[]>;
+}
+
+const SPARKLINE_BATCH = 60;
+
 export async function getFundsPageData() {
   const [shell, funds] = await Promise.all([getShellData(), getIndexFunds()]);
   let prices: Record<string, number[]> = {};
   try {
-    prices = await getSparklines(funds.map((fund) => fund.id), "1W");
+    prices = await getSparklinesInBatches(funds.filter((fund) => fund.status !== "DELISTED").map((fund) => fund.id), "1W");
   } catch {
     // The list still reads without its charts.
   }

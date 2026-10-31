@@ -10,6 +10,14 @@ from app.instruments.models import InstrumentStatus
 from app.instruments.schemas import RadarAxisResponse
 
 
+class TopHoldingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    instrument_id: UUID
+    player_name: str
+    weight: str
+
+
 class IndexFundResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -18,6 +26,11 @@ class IndexFundResponse(BaseModel):
     display_name: str
     index_kind: str
     club: str | None
+    rule_key: str | None
+    category: str | None
+    description: str | None
+    rule: dict | None
+    weighting: str
     current_price: str
     cash_per_unit: str
     status: InstrumentStatus
@@ -26,9 +39,12 @@ class IndexFundResponse(BaseModel):
     units_outstanding: str
     price_change_24h: str
     price_change_7d: str
+    basket_change_24h: str
+    basket_change_7d: str
     volume_24h: str
     traded_value_24h: str
     club_badge_version: str | None
+    top_holdings: list[TopHoldingResponse]
     created_at: datetime
     updated_at: datetime
 

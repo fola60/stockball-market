@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell, panel } from "../../components/market-shell";
-import { FundBadge, PausedTag } from "../../components/fund-media";
+import { FundBadge, PausedTag, reviewCadence } from "../../components/fund-media";
 import { PlayerAvatar } from "../../components/player-media";
 import { PriceChart } from "../../instrument/[id]/price-chart";
 import { RadarChart } from "../../instrument/[id]/radar-chart";
 import { TradeTicket } from "../../instrument/[id]/trade-ticket";
 import { getFundPageData, type BasketChange, type IndexFundDetail } from "@/lib/api";
+import { fundCategory } from "@/lib/funds";
 import { formatChange, formatCompact, formatCurrency, formatMoneyShort, formatPercent, moveTone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -70,13 +71,24 @@ export default async function FundPage({ params }: PageProps) {
   const price = Number(fund.current_price);
   const change = Number(fund.price_change_24h);
   const ownedQuantity = portfolio?.positions.find((position) => position.instrument_id === fund.id)?.quantity ?? "0";
+  const team = fund.index_kind === "TEAM";
+  const cadence = reviewCadence(fund.rule?.review_days ?? 1);
+  const facts: [string, string][] = [
+    ["Units traded 24h", formatCompact(fund.volume_24h)],
+    ["Traded 24h", formatMoneyShort(fund.traded_value_24h)],
+    ["Units held", formatCompact(fund.units_outstanding)],
+    ...(team ? [] : ([
+      ["Reviewed", cadence],
+      ["Weighting", fund.weighting === "EQUAL_VALUE" ? "Equal value" : "By price"],
+    ] as [string, string][])),
+  ];
 
   return (
     <Shell active="funds" {...shell}>
       <div className="mx-auto w-full max-w-[1220px] min-w-0 px-3 py-6 md:px-7 md:py-8">
         <Link href="/funds" className="mb-6 inline-flex h-9 items-center gap-2 rounded-lg px-2 text-[11px] font-semibold text-[#7f8995] hover:bg-white/[0.035] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">
           <svg viewBox="0 0 20 20" aria-hidden="true" className="size-4" fill="none"><path d="m12.5 4.5-5 5.5 5 5.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          All team funds
+          All funds
         </Link>
 
         <header className="mb-7 flex flex-col justify-between gap-6 md:flex-row md:items-end">
@@ -84,10 +96,11 @@ export default async function FundPage({ params }: PageProps) {
             <FundBadge fund={fund} className="size-16 md:size-24" />
             <div className="min-w-0">
               <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#7f8995]">
-                <span>Team fund</span><span aria-hidden="true">·</span><span>{fund.constituent_count} players</span><PausedTag fund={fund} />
+                <span>{team ? "Team fund" : fundCategory(fund)}</span><span aria-hidden="true">·</span><span>{fund.constituent_count} players</span><PausedTag fund={fund} />
               </div>
               <h1 className="text-3xl font-semibold leading-tight tracking-[-0.03em] md:text-[42px]">{fund.display_name}</h1>
               <p className="mt-2 break-all text-[11px] font-medium text-[#818b97]">{fund.symbol}</p>
+              {fund.description && <p className="mt-3 max-w-[60ch] text-sm leading-6 text-[#b4bdc8]">{fund.description}</p>}
             </div>
           </div>
           <div className="md:text-right">
@@ -101,7 +114,7 @@ export default async function FundPage({ params }: PageProps) {
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
           <section aria-labelledby="price-history-title" className={panel}>
             <div className="flex items-center justify-between border-b border-[#202630] px-4 py-4 md:px-5">
-              <div><h2 id="price-history-title" className="text-base font-semibold">Unit price history</h2><p className="mt-1 text-[11px] font-medium text-[#77818e]">The value of one share of every player in the fund</p></div>
+              <h2 id="price-history-title" className="text-base font-semibold">Unit price history</h2>
               <span className="text-[11px] font-medium text-[#818b97]">History loads by range</span>
             </div>
             <PriceChart instrumentId={fund.id} history={history} currentPrice={price} currentTimestamp={fund.updated_at} />
@@ -112,12 +125,8 @@ export default async function FundPage({ params }: PageProps) {
           </div>
         </div>
 
-        <dl className="grid grid-cols-2 border-x border-b border-[#222a35] bg-[#0b0f15] md:grid-cols-3">
-          {[
-            ["Units traded 24h", formatCompact(fund.volume_24h)],
-            ["Traded 24h", formatMoneyShort(fund.traded_value_24h)],
-            ["Units held", formatCompact(fund.units_outstanding)],
-          ].map(([term, value]) => (
+        <dl className={`grid grid-cols-2 border-x border-b border-[#222a35] bg-[#0b0f15] ${team ? "md:grid-cols-3" : "md:grid-cols-5"}`}>
+          {facts.map(([term, value]) => (
             <div key={term} className="border-r border-[#202630] p-4 last:border-r-0">
               <dt className="text-[11px] font-semibold text-[#818b97]">{term}</dt>
               <dd className="mt-2 text-sm font-semibold text-white tabular-nums slashed-zero">{value}</dd>
@@ -127,8 +136,8 @@ export default async function FundPage({ params }: PageProps) {
 
         <section aria-labelledby="squad-profile-title" className={`${panel} mt-5`}>
           <div className="border-b border-[#202630] px-4 py-5 md:px-6">
-            <h2 id="squad-profile-title" className="text-xl font-semibold tracking-[-0.02em]">Squad profile</h2>
-            <p className="mt-1.5 max-w-[70ch] text-[11px] leading-5 text-[#77818e]">Each player is ranked against their own position, then the squad&apos;s scores are averaged, weighted by each player&apos;s share of a unit. Shot stopping counts only the keepers.</p>
+            <h2 id="squad-profile-title" className="text-xl font-semibold tracking-[-0.02em]">{team ? "Squad profile" : "Fund profile"}</h2>
+            <p className="mt-1.5 max-w-[70ch] text-[11px] leading-5 text-[#77818e]">Each player is ranked against their own position, then the scores are averaged, weighted by each player&apos;s share of a unit. Shot stopping counts only the keepers.</p>
           </div>
           {fund.profile && fund.profile.radar_axes.length > 0 ? (
             <div className="min-w-0 px-2 py-5 sm:px-6 md:py-7">
@@ -142,7 +151,9 @@ export default async function FundPage({ params }: PageProps) {
         <section aria-labelledby="basket-title" className={`${panel} mt-5`}>
           <div className="border-b border-[#202630] px-4 py-5 md:px-6">
             <h2 id="basket-title" className="text-xl font-semibold tracking-[-0.02em]">What one unit holds</h2>
-            <p className="mt-1.5 text-[11px] text-[#77818e]">Every player holds the same number of shares, so weight is each player&apos;s share of the unit price.</p>
+            <p className="mt-1.5 text-[11px] text-[#77818e]">{fund.weighting === "EQUAL_VALUE"
+              ? "Every player is given the same value at each rebalance; weights drift with prices in between."
+              : "Every player holds the same number of shares, so weight is each player\u2019s share of the unit price."}</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-left text-[11px]">
@@ -191,13 +202,13 @@ export default async function FundPage({ params }: PageProps) {
 
         <section aria-labelledby="basket-changes-title" className={`${panel} mt-5`}>
           <div className="border-b border-[#202630] px-4 py-5 md:px-6">
-            <h2 id="basket-changes-title" className="text-xl font-semibold tracking-[-0.02em]">Squad changes</h2>
-            <p className="mt-1.5 max-w-[70ch] text-[11px] leading-5 text-[#77818e]">Each day the fund is checked against the club&apos;s current players. Joiners are bought and leavers sold with the same money, so a unit keeps its value apart from the cost of the trades.</p>
+            <h2 id="basket-changes-title" className="text-xl font-semibold tracking-[-0.02em]">{team ? "Squad changes" : "Basket changes"}</h2>
+            <p className="mt-1.5 max-w-[70ch] text-[11px] leading-5 text-[#77818e]">{team ? "Each day the fund is checked against the club\u2019s current players." : `${cadence === "Daily" ? "Each day" : cadence === "Weekly" ? "Each week" : cadence === "Monthly" ? "Each month" : cadence} the fund is checked against its rule.`} Joiners are bought and leavers sold with the same money, so a unit keeps its value apart from the cost of the trades.</p>
           </div>
           {fund.basket_changes.length > 0 ? (
             <ul className="divide-y divide-[#202630] px-4 md:px-6">{fund.basket_changes.map((change) => <BasketChangeRow key={`${change.created_at}-${change.kind}`} change={change} />)}</ul>
           ) : (
-            <p className="px-4 py-8 text-xs text-[#77818e] md:px-6">No squad changes since this fund was listed.</p>
+            <p className="px-4 py-8 text-xs text-[#77818e] md:px-6">No changes since this fund was listed.</p>
           )}
         </section>
       </div>

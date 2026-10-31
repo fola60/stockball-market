@@ -86,23 +86,26 @@ def review_index_funds(args) -> int:
     for review in result.reviews:
         change = f"{len(review.added)} joining, {len(review.removed)} leaving"
         if review.action is ReviewAction.FAILED:
-            print(f"{review.symbol} ({review.club}): failed: {review.error}")
+            print(f"{review.symbol} ({review.name}): failed: {review.error}")
         elif review.action is ReviewAction.UNCHANGED:
             print(
-                f"{review.symbol} ({review.club}): unchanged, "
+                f"{review.symbol} ({review.name}): unchanged, "
                 f"{review.constituent_count} players"
             )
         elif review.action in (ReviewAction.CREATED, ReviewAction.WOULD_CREATE):
             verb = "would list" if result.dry_run else "listed"
             print(
-                f"{review.symbol} ({review.club}): {verb} "
+                f"{review.symbol} ({review.name}): {verb} "
                 f"over {review.constituent_count} players"
+                + (f" at £{review.unit_price}" if review.unit_price else "")
             )
         else:
             verb = "would rebalance" if result.dry_run else "rebalanced"
-            print(f"{review.symbol} ({review.club}): {verb}, {change}")
+            print(f"{review.symbol} ({review.name}): {verb}, {change}")
     for club, count in sorted(result.too_small.items()):
         print(f"{club}: skipped, only {count} listed players")
+    for symbol, count in sorted(result.rules_too_small.items()):
+        print(f"{symbol}: not listed, only {count} players meet its rule")
     for club in result.without_roster:
         print(f"{club}: has a fund but no listed players this season")
     failed = result.count(ReviewAction.FAILED)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
@@ -113,6 +115,28 @@ class TeamFund:
         return float(self.cash_per_unit) / price if price > 0 else 0.0
 
 
+@dataclass(frozen=True)
+class RuleFund:
+    """A listed rule fund and its basket as it stands."""
+
+    instrument_id: UUID
+    symbol: str
+    rule_key: str
+    members: frozenset[UUID]
+    halted_members: frozenset[UUID] = frozenset()
+    cash_per_unit: str = "0"
+    unit_price: str = "0"
+    # Each member's shares per unit and price, for weight drift.
+    holdings: dict[UUID, tuple[Decimal, Decimal]] = field(default_factory=dict)
+    # When the basket last changed by rule: its latest rebalance, or its listing.
+    last_rebalanced_at: datetime | None = None
+
+    @property
+    def cash_share(self) -> float:
+        price = float(self.unit_price)
+        return float(self.cash_per_unit) / price if price > 0 else 0.0
+
+
 class ReviewAction(StrEnum):
     CREATED = "CREATED"
     REBALANCED = "REBALANCED"
@@ -125,7 +149,8 @@ class ReviewAction(StrEnum):
 
 @dataclass(frozen=True)
 class FundReview:
-    club: str
+    # The club a team fund follows, or a rule fund's name.
+    name: str
     symbol: str
     action: ReviewAction
     constituent_count: int
@@ -145,6 +170,8 @@ class IndexReviewResult:
     too_small: dict[str, int] = field(default_factory=dict)
     # Funds whose club has no listed players this season, e.g. after relegation.
     without_roster: tuple[str, ...] = ()
+    # Rule funds not listed because too few players meet their rule, by symbol.
+    rules_too_small: dict[str, int] = field(default_factory=dict)
 
     def count(self, *actions: ReviewAction) -> int:
         return sum(1 for review in self.reviews if review.action in actions)

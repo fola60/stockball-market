@@ -14,11 +14,13 @@ from app.index_funds import (
     MIN_TEAM_PLAYERS,
     IndexReviewService,
     ReviewAction,
+    RuleFund,
     TeamFund,
     TeamRoster,
     club_code,
     team_fund_symbol,
 )
+from app.index_funds.rules import LeagueFacts
 from app.synthetic_traders import (
     BotActivityContext,
     BotPortfolioContext,
@@ -202,15 +204,30 @@ class IndexFundTickTests(unittest.TestCase):
 
 
 class FakeFundRepository:
-    def __init__(self, rosters: list[TeamRoster], funds: list[TeamFund] | None = None):
+    def __init__(
+        self,
+        rosters: list[TeamRoster],
+        funds: list[TeamFund] | None = None,
+        *,
+        league: LeagueFacts | None = None,
+        rule_funds: list[RuleFund] | None = None,
+    ):
         self.rosters = rosters
         self.funds = funds or []
+        self.league = league
+        self.rules = rule_funds or []
 
     def team_rosters(self, season: int) -> list[TeamRoster]:
         return self.rosters
 
     def team_funds(self) -> list[TeamFund]:
         return self.funds
+
+    def league_facts(self, season: int) -> LeagueFacts:
+        return self.league or LeagueFacts(season=season, players=())
+
+    def rule_funds(self) -> list[RuleFund]:
+        return self.rules
 
 
 class FakeFundEngine:
@@ -323,7 +340,7 @@ class IndexReviewServiceTests(unittest.TestCase):
             FakeFundRepository([arsenal, moved, tiny], funds), dry
         ).review(2026, dry_run=True)
         self.assertEqual(
-            {r.club: r.action for r in dry_result.reviews},
+            {r.name: r.action for r in dry_result.reviews},
             {"Arsenal": ReviewAction.UNCHANGED, "Chelsea": ReviewAction.WOULD_REBALANCE},
         )
         self.assertEqual((dry.created, dry.rebalanced), ([], []))

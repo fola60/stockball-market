@@ -8,6 +8,7 @@ import {
   getOptionalAccount,
   getPortfolio,
   getSparklines,
+  getSparklinesInBatches,
   isInMarket,
   playerName,
   shellData,
@@ -265,10 +266,12 @@ export async function getHomePageData() {
     optional(getSparklines([...new Set([...ids(weekSelection), ...valuable.map((instrument) => instrument.id)])], "1W"), {}),
     optional<MarketTrade[]>(getMarketTrades(5), []),
   ]);
-  const [news, leaders, portfolio] = await Promise.all([
+  const ruleFunds = listedFunds.filter((fund) => fund.index_kind === "RULE");
+  const [news, leaders, portfolio, fundSeries] = await Promise.all([
     optional<NewsItem[]>(getMarketNews(3), []),
     optional<LeaderboardPage | null>(getLeaderboard("ALL", 5), null),
     account ? optional<Portfolio | null>(getPortfolio(account.portfolio.id), null) : Promise.resolve(null),
+    optional(getSparklinesInBatches(ruleFunds.map((fund) => fund.id), "1W"), {}),
   ]);
 
   const byId = new Map(instruments.map((instrument) => [instrument.id, instrument]));
@@ -302,6 +305,7 @@ export async function getHomePageData() {
     matchday,
     fixtures,
     clubs: clubTiles(market, matchday, listedFunds),
+    indexFunds: { funds: ruleFunds, prices: fundSeries },
     mostTraded: [...market]
       .filter((instrument) => Number(instrument.traded_value_24h) > 0)
       .sort((a, b) => Number(b.traded_value_24h) - Number(a.traded_value_24h))

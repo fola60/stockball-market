@@ -6,11 +6,12 @@ mod service;
 pub use error::IndexFundError;
 pub use model::{
     CreateIndexFundCommand, CreateIndexFundResult, IndexConstituent, IndexKind,
-    RebalanceIndexFundCommand, RebalanceIndexFundResult, CUSTODY_ACCOUNT_ID, CUSTODY_PORTFOLIO_ID,
+    RebalanceIndexFundCommand, RebalanceIndexFundResult, Weighting, CUSTODY_ACCOUNT_ID,
+    CUSTODY_PORTFOLIO_ID,
 };
 pub use repository::{
     basket_value, cash_per_unit, index_ids_containing, load_constituents, unit_prices,
-    units_outstanding,
+    units_outstanding, weighting,
 };
 
 pub(crate) use model::BasketChange;

@@ -64,6 +64,7 @@ def review_index_funds_handler(service):
                      "reviews": {r.symbol: r.action.value for r in result.reviews},
                      "errors": {r.symbol: r.error for r in result.reviews if r.error},
                      "too_small": result.too_small,
+                     "rules_too_small": result.rules_too_small,
                      "without_roster": list(result.without_roster)},
         )
     return execute
