@@ -84,9 +84,16 @@ cp scripts/local-ingestion.env.example .env.local-ingestion
 
 `review-index-funds` applies each index fund's rule. The team rule picks every league club's
 current-season players, leaving out anyone halted for anything but a match day. A club with at
-least eleven such players and no fund gets one (`IDX-ARS`, `IDX-MUN`, ...). A fund whose rule
-result has changed, or that holds at least 1% of its value as cash from buyouts, is rebalanced
-to it by the engine without changing what a unit is worth. Players halted until their buyout
+least eleven such players and no fund gets one (`IDX-ARS`, `IDX-MUN`, ...). The rule funds in
+`app/index_funds/rules.py` (`IDX-SB20`, `IDX-GK`, `IDX-GLD`, ...) pick players league-wide by
+club, position, nationality, age and minutes, ranked by Transfermarkt value, FBref and FotMob
+stats, bookmakers' odds or social mentions, never by Stockball's own price. Each lists at £100 a
+unit once enough players qualify and is reviewed on its own cadence (daily, weekly or monthly);
+ranked funds keep a buffer around the cut-off so players near it do not trade in and out. A
+fund whose rule result has changed, or that holds at least 1% of its value as cash from
+buyouts, is rebalanced to it by the engine without changing what a unit is worth; equal-value
+funds are also re-levelled at review once a member's weight drifts 25% from an equal share. If
+too few players qualify, as when a data feed has stopped, the fund keeps its basket. Players halted until their buyout
 stay in their fund meanwhile. `--dry-run` reports what would change. The scheduler runs it daily
 as `REVIEW_INDEX_FUNDS`, an hour after the roster sync, and the admin console can run it on
 demand. A rebalance needing a player paused for a match fails and is retried the next day.

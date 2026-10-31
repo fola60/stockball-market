@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Shell, panel } from "./components/market-shell";
 import { LiveTrades, TopTraders } from "./components/home/activity";
+import { IndexFunds } from "./components/home/index-funds";
 import { MarketMap } from "./components/home/market-map";
 import { MatchdayPanel } from "./components/home/matchday-panel";
 import { BiggestMovers } from "./components/home/movers";
@@ -33,7 +34,9 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
           </p>
         </header>
 
-        <div className="-mt-2 flex flex-wrap items-stretch gap-6">
+        <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />
+
+        <div className="flex flex-wrap items-stretch gap-6">
           <BiggestMovers movers={data.movers} totalPlayers={data.listedCount} />
           <MatchdayPanel matchday={data.matchday} fixtures={data.fixtures} signedIn={Boolean(data.account)} />
         </div>

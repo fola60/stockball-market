@@ -7,11 +7,11 @@ import { formatCurrency } from "@/lib/format";
 import { FundBadge } from "./fund-media";
 import { ClubBadge, PlayerAvatar } from "./player-media";
 
-type SearchableFund = Pick<IndexFund, "id" | "symbol" | "display_name" | "club" | "current_price" | "club_badge_version">;
+type SearchableFund = Pick<IndexFund, "id" | "symbol" | "display_name" | "club" | "current_price" | "club_badge_version" | "index_kind" | "category" | "description">;
 
-/** A fund matches on its name, symbol, or club, so "arsenal" finds Arsenal Index. */
+/** A fund matches on its name, symbol, club or category, so "arsenal" finds Arsenal Index. */
 function fundRank(fund: SearchableFund, query: string): number | null {
-  const fields = [fund.display_name, fund.symbol, fund.club ?? ""].map((field) => field.toLocaleLowerCase());
+  const fields = [fund.display_name, fund.symbol, fund.club ?? "", fund.category ?? ""].map((field) => field.toLocaleLowerCase());
   if (fields.some((field) => field === query)) return 0;
   if (fields.some((field) => field.startsWith(query))) return 1;
   if (fields.some((field) => field.includes(query))) return 2;
@@ -113,7 +113,7 @@ export function PlayerSearch({ instruments, funds = [] }: { instruments: Searcha
           {!normalizedQuery ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">Search by player, club, fund, or ticker.</p> : null}
           {normalizedQuery && results.length === 0 && fundResults.length === 0 ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#818b97]">Nothing matches “{query.trim()}”.</p> : null}
           {fundResults.map(({ fund }) => <Link prefetch={false} key={fund.id} href={`/funds/${fund.id}`} onClick={closeSearch} className="flex items-center justify-between gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.045] focus:bg-white/[0.045] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">
-            <span className="flex min-w-0 items-center gap-3"><FundBadge fund={fund} className="size-9" /><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{fund.display_name}</strong><small className="mt-1 block truncate text-[11px] font-medium text-[#818b97]">Team fund · {formatCurrency(fund.current_price)}</small></span></span>
+            <span className="flex min-w-0 items-center gap-3"><FundBadge fund={fund} className="size-9" /><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{fund.display_name}</strong><small className="mt-1 block truncate text-[11px] font-medium text-[#818b97]">{fund.index_kind === "TEAM" ? "Team fund" : `${fund.category ?? "Index"} fund`} · {formatCurrency(fund.current_price)}</small></span></span>
             <span className="shrink-0 text-[11px] font-semibold text-[#8fb5ff]">{fund.symbol}</span>
           </Link>)}
           {results.map(({ instrument }) => <Link prefetch={false} key={instrument.id} href={`/instrument/${instrument.id}`} onClick={closeSearch} className="flex items-center justify-between gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-white/[0.045] focus:bg-white/[0.045] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">

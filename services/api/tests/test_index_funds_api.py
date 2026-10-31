@@ -11,6 +11,7 @@ from app.index_funds.models import (
     BasketChangeRecord,
     IndexConstituentRecord,
     IndexFundRecord,
+    TopHoldingRecord,
 )
 from app.index_funds.service import IndexFundsService, squad_profile
 from app.instruments.models import (
@@ -73,6 +74,11 @@ def _fund(fund_id: UUID) -> IndexFundRecord:
         display_name="Arsenal Index",
         index_kind="TEAM",
         club="Arsenal",
+        rule_key=None,
+        category="Clubs",
+        description=None,
+        rule=None,
+        weighting="EQUAL_SHARES",
         current_price="100.000000000000",
         cash_per_unit="2.5",
         status=InstrumentStatus.FROZEN,
@@ -81,9 +87,12 @@ def _fund(fund_id: UUID) -> IndexFundRecord:
         units_outstanding="2.5",
         price_change_24h="1.2500",
         price_change_7d="-0.5000",
+        basket_change_24h="1.5000",
+        basket_change_7d="4.0000",
         volume_24h="2.5",
         traded_value_24h="250.0000",
         club_badge_version=None,
+        top_holdings=[TopHoldingRecord(instrument_id=fund_id, player_name="Bukayo Saka", weight="12.50")],
         created_at=now,
         updated_at=now,
     )
@@ -190,6 +199,10 @@ class IndexFundsApiTests(unittest.TestCase):
         self.assertEqual(fund["symbol"], "IDX-ARS")
         self.assertEqual(fund["status"], "FROZEN")
         self.assertEqual(fund["freeze_reason"], "MATCH_DAY")
+        self.assertEqual(fund["category"], "Clubs")
+        self.assertEqual(fund["weighting"], "EQUAL_SHARES")
+        self.assertEqual(fund["basket_change_7d"], "4.0000")
+        self.assertEqual(fund["top_holdings"][0]["player_name"], "Bukayo Saka")
 
     def test_fund_detail_includes_basket_and_profile(self) -> None:
         response = self.client.get(f"/v1/index-funds/{self.fund_id}")

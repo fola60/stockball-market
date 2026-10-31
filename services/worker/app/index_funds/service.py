@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from typing import Callable
 from uuid import UUID
 
 from app.clients import (
@@ -21,15 +23,29 @@ from .models import (
     FundReview,
     IndexReviewResult,
     ReviewAction,
+    RuleFund,
     TeamFund,
     team_fund_name,
     team_fund_symbol,
 )
 from .repository import IndexFundRepository
+from .rules import (
+    EQUAL_VALUE_DRIFT,
+    RULE_FUNDS,
+    RULE_INDEX_KIND,
+    LeagueFacts,
+    RuleFundDefinition,
+    Weighting,
+    launch_basket,
+    select_members,
+    value_drift,
+)
 
 logger = logging.getLogger(__name__)
 
 ENGINE_ERRORS = (TradingEngineClientError, TradingEngineUnavailableError)
+# The review runs daily at about the same time; a little slack keeps a 7-day fund on day 7.
+REVIEW_SLACK = timedelta(hours=6)
 
 
 @dataclass
@@ -46,8 +62,157 @@ class IndexReviewService:
 
     repository: IndexFundRepository
     engine: IndexFundClient
+    definitions: tuple[RuleFundDefinition, ...] = RULE_FUNDS
+    clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
 
     def review(self, season: int, *, dry_run: bool = False) -> IndexReviewResult:
+        teams = self._review_teams(season, dry_run)
+        rule_reviews, rules_too_small = self._review_rules(season, dry_run)
+        return replace(
+            teams, reviews=teams.reviews + rule_reviews, rules_too_small=rules_too_small
+        )
+
+    def _review_rules(
+        self, season: int, dry_run: bool
+    ) -> tuple[tuple[FundReview, ...], dict[str, int]]:
+        """Lists each rule fund once enough players meet its rule, and rebalances listed ones
+        to their rule when their review is due."""
+        if not self.definitions:
+            return (), {}
+        league = self.repository.league_facts(season)
+        funds = {fund.rule_key: fund for fund in self.repository.rule_funds()}
+        prices = {player.instrument_id: player.price for player in league.players}
+        now = self.clock()
+        reviews: list[FundReview] = []
+        too_small: dict[str, int] = {}
+        for definition in self.definitions:
+            fund = funds.get(definition.key)
+            if fund is None:
+                members = select_members(definition, league)
+                if len(members) < max(1, definition.min_members):
+                    too_small[definition.symbol] = len(members)
+                    continue
+                reviews.append(self._create_rule_fund(definition, members, prices, dry_run))
+                continue
+            reviews.append(self._review_rule_fund(definition, fund, league, now, dry_run))
+        return tuple(reviews), too_small
+
+    def _review_rule_fund(
+        self,
+        definition: RuleFundDefinition,
+        fund: RuleFund,
+        league: LeagueFacts,
+        now: datetime,
+        dry_run: bool,
+    ) -> FundReview:
+        due = fund.last_rebalanced_at is None or (
+            now - fund.last_rebalanced_at
+            >= timedelta(days=definition.review_days) - REVIEW_SLACK
+        )
+        if due:
+            selected = set(select_members(definition, league, fund.members))
+            # Too few qualify, as when a data source has stopped: keep the basket as it is.
+            if len(selected) < max(1, definition.min_members):
+                selected = set(fund.members)
+        else:
+            selected = set(fund.members)
+        target = selected | fund.halted_members
+        added = tuple(sorted(target - fund.members))
+        removed = tuple(sorted(fund.members - target))
+        review = FundReview(
+            name=definition.name,
+            symbol=fund.symbol,
+            action=ReviewAction.UNCHANGED,
+            constituent_count=len(target),
+            added=added,
+            removed=removed,
+            instrument_id=fund.instrument_id,
+        )
+        reinvest = fund.cash_share >= CASH_REINVEST_SHARE
+        relevel = (
+            due
+            and definition.weighting is Weighting.EQUAL_VALUE
+            and value_drift(fund.holdings) > EQUAL_VALUE_DRIFT
+        )
+        if not added and not removed and not reinvest and not relevel:
+            return review
+        if dry_run:
+            return _with(review, action=ReviewAction.WOULD_REBALANCE)
+        if added or removed:
+            reason = f"rule result changed: {len(added)} joined, {len(removed)} left"
+        elif relevel:
+            reason = "re-levelling member weights"
+        else:
+            reason = "reinvesting cash from buyouts"
+        return self._send_rebalance(
+            review,
+            RebalanceIndexFundCommand(
+                request_id=_rebalance_request_id(
+                    fund.instrument_id, fund.members, fund.cash_per_unit, target,
+                    # A re-levelling repeats with the same members, so it is told apart by day.
+                    extra=now.date().isoformat() if relevel else "",
+                ),
+                instrument_id=fund.instrument_id,
+                reason=reason,
+                members=tuple(sorted(target)),
+            ),
+            fund.symbol,
+        )
+
+    def _create_rule_fund(
+        self,
+        definition: RuleFundDefinition,
+        members: tuple[UUID, ...],
+        prices: dict,
+        dry_run: bool,
+    ) -> FundReview:
+        review = FundReview(
+            name=definition.name,
+            symbol=definition.symbol,
+            action=ReviewAction.WOULD_CREATE,
+            constituent_count=len(members),
+            added=members,
+        )
+        if dry_run:
+            return review
+        try:
+            record = self.engine.create_index_fund(
+                CreateIndexFundCommand(
+                    symbol=definition.symbol,
+                    display_name=definition.name,
+                    index_kind=RULE_INDEX_KIND,
+                    club=None,
+                    constituents=launch_basket(definition, members, prices),
+                    rule_key=definition.key,
+                    category=definition.category,
+                    description=definition.description,
+                    rule=definition.rule(),
+                    weighting=definition.weighting.value,
+                )
+            )
+        except ENGINE_ERRORS as error:
+            logger.warning("could not list %s: %s", definition.symbol, error)
+            return _with(review, action=ReviewAction.FAILED, error=str(error))
+        return _with(
+            review,
+            action=ReviewAction.CREATED,
+            symbol=record.symbol,
+            instrument_id=record.instrument_id,
+            unit_price=record.unit_price,
+        )
+
+    def _send_rebalance(
+        self, review: FundReview, command: RebalanceIndexFundCommand, symbol: str
+    ) -> FundReview:
+        try:
+            record = self.engine.rebalance_index_fund(command)
+        except ENGINE_ERRORS as error:
+            # Usually a player paused for a match; the next review tries again.
+            logger.warning("could not rebalance %s: %s", symbol, error)
+            return _with(review, action=ReviewAction.FAILED, error=str(error))
+        return _with(review, action=ReviewAction.REBALANCED, unit_price=record.unit_price_after)
+
+    def _review_teams(self, season: int, dry_run: bool) -> IndexReviewResult:
         rosters = {
             roster.club.casefold(): roster for roster in self.repository.team_rosters(season)
         }
@@ -84,7 +249,7 @@ class IndexReviewService:
         added = tuple(sorted(target - fund.members))
         removed = tuple(sorted(fund.members - target))
         review = FundReview(
-            club=fund.club,
+            name=fund.club,
             symbol=fund.symbol,
             action=ReviewAction.UNCHANGED,
             constituent_count=len(target),
@@ -97,30 +262,28 @@ class IndexReviewService:
             return review
         if dry_run:
             return _with(review, action=ReviewAction.WOULD_REBALANCE)
-        try:
-            record = self.engine.rebalance_index_fund(
-                RebalanceIndexFundCommand(
-                    request_id=_rebalance_request_id(fund, target),
-                    instrument_id=fund.instrument_id,
-                    reason=(
-                        f"squad changed: {len(added)} joined, {len(removed)} left"
-                        if added or removed
-                        else "reinvesting cash from buyouts"
-                    ),
-                    members=tuple(sorted(target)),
-                )
-            )
-        except ENGINE_ERRORS as error:
-            # Usually a player paused for a match; the next review tries again.
-            logger.warning("could not rebalance %s: %s", fund.symbol, error)
-            return _with(review, action=ReviewAction.FAILED, error=str(error))
-        return _with(review, action=ReviewAction.REBALANCED, unit_price=record.unit_price_after)
+        return self._send_rebalance(
+            review,
+            RebalanceIndexFundCommand(
+                request_id=_rebalance_request_id(
+                    fund.instrument_id, fund.members, fund.cash_per_unit, target
+                ),
+                instrument_id=fund.instrument_id,
+                reason=(
+                    f"squad changed: {len(added)} joined, {len(removed)} left"
+                    if added or removed
+                    else "reinvesting cash from buyouts"
+                ),
+                members=tuple(sorted(target)),
+            ),
+            fund.symbol,
+        )
 
     def _create(
         self, club: str, symbol: str, instrument_ids: tuple[UUID, ...], dry_run: bool
     ) -> FundReview:
         review = FundReview(
-            club=club,
+            name=club,
             symbol=symbol,
             action=ReviewAction.WOULD_CREATE,
             constituent_count=len(instrument_ids),
@@ -156,17 +319,25 @@ def _with(review: FundReview, **changes) -> FundReview:
     return replace(review, **changes)
 
 
-def _rebalance_request_id(fund: TeamFund, target: set[UUID]) -> str:
+def _rebalance_request_id(
+    instrument_id: UUID,
+    members: frozenset[UUID],
+    cash_per_unit: str,
+    target: set[UUID],
+    *,
+    extra: str = "",
+) -> str:
     """One request per fund, starting basket, and target, so a retried review replays its
     rebalance while a later change, or cash from a new buyout, makes a new one."""
-    state = "|".join(
-        [
-            ",".join(sorted(str(member) for member in fund.members)),
-            fund.cash_per_unit,
-            ",".join(sorted(str(member) for member in target)),
-        ]
-    )
-    return f"index-review:{fund.instrument_id}:{sha256(state.encode()).hexdigest()[:24]}"
+    parts = [
+        ",".join(sorted(str(member) for member in members)),
+        cash_per_unit,
+        ",".join(sorted(str(member) for member in target)),
+    ]
+    if extra:
+        parts.append(extra)
+    state = "|".join(parts)
+    return f"index-review:{instrument_id}:{sha256(state.encode()).hexdigest()[:24]}"
 
 
 def _unique_symbol(symbol: str, taken: set[str]) -> str:

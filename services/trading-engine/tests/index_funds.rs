@@ -48,6 +48,11 @@ async fn index_funds_trade_their_basket_inner() {
         display_name: "Test Club Index".to_owned(),
         index_kind: IndexKind::Team,
         club: Some(format!("Test Club {suffix}")),
+        rule_key: None,
+        category: None,
+        description: None,
+        rule: None,
+        weighting: Default::default(),
         constituents: players
             .iter()
             .map(|instrument_id| IndexConstituent {

@@ -81,14 +81,7 @@ pub async fn create_index_fund(
         unit_price,
     )
     .await?;
-    repository::insert_index_fund(
-        &mut transaction,
-        instrument_id,
-        command.index_kind,
-        command.club.as_deref().map(str::trim),
-        &constituents,
-    )
-    .await?;
+    repository::insert_index_fund(&mut transaction, instrument_id, &command, &constituents).await?;
     snapshots::record_price_snapshot(
         &mut transaction,
         instrument_id,

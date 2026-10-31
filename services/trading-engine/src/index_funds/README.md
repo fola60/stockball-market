@@ -24,16 +24,20 @@ Owns index funds: instruments whose unit is a fixed basket of player shares.
 
 ## Following a Rule
 
-The worker re-evaluates each fund's rule daily (`REVIEW_INDEX_FUNDS`) and asks the engine to
-rebalance when the result changes or the fund holds cash from a buyout.
+`TEAM` funds follow one club's squad. `RULE` funds follow a league-wide rule the worker owns,
+such as the 20 most valuable players; the fund stores its `rule_key`, `category`, `description`
+and the rule itself so its page can say what it follows. The worker re-evaluates each fund's rule
+(`REVIEW_INDEX_FUNDS`) and asks the engine to rebalance when the result changes or the fund holds
+cash from a buyout.
 
-`POST /internal/v1/instruments/index-funds/rebalance` moves a fund to a new membership in which
-every member holds the same shares per unit, without changing what a unit is worth apart from
-price impact:
+`POST /internal/v1/instruments/index-funds/rebalance` moves a fund to a new membership without
+changing what a unit is worth apart from price impact, spread by the fund's `weighting`:
+`EQUAL_SHARES` gives every member the same shares per unit, so pricier players weigh more;
+`EQUAL_VALUE` gives every member the same value per unit.
 
-1. The target is the unit's current value spread evenly over the new members' prices. A member
-   that cannot trade (a player halted until their buyout) keeps its shares and is left out of
-   the spread.
+1. The target is the unit's current value spread over the new members by the weighting. A
+   member that cannot trade (a player halted until their buyout) keeps its shares and is left
+   out of the spread.
 2. With units in issue, custody sells what leaves or shrinks, then spends the proceeds and the
    fund's cash on what joins or grows. Purchases are scaled down to the cash available, since
    price impact makes them dearer than planned, and the remainder stays as cash per unit. Each

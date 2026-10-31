@@ -1,8 +1,8 @@
 //! Index fund rebalancing: moves a fund's basket to a new membership without changing what a unit
 //! is worth, apart from the price impact of the trades it takes.
 //!
-//! Every member of the new basket holds the same number of shares per unit, sized so the new
-//! basket is worth what the old one was. With units in issue, custody sells what leaves or
+//! The new basket is sized to be worth what the old one was, spread by the fund's weighting:
+//! the same shares of every member, or the same value of every member. With units in issue, custody sells what leaves or
 //! shrinks, then spends the proceeds and the fund's cash on what joins or grows. Price impact
 //! makes the buys dearer than planned, so they are scaled down to the cash available and any
 //! remainder stays as cash per unit. With no units in issue nothing trades: the basket is
@@ -18,7 +18,7 @@ use crate::{
     freezes,
     index_funds::{
         self, BasketChange, IndexConstituent, IndexFundError, RebalanceIndexFundCommand,
-        RebalanceIndexFundResult, CUSTODY_ACCOUNT_ID, CUSTODY_PORTFOLIO_ID,
+        RebalanceIndexFundResult, Weighting, CUSTODY_ACCOUNT_ID, CUSTODY_PORTFOLIO_ID,
     },
     instruments::{self, Instrument, InstrumentStatus, InstrumentType},
     ledger,
@@ -114,7 +114,7 @@ async fn rebalance_in_transaction(
     let price_of = |id: Uuid| players[&id].current_price;
     let unit_price_before = index_funds::basket_value(&old_basket, price_of) + cash_before;
     // A member that cannot trade, such as a player halted until their buyout, keeps its shares;
-    // the rest of the value is spread evenly over the members that can.
+    // the rest of the value is spread over the members that can, by the fund's weighting.
     let old_shares: HashMap<Uuid, Decimal> = old_basket
         .iter()
         .map(|c| (c.instrument_id, c.shares_per_unit))
@@ -131,19 +131,37 @@ async fn rebalance_in_transaction(
             .collect()
     };
     let held_value: Decimal = held.iter().map(|id| old_shares[id] * price_of(*id)).sum();
+    // Each free member's shares per unit are `scale * weight`: a weight of one share each, or
+    // of one pound's worth each, scaled so the members are worth what the unit is.
+    let weighting = index_funds::weighting(&mut *connection, fund_id).await?;
+    let weight_of = |id: Uuid| match weighting {
+        Weighting::EqualShares => Decimal::ONE,
+        Weighting::EqualValue => {
+            let price = price_of(id);
+            if price.is_zero() {
+                Decimal::ZERO
+            } else {
+                Decimal::ONE / price
+            }
+        }
+    };
     let members_value: Decimal = members
         .iter()
         .filter(|id| !held.contains(id))
-        .map(|id| price_of(*id))
+        .map(|id| price_of(*id) * weight_of(*id))
         .sum();
-    let target_shares = if members_value.is_zero() {
+    let scale = if members_value.is_zero() {
         Decimal::ZERO
     } else {
         (unit_price_before - held_value) / members_value
     };
+    let target_shares: HashMap<Uuid, Decimal> = members
+        .iter()
+        .map(|id| (*id, scale * weight_of(*id)))
+        .collect();
 
     let plan = if units.is_zero() {
-        RebalancePlan::without_trades(&members, target_shares)
+        RebalancePlan::without_trades(&target_shares)
     } else {
         plan_trades(
             &old_shares,
@@ -152,7 +170,7 @@ async fn rebalance_in_transaction(
             &players,
             units,
             cash_before,
-            target_shares,
+            &target_shares,
         )?
     };
     let new_prices: HashMap<Uuid, Decimal> = plan
@@ -248,18 +266,20 @@ struct RebalancePlan {
 }
 
 impl RebalancePlan {
-    fn without_trades(members: &BTreeSet<Uuid>, target_shares: Decimal) -> Self {
-        let shares = round_shares_down(target_shares).max(Decimal::new(1, SHARES_DECIMAL_PLACES));
+    fn without_trades(target_shares: &HashMap<Uuid, Decimal>) -> Self {
+        let mut new_basket: Vec<IndexConstituent> = target_shares
+            .iter()
+            .map(|(id, shares)| IndexConstituent {
+                instrument_id: *id,
+                shares_per_unit: round_shares_down(*shares)
+                    .max(Decimal::new(1, SHARES_DECIMAL_PLACES)),
+            })
+            .collect();
+        new_basket.sort_by_key(|constituent| constituent.instrument_id);
         Self {
             sells: Vec::new(),
             buys: Vec::new(),
-            new_basket: members
-                .iter()
-                .map(|id| IndexConstituent {
-                    instrument_id: *id,
-                    shares_per_unit: shares,
-                })
-                .collect(),
+            new_basket,
             cash_per_unit: Decimal::ZERO,
         }
     }
@@ -272,7 +292,7 @@ fn plan_trades(
     players: &HashMap<Uuid, Instrument>,
     units: Decimal,
     cash_before: Decimal,
-    target_shares: Decimal,
+    target_shares: &HashMap<Uuid, Decimal>,
 ) -> Result<RebalancePlan, ExecutionError> {
     let mut sells = Vec::new();
     let mut wanted_buys = Vec::new();
@@ -283,8 +303,8 @@ fn plan_trades(
         let held = units * old_shares.get(id).copied().unwrap_or_default();
         let target = if kept.contains(id) {
             held
-        } else if members.contains(id) {
-            units * target_shares
+        } else if let Some(shares) = target_shares.get(id) {
+            units * *shares
         } else {
             Decimal::ZERO
         };
