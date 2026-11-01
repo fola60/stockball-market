@@ -34,12 +34,12 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
           </p>
         </header>
 
-        <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />
-
-        <div className="flex flex-wrap items-stretch gap-6">
+        <div className="-mt-2 flex flex-wrap items-stretch gap-6">
           <BiggestMovers movers={data.movers} totalPlayers={data.listedCount} />
           <MatchdayPanel matchday={data.matchday} fixtures={data.fixtures} signedIn={Boolean(data.account)} />
         </div>
+
+        <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />
 
         <MarketMap clubs={data.clubs} />
 
