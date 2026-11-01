@@ -335,18 +335,33 @@ class CreateIndexFundCommand:
     index_kind: str
     club: str | None
     constituents: tuple[tuple[UUID, str], ...]
+    # Rule funds only.
+    rule_key: str | None = None
+    category: str | None = None
+    description: str | None = None
+    rule: Mapping[str, Any] | None = None
+    weighting: str = "EQUAL_SHARES"
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "symbol": self.symbol,
             "display_name": self.display_name,
             "index_kind": self.index_kind,
             "club": self.club,
+            "weighting": self.weighting,
             "constituents": [
                 {"instrument_id": str(instrument_id), "shares_per_unit": shares_per_unit}
                 for instrument_id, shares_per_unit in self.constituents
             ],
         }
+        optional = {
+            "rule_key": self.rule_key,
+            "category": self.category,
+            "description": self.description,
+            "rule": dict(self.rule) if self.rule is not None else None,
+        }
+        payload.update({key: value for key, value in optional.items() if value is not None})
+        return payload
 
 
 @dataclass(frozen=True)
@@ -370,7 +385,7 @@ class CreateIndexFundRecord:
 
 @dataclass(frozen=True)
 class RebalanceIndexFundCommand:
-    """Moves a fund to a new membership, every member holding the same shares per unit."""
+    """Moves a fund to a new membership, spread over its members by the fund's weighting."""
 
     request_id: str
     instrument_id: UUID

@@ -15,12 +15,15 @@ pub const CUSTODY_PORTFOLIO_ID: Uuid = Uuid::from_u128(0x7f63e2d0_1adc_4af1_8ad0
 pub enum IndexKind {
     /// Every league player at one club.
     Team,
+    /// Players picked by a league-wide rule the worker evaluates, such as the most valuable 20.
+    Rule,
 }
 
 impl IndexKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Team => "TEAM",
+            Self::Rule => "RULE",
         }
     }
 }
@@ -37,7 +40,40 @@ impl FromStr for IndexKind {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "TEAM" => Ok(Self::Team),
+            "RULE" => Ok(Self::Rule),
             other => Err(IndexFundError::UnsupportedIndexKind(other.to_owned())),
+        }
+    }
+}
+
+/// How a rebalance spreads a unit's value over the fund's members.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Weighting {
+    /// The same shares of every member, so pricier players carry more weight.
+    #[default]
+    EqualShares,
+    /// The same value of every member, so one star cannot dominate a small fund.
+    EqualValue,
+}
+
+impl Weighting {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EqualShares => "EQUAL_SHARES",
+            Self::EqualValue => "EQUAL_VALUE",
+        }
+    }
+}
+
+impl FromStr for Weighting {
+    type Err = IndexFundError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "EQUAL_SHARES" => Ok(Self::EqualShares),
+            "EQUAL_VALUE" => Ok(Self::EqualValue),
+            other => Err(IndexFundError::UnsupportedWeighting(other.to_owned())),
         }
     }
 }
@@ -57,6 +93,18 @@ pub struct CreateIndexFundCommand {
     pub index_kind: IndexKind,
     #[serde(default)]
     pub club: Option<String>,
+    /// A rule fund's stable rule name.
+    #[serde(default)]
+    pub rule_key: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The rule as the worker evaluates it, kept for the fund's page.
+    #[serde(default)]
+    pub rule: Option<serde_json::Value>,
+    #[serde(default)]
+    pub weighting: Weighting,
     pub constituents: Vec<IndexConstituent>,
 }
 
@@ -75,6 +123,14 @@ impl CreateIndexFundCommand {
                 .is_none_or(|club| club.trim().is_empty())
         {
             return Err(IndexFundError::MissingClub);
+        }
+        if self.index_kind == IndexKind::Rule
+            && self
+                .rule_key
+                .as_deref()
+                .is_none_or(|key| key.trim().is_empty())
+        {
+            return Err(IndexFundError::MissingRuleKey);
         }
         if self.constituents.is_empty() {
             return Err(IndexFundError::EmptyConstituents);
@@ -117,8 +173,8 @@ pub struct CreateIndexFundResult {
     pub unit_price: Decimal,
 }
 
-/// Rebalances a fund to a new membership, giving every member the same number of shares per
-/// unit. Value-neutral: custody sells what leaves or shrinks and spends the proceeds, with any
+/// Rebalances a fund to a new membership, spread by the fund's weighting: the same shares of
+/// every member, or the same value of every member. Value-neutral: custody sells what leaves or shrinks and spends the proceeds, with any
 /// cash already behind the units, on what joins or grows, so a unit keeps its value apart from
 /// the trades' price impact.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -210,6 +266,11 @@ mod tests {
             display_name: "Arsenal Index".to_owned(),
             index_kind: IndexKind::Team,
             club: Some("Arsenal".to_owned()),
+            rule_key: None,
+            category: None,
+            description: None,
+            rule: None,
+            weighting: Weighting::EqualShares,
             constituents,
         }
     }
@@ -235,6 +296,37 @@ mod tests {
             command.validate(),
             Err(IndexFundError::MissingClub)
         ));
+    }
+
+    #[test]
+    fn rule_funds_need_a_rule_key() {
+        let mut command = command(vec![constituent(Decimal::ONE)]);
+        command.index_kind = IndexKind::Rule;
+        command.club = None;
+        assert!(matches!(
+            command.validate(),
+            Err(IndexFundError::MissingRuleKey)
+        ));
+
+        command.rule_key = Some("SB20".to_owned());
+        assert!(command.validate().is_ok());
+    }
+
+    #[test]
+    fn weighting_defaults_to_equal_shares() {
+        let command: CreateIndexFundCommand = serde_json::from_value(serde_json::json!({
+            "symbol": "IDX-ARS",
+            "display_name": "Arsenal Index",
+            "index_kind": "TEAM",
+            "club": "Arsenal",
+            "constituents": [],
+        }))
+        .unwrap();
+        assert_eq!(command.weighting, Weighting::EqualShares);
+        assert_eq!(
+            "EQUAL_VALUE".parse::<Weighting>().unwrap(),
+            Weighting::EqualValue
+        );
     }
 
     #[test]

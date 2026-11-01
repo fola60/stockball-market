@@ -29,6 +29,9 @@ pub enum IndexFundError {
     #[error("team index funds must name their club")]
     MissingClub,
 
+    #[error("rule index funds must name their rule")]
+    MissingRuleKey,
+
     #[error("an index fund must hold at least one player share")]
     EmptyConstituents,
 
@@ -46,6 +49,9 @@ pub enum IndexFundError {
 
     #[error("unsupported index kind: {0}")]
     UnsupportedIndexKind(String),
+
+    #[error("unsupported weighting: {0}")]
+    UnsupportedWeighting(String),
 
     #[error("instrument {0} is not a player share")]
     ConstituentNotPlayerShare(Uuid),

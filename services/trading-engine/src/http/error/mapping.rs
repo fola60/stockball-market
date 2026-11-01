@@ -505,6 +505,7 @@ fn index_fund_error(error: IndexFundError) -> ApiError {
         IndexFundError::EmptySymbol
         | IndexFundError::EmptyDisplayName
         | IndexFundError::MissingClub
+        | IndexFundError::MissingRuleKey
         | IndexFundError::EmptyConstituents => invalid("invalid_index_fund", &error, None),
         IndexFundError::DuplicateConstituent(instrument_id)
         | IndexFundError::ConstituentNotPlayerShare(instrument_id) => invalid(
@@ -521,6 +522,11 @@ fn index_fund_error(error: IndexFundError) -> ApiError {
             "unsupported_index_kind",
             &error,
             Some(json!({ "index_kind": kind })),
+        ),
+        IndexFundError::UnsupportedWeighting(ref weighting) => invalid(
+            "unsupported_weighting",
+            &error,
+            Some(json!({ "weighting": weighting })),
         ),
         IndexFundError::ConstituentNotListed {
             instrument_id,

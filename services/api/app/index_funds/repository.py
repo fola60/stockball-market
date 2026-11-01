@@ -14,6 +14,7 @@ from app.index_funds.models import (
     BasketChangeRecord,
     IndexConstituentRecord,
     IndexFundRecord,
+    TopHoldingRecord,
 )
 from app.instruments.models import InstrumentStatus
 
@@ -28,6 +29,9 @@ class IndexFundsRepository(Protocol):
     def list_basket_changes(self, instrument_id: UUID, limit: int) -> list[BasketChangeRecord]: ...
 
 
+# The biggest holdings listed with each fund, for fund cards.
+TOP_HOLDINGS = 5
+
 _FUND_QUERY = """
     SELECT
         i.id,
@@ -35,6 +39,11 @@ _FUND_QUERY = """
         i.display_name,
         fund.index_kind,
         fund.club,
+        fund.rule_key,
+        COALESCE(fund.category, CASE WHEN fund.index_kind = 'TEAM' THEN 'Clubs' END) AS category,
+        fund.description,
+        fund.rule,
+        fund.weighting,
         i.current_price,
         fund.cash_per_unit,
         CASE
@@ -49,9 +58,14 @@ _FUND_QUERY = """
             / NULLIF(opening.opening_price, 0)) * 100, 4), 0) AS price_change_24h,
         COALESCE(ROUND(((i.current_price - week_opening.opening_price)
             / NULLIF(week_opening.opening_price, 0)) * 100, 4), 0) AS price_change_7d,
+        COALESCE(ROUND((performance.value_now - performance.value_day_ago)
+            / NULLIF(performance.value_day_ago, 0) * 100, 4), 0) AS basket_change_24h,
+        COALESCE(ROUND((performance.value_now - performance.value_week_ago)
+            / NULLIF(performance.value_week_ago, 0) * 100, 4), 0) AS basket_change_7d,
         COALESCE(activity.volume_24h, 0) AS volume_24h,
         ROUND(COALESCE(activity.traded_value_24h, 0), 4) AS traded_value_24h,
         left(badge.content_sha256, 16) AS club_badge_version,
+        COALESCE(holdings.top_holdings, '[]'::jsonb) AS top_holdings,
         i.created_at,
         i.updated_at
     FROM instruments AS i
@@ -73,6 +87,53 @@ _FUND_QUERY = """
         JOIN instruments AS member ON member.id = constituent.constituent_instrument_id
         WHERE constituent.index_instrument_id = i.id
     ) AS basket ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            SUM(c.shares_per_unit * member.current_price) AS value_now,
+            SUM(c.shares_per_unit * COALESCE(day.opening_price, member.current_price))
+                AS value_day_ago,
+            SUM(c.shares_per_unit * COALESCE(week.opening_price, member.current_price))
+                AS value_week_ago
+        FROM index_constituents AS c
+        JOIN instruments AS member ON member.id = c.constituent_instrument_id
+        LEFT JOIN LATERAL (
+            SELECT ps.old_price AS opening_price
+            FROM price_snapshots AS ps
+            WHERE ps.instrument_id = member.id
+              AND ps.captured_at >= now() - interval '24 hours'
+            ORDER BY ps.captured_at ASC, ps.id ASC
+            LIMIT 1
+        ) AS day ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT ps.old_price AS opening_price
+            FROM price_snapshots AS ps
+            WHERE ps.instrument_id = member.id
+              AND ps.captured_at >= now() - interval '7 days'
+            ORDER BY ps.captured_at ASC, ps.id ASC
+            LIMIT 1
+        ) AS week ON TRUE
+        WHERE c.index_instrument_id = i.id
+    ) AS performance ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+            jsonb_build_object(
+                'instrument_id', top.id, 'player_name', top.player_name, 'weight', top.weight
+            )
+            ORDER BY top.value DESC
+        ) AS top_holdings
+        FROM (
+            SELECT member.id, player.display_name AS player_name,
+                   c.shares_per_unit * member.current_price AS value,
+                   ROUND(c.shares_per_unit * member.current_price * 100
+                       / NULLIF(performance.value_now, 0), 2) AS weight
+            FROM index_constituents AS c
+            JOIN instruments AS member ON member.id = c.constituent_instrument_id
+            JOIN players AS player ON player.id = member.player_id
+            WHERE c.index_instrument_id = i.id
+            ORDER BY value DESC, member.id
+            LIMIT %(top_holdings)s
+        ) AS top
+    ) AS holdings ON TRUE
     LEFT JOIN LATERAL (
         SELECT SUM(quantity) AS outstanding
         FROM positions
@@ -120,7 +181,11 @@ class PostgresIndexFundsRepository:
 
     def list_index_funds(self) -> list[IndexFundRecord]:
         with self._cursor() as cursor:
-            cursor.execute(_FUND_QUERY + " ORDER BY fund.club, i.symbol")
+            cursor.execute(
+                _FUND_QUERY + " ORDER BY fund.index_kind <> 'TEAM', fund.club, fund.created_at,"
+                " i.symbol",
+                {"top_holdings": TOP_HOLDINGS},
+            )
             rows = cursor.fetchall()
         return [_fund(row) for row in rows]
 
@@ -128,7 +193,7 @@ class PostgresIndexFundsRepository:
         with self._cursor() as cursor:
             cursor.execute(
                 _FUND_QUERY + " AND i.id = %(instrument_id)s",
-                {"instrument_id": str(instrument_id)},
+                {"instrument_id": str(instrument_id), "top_holdings": TOP_HOLDINGS},
             )
             row = cursor.fetchone()
         return None if row is None else _fund(row)
@@ -257,6 +322,11 @@ def _fund(row: dict) -> IndexFundRecord:
         display_name=row["display_name"],
         index_kind=row["index_kind"],
         club=row["club"],
+        rule_key=row["rule_key"],
+        category=row["category"],
+        description=row["description"],
+        rule=row["rule"],
+        weighting=row["weighting"],
         current_price=format_decimal(Decimal(row["current_price"])),
         cash_per_unit=format_decimal(Decimal(row["cash_per_unit"])),
         status=InstrumentStatus(row["status"]),
@@ -265,9 +335,19 @@ def _fund(row: dict) -> IndexFundRecord:
         units_outstanding=format_decimal(Decimal(row["units_outstanding"]).normalize()),
         price_change_24h=format_decimal(Decimal(row["price_change_24h"])),
         price_change_7d=format_decimal(Decimal(row["price_change_7d"])),
+        basket_change_24h=format_decimal(Decimal(row["basket_change_24h"])),
+        basket_change_7d=format_decimal(Decimal(row["basket_change_7d"])),
         volume_24h=format_decimal(Decimal(row["volume_24h"])),
         traded_value_24h=format_decimal(Decimal(row["traded_value_24h"])),
         club_badge_version=row["club_badge_version"],
+        top_holdings=[
+            TopHoldingRecord(
+                instrument_id=UUID(str(item["instrument_id"])),
+                player_name=item["player_name"],
+                weight=format_decimal(Decimal(str(item["weight"] or 0))),
+            )
+            for item in row["top_holdings"] or []
+        ],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

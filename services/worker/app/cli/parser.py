@@ -164,8 +164,8 @@ def build_parser() -> argparse.ArgumentParser:
     review_funds = subcommands.add_parser(
         "review-index-funds",
         help=(
-            "apply each index fund's rule: list a fund for every league club without one and "
-            "rebalance funds whose squad has changed"
+            "apply each index fund's rule: list team funds for league clubs and rule funds "
+            "once enough players qualify, and rebalance funds whose rule result has changed"
         ),
     )
     review_funds.add_argument(

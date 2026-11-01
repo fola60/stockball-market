@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use super::{
     error::IndexFundError,
-    model::{BasketChange, IndexConstituent, IndexKind, RebalanceIndexFundResult},
+    model::{
+        BasketChange, CreateIndexFundCommand, IndexConstituent, RebalanceIndexFundResult, Weighting,
+    },
 };
 
 /// Prices are stored to twelve decimal places, like player-share prices.
@@ -163,6 +165,19 @@ pub async fn cash_per_unit(
     .ok_or(IndexFundError::NotAnIndexFund(index_instrument_id))
 }
 
+/// How a fund spreads its value over its members at a rebalance.
+pub async fn weighting(
+    executor: impl PgExecutor<'_>,
+    index_instrument_id: Uuid,
+) -> Result<Weighting, IndexFundError> {
+    sqlx::query_scalar::<_, String>("SELECT weighting FROM index_funds WHERE instrument_id = $1")
+        .bind(index_instrument_id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(IndexFundError::NotAnIndexFund(index_instrument_id))?
+        .parse()
+}
+
 /// Units of a fund held across all portfolios. Callers hold the fund's row lock, which every
 /// unit trade takes first, so the count cannot change underneath them.
 pub async fn units_outstanding(
@@ -291,19 +306,32 @@ pub(crate) async fn instrument_types(
 pub(crate) async fn insert_index_fund(
     connection: &mut PgConnection,
     instrument_id: Uuid,
-    index_kind: IndexKind,
-    club: Option<&str>,
+    command: &CreateIndexFundCommand,
     constituents: &[IndexConstituent],
 ) -> Result<(), IndexFundError> {
+    let trimmed = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    };
     sqlx::query(
         r#"
-        INSERT INTO index_funds (instrument_id, index_kind, club)
-        VALUES ($1, $2, $3)
+        INSERT INTO index_funds (
+            instrument_id, index_kind, club, rule_key, category, description, rule, weighting
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(instrument_id)
-    .bind(index_kind.as_str())
-    .bind(club)
+    .bind(command.index_kind.as_str())
+    .bind(trimmed(&command.club))
+    .bind(trimmed(&command.rule_key))
+    .bind(trimmed(&command.category))
+    .bind(trimmed(&command.description))
+    .bind(&command.rule)
+    .bind(command.weighting.as_str())
     .execute(&mut *connection)
     .await?;
 

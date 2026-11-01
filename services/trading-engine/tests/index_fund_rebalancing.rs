@@ -9,7 +9,7 @@ use stockball_trading_engine::{
     },
     index_funds::{
         create_index_fund, CreateIndexFundCommand, IndexConstituent, IndexFundError, IndexKind,
-        RebalanceIndexFundCommand, CUSTODY_PORTFOLIO_ID,
+        RebalanceIndexFundCommand, Weighting, CUSTODY_PORTFOLIO_ID,
     },
     orders::{ExecuteOrderCommand, OrderSide},
 };
@@ -60,6 +60,11 @@ async fn inner() {
             display_name: "Rebalancing Index".to_owned(),
             index_kind: IndexKind::Team,
             club: Some(format!("Rebalancing Club {suffix}")),
+            rule_key: None,
+            category: None,
+            description: None,
+            rule: None,
+            weighting: Weighting::EqualShares,
             constituents: [a, b, c]
                 .map(|instrument_id| IndexConstituent {
                     instrument_id,
@@ -288,6 +293,108 @@ async fn inner() {
     assert_eq!(rewritten.units_outstanding, Decimal::ZERO);
     assert_eq!(rewritten.cash_per_unit_after, Decimal::ZERO);
     assert_eq!(rewritten.constituents.len(), 2);
+}
+
+#[test]
+fn equal_value_funds_rebalance_to_equal_value_per_member() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(equal_value_inner());
+}
+
+async fn equal_value_inner() {
+    let Some(database_url) = test_database_url() else {
+        eprintln!(
+            "skipping rebalancing test; STOCKBALL_TRADING_ENGINE_TEST_DATABASE_URL is not set"
+        );
+        return;
+    };
+    let pool = PgPool::connect(&database_url).await.unwrap();
+    let suffix = Uuid::new_v4().simple().to_string();
+    let trader = insert_trader(&pool, &suffix).await;
+    let star = insert_player_share(&pool, &format!("{suffix}-star"), decimal("300")).await;
+    let squad = insert_player_share(&pool, &format!("{suffix}-squad"), decimal("15")).await;
+    let joiner = insert_player_share(&pool, &format!("{suffix}-joiner"), decimal("60")).await;
+
+    // £50 of each player per unit.
+    let fund = create_index_fund(
+        &pool,
+        CreateIndexFundCommand {
+            symbol: format!("IDX-V{suffix}"),
+            display_name: "Equal Value Index".to_owned(),
+            index_kind: IndexKind::Rule,
+            club: None,
+            rule_key: Some(format!("equal-value-{suffix}")),
+            category: Some("Performance".to_owned()),
+            description: Some("Test rule".to_owned()),
+            rule: Some(serde_json::json!({ "rank_by": "NON_PENALTY_GOALS", "size": 3 })),
+            weighting: Weighting::EqualValue,
+            constituents: vec![
+                IndexConstituent {
+                    instrument_id: star,
+                    shares_per_unit: decimal("0.166666"),
+                },
+                IndexConstituent {
+                    instrument_id: squad,
+                    shares_per_unit: decimal("3.333333"),
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap()
+    .instrument_id;
+    let stored = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT index_kind, weighting, rule ->> 'rank_by' FROM index_funds WHERE instrument_id = $1",
+    )
+    .bind(fund)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        (
+            "RULE".to_owned(),
+            "EQUAL_VALUE".to_owned(),
+            Some("NON_PENALTY_GOALS".to_owned())
+        )
+    );
+    order(
+        &pool,
+        &trader,
+        fund,
+        OrderSide::Buy,
+        "2",
+        &format!("{suffix}-buy"),
+    )
+    .await;
+
+    let rebalanced = rebalance_index_fund(
+        &pool,
+        RebalanceIndexFundCommand {
+            request_id: format!("{suffix}-add"),
+            instrument_id: fund,
+            reason: "joiner qualified".to_owned(),
+            members: vec![star, squad, joiner],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(rebalanced.added_instrument_ids, vec![joiner]);
+    assert_custody_covers_units(&pool, fund).await;
+
+    // Each member now carries about a third of the unit's value, whatever its price.
+    let unit = unit_price(&pool, fund).await;
+    for member in [star, squad, joiner] {
+        let value = shares_per_unit(&pool, fund, member).await * price(&pool, member).await;
+        let share = value / unit;
+        assert!(
+            share > decimal("0.32") && share < decimal("0.345"),
+            "member {member} carries {share} of the unit"
+        );
+    }
 }
 
 /// The cash a unit held straight after B's buyout, read from its delisting record.
