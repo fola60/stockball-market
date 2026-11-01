@@ -18,8 +18,12 @@ Schedules recurring background work.
 - Weekly and monthly top-up windows.
 - Synthetic trader ticks every minute.
 - Match-day freeze checks every minute (`market-freezes`, on the trading queue). Players are
-  frozen from lineup lock until post-match settlement, based on the fixtures table.
-- Player-stat ingestion once per day at `03:00 UTC` for configured league `9` and season `2025`.
+  frozen from lineup lock until post-match settlement, based on the fixtures table. Settlement
+  needs both the settlement time and a full-time status (`FT`, `AET`, `PEN`), so a delayed or
+  suspended match stays frozen; `STOCKBALL_MATCH_FREEZE_MAX_HOLD_MINUTES` (default `360` after
+  kick-off) ends a freeze whose fixture never reports full time.
+- Player-stat ingestion once per day at `03:00 UTC` for configured league `9` and the season in
+  progress (`STOCKBALL_PLAYER_STATS_SCHEDULE_SEASON=0`).
 - Optional Bet365 pre-match and live-market ingestion.
 - Optional FotMob final player ratings every 15 minutes (`STOCKBALL_FOTMOB_SCHEDULE_ENABLED`).
   Waits 15 minutes after first observing final status, retries missing ratings, and refreshes

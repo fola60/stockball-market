@@ -28,6 +28,9 @@ pub enum PositionError {
         quantity: Decimal,
     },
 
+    #[error("position cost cannot be negative: {0}")]
+    NegativeCost(Decimal),
+
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 }

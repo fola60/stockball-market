@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Shell, panel } from "../components/market-shell";
 import { YouBadge } from "../components/trader-identity";
 import { LEADERBOARD_PAGE_SIZE, getLeaderboardPageData, type TraderStanding } from "@/lib/api";
-import { formatCompact, formatCurrency } from "@/lib/format";
+import { formatChange, formatCompact, formatCurrency, moveTone } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Leaderboard — Stockball" };
 export const dynamic = "force-dynamic";
@@ -48,6 +48,16 @@ function DayChange({ entry, className = "" }: { entry: TraderStanding; className
   );
 }
 
+/** The return on the capital a trader was given, which ranks follow: +12.40%. */
+function Return({ entry, className = "" }: { entry: TraderStanding; className?: string }) {
+  if (entry.return_percent === null) return <span className={`font-mono text-[#56616d] ${className}`}>—</span>;
+  return (
+    <span className={`font-mono tabular-nums slashed-zero ${moveTone(entry.return_percent)} ${className}`} aria-label={`Return ${formatChange(entry.return_percent)}`}>
+      {formatChange(entry.return_percent)}
+    </span>
+  );
+}
+
 function Chevron({ className = "" }: { className?: string }) {
   return <svg viewBox="0 0 20 20" aria-hidden="true" className={`size-4 shrink-0 ${className}`} fill="none"><path d="m7.5 4.5 5 5.5-5 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
@@ -71,7 +81,7 @@ function Podium({ entries, viewerId }: { entries: TraderStanding[]; viewerId: st
           <li key={entry.account_id} className={`min-w-0 ${index === 0 ? "order-first md:order-none" : ""} ${medal.lift}`}>
             <Link
               href={traderHref(entry)}
-              aria-label={`${medal.label} place, ${entry.display_name}, ${formatCurrency(entry.net_worth)}. View portfolio`}
+              aria-label={`${medal.label} place, ${entry.display_name}, return ${entry.return_percent === null ? "unavailable" : formatChange(entry.return_percent)}, net worth ${formatCurrency(entry.net_worth)}. View portfolio`}
               className={`group relative flex h-full items-center gap-4 overflow-hidden rounded-2xl border border-[#242c37] bg-gradient-to-r ${medal.glow} to-[#0e131a] to-70% p-4 transition duration-200 hover:border-[#3a4757] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] md:flex-col md:gap-0 md:bg-gradient-to-b md:to-60% md:px-5 md:pb-5 md:pt-7 md:text-center md:hover:-translate-y-1 md:hover:shadow-[0_18px_40px_-20px_rgba(0,0,0,0.9)]`}
             >
               {index === 0 && (
@@ -84,9 +94,10 @@ function Podium({ entries, viewerId }: { entries: TraderStanding[]; viewerId: st
                   {entry.account_id === viewerId && <YouBadge />}
                 </span>
                 <span className="mt-0.5 text-[11px] text-[#77818e] md:order-last md:mt-1">{entry.holdings_count} player{entry.holdings_count === 1 ? "" : "s"} held</span>
-                <span className="mt-1 hidden text-xl font-semibold md:block"><Money value={entry.net_worth} /></span>
+                <span className="mt-1 hidden text-xl font-semibold md:block"><Return entry={entry} /></span>
+                <span className="hidden text-[11px] text-[#8d97a3] md:block"><Money value={entry.net_worth} /></span>
               </span>
-              <span className="text-base font-semibold md:hidden"><Money value={entry.net_worth} /></span>
+              <span className="text-right md:hidden"><strong className="block text-base font-semibold"><Return entry={entry} /></strong><span className="text-[11px] text-[#8d97a3]"><Money value={entry.net_worth} /></span></span>
               <Chevron className="text-[#8fb5ff] md:hidden" />
               <span className="mt-4 hidden items-center gap-1 text-[11px] font-bold text-[#8fb5ff] opacity-80 transition group-hover:gap-2 group-hover:opacity-100 md:inline-flex">
                 View portfolio <Chevron className="size-3.5" />
@@ -124,7 +135,8 @@ function StandingRow({ entry, isViewer }: { entry: TraderStanding; isViewer: boo
         </span>
         <DayChange entry={entry} className="hidden text-xs font-semibold sm:block" />
         <span className="text-right">
-          <strong className="block text-sm font-semibold"><Money value={entry.net_worth} /></strong>
+          <strong className="block text-sm font-semibold"><Return entry={entry} /></strong>
+          <span className="block text-[11px] text-[#8d97a3]"><Money value={entry.net_worth} /></span>
           <DayChange entry={entry} className="mt-0.5 block text-[11px] sm:hidden" />
         </span>
         <span className="flex justify-end">
@@ -152,7 +164,8 @@ function ViewerCard({ standing, total }: { standing: TraderStanding; total: numb
         </span>
       </span>
       <span className="text-right">
-        <strong className="block text-lg font-semibold"><Money value={standing.net_worth} /></strong>
+        <strong className="block text-lg font-semibold"><Return entry={standing} /></strong>
+        <span className="block text-[11px] text-[#c5ccd4]"><Money value={standing.net_worth} /></span>
         <span className="text-[11px] font-bold text-[#8fb5ff]">View your portfolio</span>
       </span>
       <Chevron className="text-[#8fb5ff] transition-transform group-hover:translate-x-0.5" />
@@ -212,7 +225,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
         {leaderboard.entries.length === 0 ? (
           <div className={`${panel} px-5 py-16 text-center`}>
             <p className="text-base font-semibold">No traders here yet</p>
-            <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-[#7f8995]">Once people start trading, the richest portfolios will appear here.</p>
+            <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-[#7f8995]">Once people start trading, the best-performing portfolios will appear here.</p>
           </div>
         ) : (
           <>
@@ -220,7 +233,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
             {rows.length > 0 && (
               <div className={`${panel} p-2 sm:p-3`}>
                 <div className="hidden grid-cols-[3.25rem_minmax(0,1fr)_minmax(8rem,13rem)_10.5rem_6.5rem] gap-4 px-4 pb-2 pt-1 text-[10px] font-bold uppercase tracking-wider text-[#5d6875] sm:grid" aria-hidden="true">
-                  <span className="text-center">Rank</span><span>Trader</span><span>Today</span><span className="text-right">Net worth</span><span />
+                  <span className="text-center">Rank</span><span>Trader</span><span>Today</span><span className="text-right">Return · net worth</span><span />
                 </div>
                 <ol aria-label={`Traders ranked ${rows[0]?.rank ?? ""} to ${rows.at(-1)?.rank ?? ""}`} className="space-y-1">
                   {rows.map((entry) => (
@@ -235,7 +248,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
         )}
 
         <p className="mx-auto mt-10 max-w-[64ch] text-center text-[11px] leading-relaxed text-[#56616d]">
-          Net worth = virtual cash + (shares held × current share price). Stockball uses virtual cash only; standings are not investment returns.
+          Ranked by return: net worth compared with the capital each trader was given (starting cash, top-ups and any shares issued to them), so more cash never means a higher rank. Net worth = virtual cash + (shares held × current share price). Stockball uses virtual cash only; standings are not investment returns.
         </p>
       </section>
     </Shell>

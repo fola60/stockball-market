@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use crate::{
     delistings::{self, DelistInstrumentCommand, DelistInstrumentResult, DelistingError},
     execution::{self, ExecuteOrderResult, ExecutionError, OrderQuote},
+    fees::TradingFee,
     freezes::{
         self, ApplyFreezeCommand, ApplyFreezeResult, FreezeError, ReleaseFreezeCommand,
         ReleaseFreezeResult,
@@ -14,7 +15,7 @@ use crate::{
     },
     instruments::{self, InstrumentError, SeedPlayerSharesResult},
     ledger::CashLedgerEntry,
-    orders::ExecuteOrderCommand,
+    orders::{ExecuteOrderCommand, QuoteOrderCommand},
     price_impact::CurveCalibration,
     provisioning::{
         self, ApplyOpeningBalanceCommand, IssueInitialSupplyCommand, IssueInitialSupplyResult,
@@ -34,8 +35,7 @@ pub trait OrderExecutor: Clone + Send + Sync + 'static {
         command: ExecuteOrderCommand,
     ) -> Result<ExecuteOrderResult, ExecutionError>;
 
-    async fn quote_order(&self, command: ExecuteOrderCommand)
-        -> Result<OrderQuote, ExecutionError>;
+    async fn quote_order(&self, command: QuoteOrderCommand) -> Result<OrderQuote, ExecutionError>;
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError>;
 
@@ -92,6 +92,8 @@ pub struct SqlOrderExecutor {
     pool: PgPool,
     // The curve newly seeded players start on.
     seed_curve: CurveCalibration,
+    // The fee every order pays.
+    fee: TradingFee,
 }
 
 impl SqlOrderExecutor {
@@ -99,7 +101,13 @@ impl SqlOrderExecutor {
         Self {
             pool,
             seed_curve: CurveCalibration::default(),
+            fee: TradingFee::default(),
         }
+    }
+
+    pub fn with_trading_fee(mut self, fee: TradingFee) -> Self {
+        self.fee = fee;
+        self
     }
 
     pub fn with_seed_curve(mut self, seed_curve: CurveCalibration) -> Self {
@@ -110,18 +118,15 @@ impl SqlOrderExecutor {
 
 #[async_trait]
 impl OrderExecutor for SqlOrderExecutor {
-    async fn quote_order(
-        &self,
-        command: ExecuteOrderCommand,
-    ) -> Result<OrderQuote, ExecutionError> {
-        execution::quote_order(&self.pool, command).await
+    async fn quote_order(&self, command: QuoteOrderCommand) -> Result<OrderQuote, ExecutionError> {
+        execution::quote_order(&self.pool, command, self.fee).await
     }
 
     async fn execute_order(
         &self,
         command: ExecuteOrderCommand,
     ) -> Result<ExecuteOrderResult, ExecutionError> {
-        execution::execute_order(&self.pool, command).await
+        execution::execute_order(&self.pool, command, self.fee).await
     }
 
     async fn seed_player_shares(&self) -> Result<SeedPlayerSharesResult, InstrumentError> {

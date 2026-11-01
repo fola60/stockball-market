@@ -5,7 +5,7 @@ import { Label, Shell, panel } from "../../components/market-shell";
 import { ClubBadge, PlayerAvatar } from "../../components/player-media";
 import { YouBadge } from "../../components/trader-identity";
 import { getTraderPageData } from "@/lib/api";
-import { formatCurrency, formatPercent } from "@/lib/format";
+import { formatChange, formatCurrency, moveTone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +54,7 @@ export default async function TraderPage({ params }: PageProps) {
 
         <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-4">
           {[
-            ["Net worth", formatCurrency(trader.net_worth), `Rank #${trader.rank.toLocaleString("en-GB")}`],
+            ["Net worth", formatCurrency(trader.net_worth), `Rank #${trader.rank.toLocaleString("en-GB")}${trader.return_percent === null ? "" : ` · ${formatChange(trader.return_percent)} return`}`],
             ["Cash", formatCurrency(trader.cash_balance), `${netWorth > 0 ? ((Number(trader.cash_balance) / netWorth) * 100).toFixed(1) : "0.0"}% of net worth`],
             ["Holdings", formatCurrency(trader.holdings_value), "At current prices"],
             ["Players held", trader.holdings_count.toLocaleString("en-GB"), `${trades.length > 0 ? "Active" : "No recent"} trading`],
@@ -84,7 +84,7 @@ export default async function TraderPage({ params }: PageProps) {
                         <td className="text-right font-mono">{Number(holding.quantity).toLocaleString("en-GB", { maximumFractionDigits: 4 })}</td>
                         <td className="text-right font-mono">{formatCurrency(holding.current_price)}</td>
                         <td className="text-right font-mono font-bold text-white">{formatCurrency(holding.market_value)}</td>
-                        <td className={`text-right font-mono ${change >= 0 ? "text-[#35d07f]" : "text-[#f16d73]"}`}>{formatPercent(change)}</td>
+                        <td className={`text-right font-mono ${moveTone(change)}`}>{formatChange(change)}</td>
                         <td className="pr-5 text-right font-mono">{allocation.toFixed(1)}%</td>
                       </tr>
                     );
@@ -104,7 +104,7 @@ export default async function TraderPage({ params }: PageProps) {
                 <div key={trade.trade_id} className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 py-3">
                   <span className={`grid size-7 place-items-center rounded-full text-xs ${bought ? "bg-[#35d07f]/10 text-[#35d07f]" : "bg-[#f16d73]/10 text-[#f16d73]"}`} aria-hidden="true">{bought ? "↗" : "↘"}</span>
                   <p className="min-w-0"><strong className="block truncate text-[11px]">{bought ? "Bought" : "Sold"} {Number(trade.shares).toLocaleString("en-GB", { maximumFractionDigits: 4 })} <Link href={`/instrument/${trade.instrument_id}`} className="hover:text-[#dce7ff]">{trade.player_name}</Link></strong><small className="mt-1 block text-[11px] text-[#65707d]"><time dateTime={trade.executed_at}>{new Date(trade.executed_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</time> · {formatCurrency(trade.execution_price)}</small></p>
-                  <strong className="font-mono text-[11px]">{formatCurrency(trade.gross_amount)}</strong>
+                  <strong className="font-mono text-[11px]">{formatCurrency(trade.side === "BUY" ? Number(trade.gross_amount) + Number(trade.fee_amount) : Number(trade.gross_amount) - Number(trade.fee_amount))}</strong>
                 </div>
               );
             })}</div> : <p className="mt-4 border-t border-[#202832] pt-5 text-xs text-[#77818e]">No trades yet.</p>}

@@ -5,17 +5,17 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
 use rust_decimal::{Decimal, RoundingStrategy};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::{
+    fees::TradingFee,
     freezes,
     index_funds::{
         self, IndexConstituent, IndexFundError, CUSTODY_ACCOUNT_ID, CUSTODY_PORTFOLIO_ID,
     },
-    instruments::{self, IndexFundInstrument, Instrument, InstrumentStatus},
+    instruments::{self, IndexFundInstrument, Instrument, InstrumentStatus, RowLock},
     ledger,
     orders::{self, ExecuteOrderCommand, OrderSide},
     portfolios, positions, price_impact,
@@ -25,8 +25,8 @@ use crate::{
 
 use super::{
     error::ExecutionError,
-    model::{ExecuteOrderResult, OrderQuote, Trade},
-    repository::{create_trade, revalue_index_funds, TradeCause},
+    model::{ExecuteOrderResult, Trade},
+    repository::{create_trade, revalue_index_funds, settle_trade_cash, TradeCause},
 };
 
 const STORED_PRICE_DECIMAL_PLACES: u32 = 12;
@@ -38,74 +38,112 @@ pub(super) struct BasketLeg {
     pub quote: PriceImpactQuote,
 }
 
-/// A fund order priced against its constituents' curves, with every row it touches locked.
-struct PricedBasket {
-    /// Every fund holding any constituent, including the traded fund, all locked.
-    funds: Vec<IndexFundInstrument>,
-    legs: Vec<BasketLeg>,
-    /// The fund's cash behind the traded units, paid into or out of custody.
-    cash_amount: Decimal,
-    gross_amount: Decimal,
-    execution_price: Decimal,
-    unit_price_before: Decimal,
-    unit_price_after: Decimal,
+/// Everything a fund order is priced from: the funds sharing its constituents, the
+/// constituents' curves, and the fund's cash per unit. An order loads it with every row locked;
+/// a quote reads it without locks.
+pub(super) struct FundBook {
+    /// Every fund holding any constituent, including the traded fund.
+    pub funds: Vec<IndexFundInstrument>,
+    constituents: Vec<IndexConstituent>,
+    players: HashMap<Uuid, Instrument>,
+    cash_per_unit: Decimal,
 }
 
-/// Locks the funds sharing any of this fund's constituents, then the constituents, each group
-/// in id order, and quotes every leg. Player-share orders lock the same way, funds first.
-async fn price_basket(
+/// A fund order priced against its constituents' curves.
+pub(super) struct PricedBasket {
+    pub legs: Vec<BasketLeg>,
+    /// The fund's cash behind the traded units, paid into or out of custody.
+    pub cash_amount: Decimal,
+    pub gross_amount: Decimal,
+    pub execution_price: Decimal,
+    pub unit_price_before: Decimal,
+    pub unit_price_after: Decimal,
+}
+
+/// Loads a fund's book. With `RowLock::ForUpdate` it locks the funds sharing any of this fund's
+/// constituents, then the constituents, each group in id order: player-share orders lock the
+/// same way, funds first.
+pub(super) async fn load_fund_book(
     connection: &mut PgConnection,
-    command: &ExecuteOrderCommand,
-) -> Result<PricedBasket, ExecutionError> {
-    let constituents =
-        index_funds::load_constituents(&mut *connection, command.instrument_id).await?;
+    fund_id: Uuid,
+    lock: RowLock,
+) -> Result<FundBook, ExecutionError> {
+    let constituents = index_funds::load_constituents(&mut *connection, fund_id).await?;
     if constituents.is_empty() {
-        return Err(IndexFundError::MissingBasket(command.instrument_id).into());
+        return Err(IndexFundError::MissingBasket(fund_id).into());
     }
     let constituent_ids: Vec<Uuid> = constituents.iter().map(|c| c.instrument_id).collect();
     let mut fund_ids =
         index_funds::index_ids_containing(&mut *connection, &constituent_ids).await?;
-    fund_ids.push(command.instrument_id);
-    let funds = instruments::lock_index_fund_instruments(connection, &fund_ids).await?;
+    fund_ids.push(fund_id);
+    let funds = instruments::select_index_fund_instruments(connection, &fund_ids, lock).await?;
     let fund = funds
         .iter()
-        .find(|fund| fund.id == command.instrument_id)
-        .ok_or(instruments::InstrumentError::NotFound(
-            command.instrument_id,
-        ))?;
+        .find(|fund| fund.id == fund_id)
+        .ok_or(instruments::InstrumentError::NotFound(fund_id))?;
     assert_fund_tradable(fund)?;
 
-    let players = instruments::lock_instruments_by_ids(connection, &constituent_ids).await?;
-    let direction = PriceImpactDirection::from(command.side);
-    let legs = basket_legs(&constituents, players, command.quantity, direction)?;
+    let players = match lock {
+        RowLock::ForUpdate => {
+            instruments::lock_instruments_by_ids(connection, &constituent_ids).await?
+        }
+        RowLock::None => instruments::get_instruments_by_ids(connection, &constituent_ids).await?,
+    };
+    let cash_per_unit = index_funds::cash_per_unit(&mut *connection, fund_id).await?;
 
-    let cash_per_unit = index_funds::cash_per_unit(&mut *connection, command.instrument_id).await?;
-    let cash_amount = (cash_per_unit * command.quantity).round_dp(STORED_PRICE_DECIMAL_PLACES);
-    let gross_amount = legs
-        .iter()
-        .map(|leg| leg.quote.gross_amount)
-        .sum::<Decimal>()
-        + cash_amount;
-    let old_prices: HashMap<Uuid, Decimal> = legs
-        .iter()
-        .map(|leg| (leg.instrument.id, leg.instrument.current_price))
-        .collect();
-    let new_prices: HashMap<Uuid, Decimal> = legs
-        .iter()
-        .map(|leg| (leg.instrument.id, leg.quote.new_price))
-        .collect();
-
-    Ok(PricedBasket {
+    Ok(FundBook {
         funds,
-        legs,
-        cash_amount,
-        gross_amount,
-        execution_price: (gross_amount / command.quantity).round_dp(STORED_PRICE_DECIMAL_PLACES),
-        unit_price_before: index_funds::basket_value(&constituents, |id| old_prices[&id])
-            + cash_per_unit,
-        unit_price_after: index_funds::basket_value(&constituents, |id| new_prices[&id])
-            + cash_per_unit,
+        constituents,
+        players: players.into_iter().map(|p| (p.id, p)).collect(),
+        cash_per_unit,
     })
+}
+
+impl FundBook {
+    /// The fund's current unit price: its basket at current prices plus its cash.
+    pub fn unit_price(&self) -> Decimal {
+        index_funds::basket_value(&self.constituents, |id| {
+            self.players
+                .get(&id)
+                .map(|player| player.current_price)
+                .unwrap_or_default()
+        }) + self.cash_per_unit
+    }
+
+    /// Quotes every leg of an order for `units`.
+    pub fn price(
+        &self,
+        units: Decimal,
+        direction: PriceImpactDirection,
+    ) -> Result<PricedBasket, ExecutionError> {
+        let legs = basket_legs(&self.constituents, &self.players, units, direction)?;
+        let cash_amount = (self.cash_per_unit * units).round_dp(STORED_PRICE_DECIMAL_PLACES);
+        let gross_amount = legs
+            .iter()
+            .map(|leg| leg.quote.gross_amount)
+            .sum::<Decimal>()
+            + cash_amount;
+        let new_prices: HashMap<Uuid, Decimal> = legs
+            .iter()
+            .map(|leg| (leg.instrument.id, leg.quote.new_price))
+            .collect();
+
+        Ok(PricedBasket {
+            legs,
+            cash_amount,
+            gross_amount,
+            execution_price: (gross_amount / units).round_dp(STORED_PRICE_DECIMAL_PLACES),
+            unit_price_before: self.unit_price(),
+            unit_price_after: index_funds::basket_value(&self.constituents, |id| {
+                new_prices.get(&id).copied().unwrap_or_else(|| {
+                    self.players
+                        .get(&id)
+                        .map(|player| player.current_price)
+                        .unwrap_or_default()
+                })
+            }) + self.cash_per_unit,
+        })
+    }
 }
 
 pub(super) fn assert_fund_tradable(fund: &IndexFundInstrument) -> Result<(), ExecutionError> {
@@ -130,15 +168,14 @@ pub(super) fn assert_fund_tradable(fund: &IndexFundInstrument) -> Result<(), Exe
 /// behind every unit in issue; the leftover fractions stay in custody.
 fn basket_legs(
     constituents: &[IndexConstituent],
-    players: Vec<Instrument>,
+    players: &HashMap<Uuid, Instrument>,
     units: Decimal,
     direction: PriceImpactDirection,
 ) -> Result<Vec<BasketLeg>, ExecutionError> {
-    let mut players: HashMap<Uuid, Instrument> = players.into_iter().map(|p| (p.id, p)).collect();
     constituents
         .iter()
         .map(|constituent| {
-            let instrument = players.remove(&constituent.instrument_id).ok_or(
+            let instrument = players.get(&constituent.instrument_id).cloned().ok_or(
                 instruments::InstrumentError::NotFound(constituent.instrument_id),
             )?;
             freezes::assert_not_frozen(&instrument)?;
@@ -174,65 +211,13 @@ pub(super) fn leg_quantity(shares: Decimal, direction: PriceImpactDirection) -> 
     shares.round_dp_with_strategy(QUANTITY_DECIMAL_PLACES, strategy)
 }
 
-pub(super) async fn quote_index_fund_order(
-    connection: &mut PgConnection,
-    command: &ExecuteOrderCommand,
-) -> Result<OrderQuote, ExecutionError> {
-    let basket = price_basket(connection, command).await?;
-    let portfolio = portfolios::lock_portfolio_by_id(connection, command.portfolio_id).await?;
-    portfolios::assert_portfolio_belongs_to_account(&portfolio, command.account_id)?;
-    let current_position = positions::get_position(
-        &mut *connection,
-        command.portfolio_id,
-        command.instrument_id,
-    )
-    .await?
-    .map(|position| position.quantity)
-    .unwrap_or(Decimal::ZERO);
-
-    let (cash_balance_after, position_quantity_after) = match command.side {
-        OrderSide::Buy => {
-            portfolios::assert_has_cash(&portfolio, basket.gross_amount)?;
-            (
-                portfolio.cash_balance - basket.gross_amount,
-                current_position + command.quantity,
-            )
-        }
-        OrderSide::Sell => {
-            positions::assert_has_quantity(
-                command.portfolio_id,
-                command.instrument_id,
-                current_position,
-                command.quantity,
-            )?;
-            (
-                portfolio.cash_balance + basket.gross_amount,
-                current_position - command.quantity,
-            )
-        }
-    };
-
-    Ok(OrderQuote {
-        account_id: command.account_id,
-        portfolio_id: command.portfolio_id,
-        instrument_id: command.instrument_id,
-        side: command.side,
-        quantity: command.quantity,
-        execution_price: basket.execution_price,
-        gross_amount: basket.gross_amount,
-        cash_balance_after,
-        position_quantity_after,
-        old_price: basket.unit_price_before,
-        new_price: basket.unit_price_after,
-        quoted_at: Utc::now(),
-    })
-}
-
 pub(super) async fn execute_index_fund_order(
     connection: &mut PgConnection,
     command: &ExecuteOrderCommand,
+    fee: TradingFee,
 ) -> Result<ExecuteOrderResult, ExecutionError> {
-    let basket = price_basket(connection, command).await?;
+    let book = load_fund_book(connection, command.instrument_id, RowLock::ForUpdate).await?;
+    let basket = book.price(command.quantity, PriceImpactDirection::from(command.side))?;
     let portfolio = portfolios::lock_portfolio_by_id(connection, command.portfolio_id).await?;
     portfolios::assert_portfolio_belongs_to_account(&portfolio, command.account_id)?;
     if let Some(limits) = &command.execution_limits {
@@ -242,9 +227,12 @@ pub(super) async fn execute_index_fund_order(
             basket.gross_amount,
         )?;
     }
+    let fee_amount = fee.fee_for(basket.gross_amount);
+    let cash_amount = fee.cash_amount(command.side, basket.gross_amount);
+    command.check_cash_limit(cash_amount)?;
 
     if command.side == OrderSide::Buy {
-        portfolios::assert_has_cash(&portfolio, basket.gross_amount)?;
+        portfolios::assert_has_cash(&portfolio, cash_amount)?;
     } else {
         let available =
             positions::lock_position(connection, command.portfolio_id, command.instrument_id)
@@ -265,34 +253,19 @@ pub(super) async fn execute_index_fund_order(
         &order,
         basket.execution_price,
         basket.gross_amount,
+        fee_amount,
         TradeCause::Order,
     )
     .await?;
 
-    let cash_ledger_entry = match command.side {
-        OrderSide::Buy => {
-            ledger::debit_trade_cash(
-                connection,
-                command.account_id,
-                command.portfolio_id,
-                trade.id,
-                basket.gross_amount,
-                &command.request_id,
-            )
-            .await?
-        }
-        OrderSide::Sell => {
-            ledger::credit_trade_cash(
-                connection,
-                command.account_id,
-                command.portfolio_id,
-                trade.id,
-                basket.gross_amount,
-                &command.request_id,
-            )
-            .await?
-        }
-    };
+    let cash_balance_after = settle_trade_cash(
+        connection,
+        command,
+        trade.id,
+        basket.gross_amount,
+        fee_amount,
+    )
+    .await?;
     let position = match command.side {
         OrderSide::Buy => {
             positions::increase_position(
@@ -300,6 +273,7 @@ pub(super) async fn execute_index_fund_order(
                 command.portfolio_id,
                 command.instrument_id,
                 command.quantity,
+                cash_amount,
             )
             .await?
         }
@@ -309,6 +283,7 @@ pub(super) async fn execute_index_fund_order(
                 command.portfolio_id,
                 command.instrument_id,
                 command.quantity,
+                cash_amount,
             )
             .await?
         }
@@ -343,7 +318,7 @@ pub(super) async fn execute_index_fund_order(
     let reason = PriceSnapshotReason::from(command.side);
     let unit_prices = revalue_index_funds(
         connection,
-        &basket.funds,
+        &book.funds,
         Some(trade.id),
         Some((command.instrument_id, reason)),
     )
@@ -361,7 +336,9 @@ pub(super) async fn execute_index_fund_order(
         quantity: command.quantity,
         execution_price: basket.execution_price,
         gross_amount: basket.gross_amount,
-        cash_balance_after: cash_ledger_entry.balance_after,
+        fee_amount,
+        cash_amount: Some(cash_amount),
+        cash_balance_after,
         position_quantity_after: position.quantity,
         old_price: basket.unit_price_before,
         new_price: unit_prices
@@ -384,6 +361,7 @@ pub(super) async fn execute_custody_trade(
 ) -> Result<Trade, ExecutionError> {
     let leg_command = ExecuteOrderCommand {
         execution_limits: None,
+        cash_limit: None,
         request_id,
         account_id: CUSTODY_ACCOUNT_ID,
         portfolio_id: CUSTODY_PORTFOLIO_ID,
@@ -397,6 +375,7 @@ pub(super) async fn execute_custody_trade(
         &order,
         leg.quote.execution_price,
         leg.quote.gross_amount,
+        Decimal::ZERO,
         cause,
     )
     .await?;
@@ -407,6 +386,7 @@ pub(super) async fn execute_custody_trade(
                 CUSTODY_PORTFOLIO_ID,
                 leg.instrument.id,
                 leg.quantity,
+                leg.quote.gross_amount,
             )
             .await?
         }
@@ -416,6 +396,7 @@ pub(super) async fn execute_custody_trade(
                 CUSTODY_PORTFOLIO_ID,
                 leg.instrument.id,
                 leg.quantity,
+                leg.quote.gross_amount,
             )
             .await?
         }

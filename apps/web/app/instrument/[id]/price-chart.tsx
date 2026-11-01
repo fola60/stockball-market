@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useState, type PointerEvent } from "react";
 import type { PriceHistoryRange, PriceSnapshot } from "@/lib/api";
-import { formatCurrency, formatPercent } from "@/lib/format";
+import { formatChange, formatCurrency } from "@/lib/format";
 
 type RangeKey = PriceHistoryRange;
 type ChartPoint = { price: number; timestamp: number };
@@ -176,7 +176,7 @@ export function PriceChart({
       <div className="flex min-h-12 items-start justify-between gap-4 px-4 pt-4 md:px-5">
         <div>
           <strong className={`block text-sm font-semibold tabular-nums slashed-zero ${positive ? "text-[#35d07f]" : "text-[#f16d73]"}`}>
-            {formatCurrency(endPrice - startPrice)} · {formatPercent(selectedChange)}
+            {formatCurrency(endPrice - startPrice)} · {formatChange(selectedChange)}
           </strong>
           <span className="mt-1 block text-[11px] font-medium text-[#77818e]">Across the selected {selectedRange.toLowerCase()} range</span>
         </div>

@@ -1,6 +1,7 @@
 pub mod config;
 pub mod delistings;
 pub mod execution;
+pub mod fees;
 pub mod freezes;
 pub mod http;
 pub mod idempotency;

@@ -58,6 +58,7 @@ TWITTER_SCHEDULE_INTERVAL_MINUTES_ENV = "STOCKBALL_TWITTER_INJURY_SCHEDULE_INTER
 MATCH_FREEZE_SCHEDULE_ENABLED_ENV = "STOCKBALL_MATCH_FREEZE_SCHEDULE_ENABLED"
 MATCH_FREEZE_LINEUP_LOCK_MINUTES_ENV = "STOCKBALL_MATCH_FREEZE_LINEUP_LOCK_MINUTES"
 MATCH_FREEZE_SETTLEMENT_MINUTES_ENV = "STOCKBALL_MATCH_FREEZE_SETTLEMENT_MINUTES"
+MATCH_FREEZE_MAX_HOLD_MINUTES_ENV = "STOCKBALL_MATCH_FREEZE_MAX_HOLD_MINUTES"
 # Days a player stays halted for leaving the league before their share is bought out and
 # delisted, so a short gap in the roster data never cashes anyone out.
 DELISTING_GRACE_DAYS_ENV = "STOCKBALL_DELISTING_GRACE_DAYS"
@@ -113,6 +114,7 @@ DEFAULT_TWITTER_SCHEDULE_INTERVAL_MINUTES = 5
 # kick-off: a 90-minute match, half time, stoppage and extra time, then a settlement buffer.
 DEFAULT_MATCH_FREEZE_LINEUP_LOCK_MINUTES = 60
 DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES = 150
+DEFAULT_MATCH_FREEZE_MAX_HOLD_MINUTES = 360
 DEFAULT_SOCIAL_SIGNAL_MAX_AGE_SECONDS = 60 * 60
 DEFAULT_SCHEDULER_POLL_SECONDS = 60
 DEFAULT_WORKER_BLOCK_SECONDS = 5
@@ -172,6 +174,7 @@ class Settings:
     match_freeze_schedule_enabled: bool = True
     match_freeze_lineup_lock_minutes: int = DEFAULT_MATCH_FREEZE_LINEUP_LOCK_MINUTES
     match_freeze_settlement_minutes: int = DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES
+    match_freeze_max_hold_minutes: int = DEFAULT_MATCH_FREEZE_MAX_HOLD_MINUTES
     delisting_grace_days: int = DEFAULT_DELISTING_GRACE_DAYS
     queue_name: str = DEFAULT_QUEUE_NAME
     retry_queue_name: str = DEFAULT_RETRY_QUEUE_NAME
@@ -307,6 +310,10 @@ class Settings:
             match_freeze_settlement_minutes=_int_env(
                 MATCH_FREEZE_SETTLEMENT_MINUTES_ENV,
                 DEFAULT_MATCH_FREEZE_SETTLEMENT_MINUTES,
+            ),
+            match_freeze_max_hold_minutes=_int_env(
+                MATCH_FREEZE_MAX_HOLD_MINUTES_ENV,
+                DEFAULT_MATCH_FREEZE_MAX_HOLD_MINUTES,
             ),
             delisting_grace_days=_int_env(DELISTING_GRACE_DAYS_ENV, DEFAULT_DELISTING_GRACE_DAYS),
             queue_name=os.getenv(QUEUE_NAME_ENV, DEFAULT_QUEUE_NAME),

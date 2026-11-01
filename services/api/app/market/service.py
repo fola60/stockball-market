@@ -13,6 +13,9 @@ from app.market.models import (
     MarketTradeRecord,
     MatchdayRecord,
     NewsRecord,
+    NextFixtureRecord,
+    PlayerBriefingRecord,
+    PlayerNewsRecord,
     RoundRecord,
     SparklineRange,
 )
@@ -29,6 +32,9 @@ _SPARKLINE_WINDOWS = {
 
 _NEWS_LOOKBACK = timedelta(days=3)
 _NEWS_CANDIDATES = 300
+# A player page looks further back: one player's news is sparse.
+_PLAYER_NEWS_LOOKBACK = timedelta(days=21)
+_PLAYER_NEWS_CANDIDATES = 60
 # Club names change only when the club-to-team map is rebuilt.
 _CLUB_ALIAS_TTL = timedelta(minutes=10)
 
@@ -147,6 +153,61 @@ class MarketService:
                     topic=candidate.topic,
                     player_name=candidate.player_name,
                     instrument_id=candidate.instrument_id,
+                )
+            )
+            if len(items) == limit:
+                break
+        return items
+
+    def player_briefing(self, instrument_id: UUID, news_limit: int) -> PlayerBriefingRecord:
+        """What a trader should know before trading a player: when trading next pauses for a
+        match, whether the player is reported injured, and the latest reviewed headlines.
+        Bots read the same news, so showing it keeps people on an equal footing."""
+        now = self._clock()
+        fixture = self._repository.next_fixture(instrument_id)
+        next_fixture = None
+        if fixture is not None:
+            lock_at = fixture.kickoff_at - self._lineup_lock
+            next_fixture = NextFixtureRecord(
+                kickoff_at=fixture.kickoff_at,
+                lock_at=lock_at,
+                home_team=fixture.home_team,
+                away_team=fixture.away_team,
+                is_home=fixture.is_home,
+                locked=now >= lock_at,
+            )
+        return PlayerBriefingRecord(
+            next_fixture=next_fixture,
+            availability=self._repository.availability(instrument_id),
+            news=self._player_news(instrument_id, news_limit, now),
+        )
+
+    def _player_news(self, instrument_id: UUID, limit: int, now: datetime) -> list[PlayerNewsRecord]:
+        candidates = self._repository.news_candidates(
+            now - _PLAYER_NEWS_LOOKBACK, _PLAYER_NEWS_CANDIDATES, instrument_id
+        )
+        club_aliases = self._club_aliases()
+        seen: set[UUID] = set()
+        items: list[PlayerNewsRecord] = []
+        for candidate in candidates:
+            if candidate.document_id in seen:
+                continue
+            # The same checks as the home page: the headline names the player and the story
+            # names the club, so a namesake's story is not shown.
+            if not _mentions(candidate.title, _player_names(candidate.player_name)):
+                continue
+            aliases = club_aliases.get(candidate.club or "", ())
+            if not _mentions(f"{candidate.title} {candidate.text}", aliases):
+                continue
+            seen.add(candidate.document_id)
+            items.append(
+                PlayerNewsRecord(
+                    document_id=candidate.document_id,
+                    title=candidate.title,
+                    url=candidate.url,
+                    source=candidate.source,
+                    published_at=candidate.published_at,
+                    topic=candidate.topic,
                 )
             )
             if len(items) == limit:

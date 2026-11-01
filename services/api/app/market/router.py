@@ -12,6 +12,7 @@ from app.market.schemas import (
     MarketTradeResponse,
     MatchdayResponse,
     NewsItemResponse,
+    PlayerBriefingResponse,
     SparklinesResponse,
 )
 from app.market.service import MarketService, TooManyInstrumentsError
@@ -69,6 +70,18 @@ def recent_trades(
 ) -> list[MarketTradeResponse]:
     trades = get_market_service(request).recent_trades(limit, hours)
     return [MarketTradeResponse.from_record(trade) for trade in trades]
+
+
+@router.get("/players/{instrument_id}/briefing", response_model=PlayerBriefingResponse)
+def player_briefing(
+    instrument_id: UUID,
+    request: Request,
+    news_limit: int = Query(default=5, ge=0, le=10),
+) -> PlayerBriefingResponse:
+    """A player's next fixture and trading lock time, injury status, and latest news."""
+    return PlayerBriefingResponse.from_record(
+        get_market_service(request).player_briefing(instrument_id, news_limit)
+    )
 
 
 @router.get("/news", response_model=list[NewsItemResponse])

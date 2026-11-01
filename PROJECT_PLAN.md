@@ -67,18 +67,41 @@ For V1, share prices are affected solely by trading activity.
 Use a direct curved price rule driven by net trading pressure:
 
 - net shares purchased equals shares bought through the engine minus shares sold through it
-- divide net shares purchased by shares outstanding to locate the current point on the curve
+- divide net shares purchased by the curve depth to locate the current point on the curve
 - every buy moves forward on the curve and every sell moves backward
-- a configurable full-supply multiplier controls the total movement and defaults to `2.5`
-
-Example:
-
-- at zero net shares purchased, the quote equals the reference price
-- at net purchases equal to all shares outstanding, the quote is 2.5 times the reference price
-- at the matching net-selling limit, the quote is 0.4 times the reference price
-- calculate price by raising the full-supply multiplier to the current curve position
+- the price is `reference price × multiplier ^ (net shares purchased ÷ curve depth)`
 - calculate trade cost as the difference between the curve's ending and starting cumulative cost,
   so splitting an order does not alter its price movement or stored cost
+
+Current calibration (October 2026): a multiplier of 20 over a depth of 1/15 of the 1,000,000
+shares outstanding. Net buying of 66,667 shares takes a player to 20 times their reference price,
+and the same net selling to 1/20 of it. Existing curves change only through a recalibration,
+which rebases them without moving any price.
+
+Because every player has the same number of shares, a cash amount moves a cheap player much
+further than an expensive one. A buy of `G` pounds (before the fee) from a player's current point
+raises their price by the fraction `G × ln(20) ÷ (price × 66,667)`. A first buy of £10,000 or of
+a trader's whole £100,000 opening balance moves:
+
+| Player price | £10,000 buy | £100,000 buy |
+| ------------ | ----------- | ------------ |
+| £150         | +0.3%       | +3.0%        |
+| £50          | +0.9%       | +8.9%        |
+| £10          | +4.5%       | +44.7%       |
+| £2           | +22.4%      | +223.6%      |
+
+This is a deliberate choice for now. If single traders move cheap players too far, the fix is a
+recalibration that sizes each curve's depth by money (depth = a fixed amount ÷ price) rather than
+by shares, so the same amount moves every player by the same percentage.
+
+### Trading Fee
+
+Every trader order pays a fee of 0.5% of its gross amount (`STOCKBALL_TRADING_FEE_RATE`): buyers
+pay it on top and sellers have it deducted. Without it, a buy followed by the same sell costs
+nothing, so anyone who saw a goal could buy when trading reopened and sell into the bots that
+react to the match ratings later. The fee is a cash sink and is recorded on each trade and as its
+own `TRADE_FEE` ledger entry. Custody legs of index fund trades, rebalances and delisting buyouts
+are not charged.
 
 This means:
 

@@ -83,7 +83,7 @@ class FakePortfoliosRepository:
     def get_portfolio(self, portfolio_id: UUID) -> PortfolioRecord | None:
         return self._portfolios.get(portfolio_id)
 
-    def list_activity(self, portfolio_id: UUID, limit: int) -> list:
+    def list_activity(self, portfolio_id: UUID, limit: int, offset: int = 0) -> list:
         return []
 
 
@@ -432,6 +432,52 @@ class MarketApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["account_id"], str(self.account_id))
         self.assertEqual(self.trading_engine_client.last_command.account_id, self.account_id)
+
+    def test_quote_by_cash_amount_forwards_the_amount_not_a_quantity(self) -> None:
+        response = self.client.post(
+            "/v1/orders/quote",
+            json={
+                "instrument_id": str(self.instrument_id),
+                "side": "BUY",
+                "cash_amount": "2500.50",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        command = self.trading_engine_client.last_command
+        self.assertEqual(command.cash_amount, "2500.50")
+        self.assertIsNone(command.quantity)
+        self.assertEqual(command.to_payload()["cash_amount"], "2500.50")
+        self.assertNotIn("quantity", command.to_payload())
+        self.assertIn("fee_amount", response.json())
+        self.assertIn("cash_amount", response.json())
+
+    def test_quote_needs_exactly_one_size(self) -> None:
+        for body in (
+            {"quantity": "2", "cash_amount": "10"},
+            {},
+            {"cash_amount": "0"},
+        ):
+            response = self.client.post(
+                "/v1/orders/quote",
+                json={"instrument_id": str(self.instrument_id), "side": "BUY", **body},
+            )
+            self.assertEqual(response.status_code, 422, body)
+
+    def test_create_order_forwards_its_price_protection(self) -> None:
+        response = self.client.post(
+            "/v1/orders",
+            json={
+                "request_id": "req_limit",
+                "instrument_id": str(self.instrument_id),
+                "side": "BUY",
+                "quantity": "10",
+                "cash_limit": "1005.25",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        command = self.trading_engine_client.last_command
+        self.assertEqual(command.cash_limit, "1005.25")
+        self.assertEqual(command.to_payload()["cash_limit"], "1005.25")
 
     def test_create_order_passes_through_trading_engine_error(self) -> None:
         client = self.authenticated_client(

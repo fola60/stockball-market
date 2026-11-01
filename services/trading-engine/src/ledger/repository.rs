@@ -77,6 +77,31 @@ pub async fn credit_trade_cash(
     .await
 }
 
+/// Charges an order's trading fee. A zero fee records nothing.
+pub async fn debit_trade_fee(
+    connection: &mut PgConnection,
+    account_id: Uuid,
+    portfolio_id: Uuid,
+    trade_id: Uuid,
+    fee: Decimal,
+    source_request_id: &str,
+) -> Result<Option<CashLedgerEntry>, LedgerError> {
+    if fee.is_zero() {
+        return Ok(None);
+    }
+    apply_cash_movement(
+        connection,
+        account_id,
+        portfolio_id,
+        Some(trade_id),
+        LedgerReason::TradeFee,
+        -ensure_positive_amount(fee)?,
+        Some(source_request_id),
+    )
+    .await
+    .map(Some)
+}
+
 /// Moves a unit's cash between custody and the market as index fund units are traded: a
 /// positive amount credits custody on a buy, a negative one debits it on a sale.
 pub async fn move_index_fund_cash(
@@ -199,6 +224,31 @@ pub async fn credit_monthly_topup(
     .await
 }
 
+/// Records capital given to a portfolio as shares, such as an initial supply allocation, so
+/// its performance is measured against what it was given.
+pub async fn add_contributed_capital(
+    connection: &mut PgConnection,
+    portfolio_id: Uuid,
+    amount: Decimal,
+) -> Result<(), LedgerError> {
+    let updated = sqlx::query(
+        r#"
+        UPDATE portfolios
+        SET contributed_capital = contributed_capital + $2,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(portfolio_id)
+    .bind(amount)
+    .execute(&mut *connection)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(LedgerError::PortfolioNotFound(portfolio_id));
+    }
+    Ok(())
+}
+
 async fn apply_cash_movement(
     connection: &mut PgConnection,
     account_id: Uuid,
@@ -212,9 +262,19 @@ async fn apply_cash_movement(
         return Err(LedgerError::NonPositiveAmount(amount_delta));
     }
 
-    let balance_after =
-        update_portfolio_cash_balance(&mut *connection, account_id, portfolio_id, amount_delta)
-            .await?;
+    let contribution = if reason.is_contribution() {
+        amount_delta
+    } else {
+        Decimal::ZERO
+    };
+    let balance_after = update_portfolio_cash_balance(
+        &mut *connection,
+        account_id,
+        portfolio_id,
+        amount_delta,
+        contribution,
+    )
+    .await?;
 
     insert_ledger_entry(
         &mut *connection,
@@ -236,12 +296,14 @@ async fn update_portfolio_cash_balance(
     account_id: Uuid,
     portfolio_id: Uuid,
     amount_delta: Decimal,
+    contribution: Decimal,
 ) -> Result<Decimal, LedgerError> {
     let balance_after = sqlx::query_scalar::<_, Decimal>(
         r#"
         UPDATE portfolios
         SET
             cash_balance = cash_balance + $3,
+            contributed_capital = contributed_capital + $4,
             updated_at = now()
         WHERE id = $1
           AND account_id = $2
@@ -252,6 +314,7 @@ async fn update_portfolio_cash_balance(
     .bind(portfolio_id)
     .bind(account_id)
     .bind(amount_delta)
+    .bind(contribution)
     .fetch_optional(&mut *connection)
     .await?;
 

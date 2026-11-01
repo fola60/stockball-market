@@ -1,6 +1,6 @@
 pub type ExecuteOrderRequest = crate::orders::ExecuteOrderCommand;
 pub type ExecuteOrderResponse = crate::execution::ExecuteOrderResult;
-pub type QuoteOrderRequest = crate::orders::ExecuteOrderCommand;
+pub type QuoteOrderRequest = crate::orders::QuoteOrderCommand;
 pub type QuoteOrderResponse = crate::execution::OrderQuote;
 pub type SeedPlayerSharesResponse = crate::instruments::SeedPlayerSharesResult;
 pub type ApplyTopupRequest = crate::topups::ApplyTopupCommand;

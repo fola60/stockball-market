@@ -6,7 +6,7 @@ import { Label, Shell, panel } from "../components/market-shell";
 import { FundBadge } from "../components/fund-media";
 import { ClubBadge, PlayerAvatar } from "../components/player-media";
 import { getPortfolioPageData, playerName } from "@/lib/api";
-import { formatCurrency, formatPercent } from "@/lib/format";
+import { formatChange, formatCurrency, moveTone } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Portfolio — Stockball" };
 export const dynamic = "force-dynamic";
@@ -22,6 +22,9 @@ type Holding = {
   price: number;
   quantity: number;
   value: number;
+  /** What the holding cost, fees included, and its unrealised profit at today's price. */
+  cost: number;
+  pnl: number;
   dayChange: number;
   dayPnl: number;
   allocation: number;
@@ -82,7 +85,9 @@ export default async function PortfolioPage() {
     if (!listing) return [];
     const quantity = Number(position.quantity);
     const previousPrice = 1 + listing.dayChange / 100 > 0 ? listing.price / (1 + listing.dayChange / 100) : listing.price;
-    return [{ ...listing, quantity, value: quantity * listing.price, dayPnl: quantity * (listing.price - previousPrice) }];
+    const value = quantity * listing.price;
+    const cost = Number(position.cost_basis);
+    return [{ ...listing, quantity, value, cost, pnl: value - cost, dayPnl: quantity * (listing.price - previousPrice) }];
   });
   const invested = rawHoldings.reduce((total, holding) => total + holding.value, 0);
   const holdings: Holding[] = rawHoldings
@@ -92,6 +97,13 @@ export default async function PortfolioPage() {
   const portfolioValue = cash + invested;
   const dayPnl = holdings.reduce((total, holding) => total + holding.dayPnl, 0);
   const dayPercent = portfolioValue - dayPnl > 0 ? (dayPnl / (portfolioValue - dayPnl)) * 100 : 0;
+  const costOfHoldings = holdings.reduce((total, holding) => total + holding.cost, 0);
+  const unrealised = invested - costOfHoldings;
+  const realised = Number(portfolio.realized_pnl);
+  // Return on the capital the account was given: opening balance and any top-ups.
+  const given = Number(portfolio.contributed_capital);
+  const totalReturn = portfolioValue - given;
+  const returnPercent = given > 0 ? (totalReturn / given) * 100 : 0;
   const allocation = holdings.reduce<Record<string, number>>((groups, holding) => {
     groups[holding.group] = (groups[holding.group] ?? 0) + holding.value;
     return groups;
@@ -110,15 +122,15 @@ export default async function PortfolioPage() {
 
         <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-4">
           {[
-            ["Portfolio value", formatCurrency(portfolioValue), `${holdings.length} active holding${holdings.length === 1 ? "" : "s"}`],
-            ["Available cash", formatCurrency(cash), `${portfolioValue > 0 ? ((cash / portfolioValue) * 100).toFixed(1) : "0.0"}% buying power`],
-            ["Invested", formatCurrency(invested), "Current market value"],
-            ["Today", formatCurrency(dayPnl), formatPercent(dayPercent)],
-          ].map((metric, index) => (
-            <article key={metric[0]} className={`${panel} p-4`}>
-              <Label>{metric[0]}</Label>
-              <strong className="font-mono text-xl font-semibold">{metric[1]}</strong>
-              <p className={`mt-1.5 text-[11px] ${index === 3 ? (dayPnl >= 0 ? "text-[#35d07f]" : "text-[#f16d73]") : "text-[#77818e]"}`}>{metric[2]}</p>
+            { label: "Portfolio value", value: formatCurrency(portfolioValue), note: given > 0 ? `${signedCurrency(totalReturn)} (${formatChange(returnPercent)}) all time` : `${holdings.length} active holding${holdings.length === 1 ? "" : "s"}`, tone: given > 0 ? moveTone(returnPercent) : "text-[#77818e]" },
+            { label: "Available cash", value: formatCurrency(cash), note: `${portfolioValue > 0 ? ((cash / portfolioValue) * 100).toFixed(1) : "0.0"}% buying power`, tone: "text-[#77818e]" },
+            { label: "Invested", value: formatCurrency(invested), note: `Unrealised ${signedCurrency(unrealised)} · Realised ${signedCurrency(realised)}`, tone: "text-[#77818e]" },
+            { label: "Today", value: formatCurrency(dayPnl), note: formatChange(dayPercent), tone: moveTone(dayPercent) },
+          ].map((metric) => (
+            <article key={metric.label} className={`${panel} p-4`}>
+              <Label>{metric.label}</Label>
+              <strong className="font-mono text-xl font-semibold">{metric.value}</strong>
+              <p className={`mt-1.5 text-[11px] ${metric.tone}`}>{metric.note}</p>
             </article>
           ))}
         </div>
@@ -131,15 +143,17 @@ export default async function PortfolioPage() {
             </div>
             {holdings.length > 0 ? (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] border-collapse text-left">
-                  <thead className="border-y border-[#202832] bg-black/10 text-[11px] uppercase tracking-wider text-[#65707d]"><tr><th className="py-2.5 pl-5">Holding</th><th>Quantity</th><th>Current</th><th>Market value</th><th>24h</th><th>Allocation</th></tr></thead>
+                <table className="w-full min-w-[860px] border-collapse text-left">
+                  <thead className="border-y border-[#202832] bg-black/10 text-[11px] uppercase tracking-wider text-[#65707d]"><tr><th className="py-2.5 pl-5">Holding</th><th>Quantity</th><th>Avg cost</th><th>Current</th><th>Market value</th><th>Profit / loss</th><th>24h</th><th>Allocation</th></tr></thead>
                   <tbody>{holdings.map((holding) => (
                     <tr key={holding.id} className="border-b border-[#202832] text-[11px] text-[#9ba5b2] hover:bg-white/[0.018]">
                       <td className="py-3 pl-5"><Link prefetch={false} href={holding.href} className="flex items-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">{holding.avatar}<div className="min-w-0"><strong className="block text-xs text-white">{holding.name}</strong><small className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#697481]">{holding.detail}</small></div></Link></td>
                       <td className="font-mono">{holding.quantity.toLocaleString("en-GB", { maximumFractionDigits: 4 })}</td>
+                      <td className="font-mono">{holding.quantity > 0 ? formatCurrency(holding.cost / holding.quantity) : "—"}</td>
                       <td className="font-mono font-bold text-white">{formatCurrency(holding.price)}</td>
                       <td className="font-mono font-bold text-white">{formatCurrency(holding.value)}</td>
-                      <td className={`font-mono ${holding.dayChange >= 0 ? "text-[#35d07f]" : "text-[#f16d73]"}`}>{formatPercent(holding.dayChange)}</td>
+                      <td className={`font-mono ${moveTone(holding.pnl)}`}>{signedCurrency(holding.pnl)}<small className="block text-[10px] opacity-80">{holding.cost > 0 ? formatChange((holding.pnl / holding.cost) * 100) : "—"}</small></td>
+                      <td className={`font-mono ${moveTone(holding.dayChange)}`}>{formatChange(holding.dayChange)}</td>
                       <td><div className="flex items-center gap-2"><span className="w-12 font-mono">{holding.allocation.toFixed(1)}%</span><span className="h-1 w-12 overflow-hidden rounded bg-[#242c37]"><i className="block h-full bg-[#8fb5ff]" style={{ width: `${holding.allocation}%` }}/></span></div></td>
                     </tr>
                   ))}</tbody>
@@ -166,10 +180,10 @@ export default async function PortfolioPage() {
         </div>
 
         <article id="activity" className={`${panel} mt-4 p-5`}>
-          <div><Label>Latest trades</Label><h2 className="text-base font-bold">Recent activity</h2></div>
+          <div className="flex items-end justify-between gap-4"><div><Label>Latest trades</Label><h2 className="text-base font-bold">Recent activity</h2></div>{activity.length > 0 && <Link href="/history" className="text-[11px] font-bold text-[#8fb5ff] hover:text-[#b8d0ff] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff]">All trades →</Link>}</div>
           {activity.length > 0 ? <div className="mt-3 divide-y divide-[#202832]">{activity.map((trade) => {
             const bought = trade.side === "BUY";
-            return <div key={trade.id} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 py-3"><span className={`grid size-8 place-items-center rounded-full text-xs ${bought ? "bg-[#35d07f]/10 text-[#35d07f]" : "bg-[#f16d73]/10 text-[#f16d73]"}`}>{bought ? "↗" : "↘"}</span><p className="min-w-0"><strong className="block truncate text-[11px]">{bought ? "Bought" : "Sold"} {Number(trade.shares).toLocaleString("en-GB", { maximumFractionDigits: 4 })} {trade.player_name}</strong><small className="mt-1 block text-[11px] text-[#65707d]"><time dateTime={trade.executed_at}>{new Date(trade.executed_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</time> · {formatCurrency(trade.execution_price)} per share</small></p><strong className="font-mono text-[11px]">{formatCurrency(trade.gross_amount)}</strong></div>;
+            return <div key={trade.id} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 py-3"><span className={`grid size-8 place-items-center rounded-full text-xs ${bought ? "bg-[#35d07f]/10 text-[#35d07f]" : "bg-[#f16d73]/10 text-[#f16d73]"}`}>{bought ? "↗" : "↘"}</span><p className="min-w-0"><strong className="block truncate text-[11px]">{bought ? "Bought" : "Sold"} {Number(trade.shares).toLocaleString("en-GB", { maximumFractionDigits: 4 })} {trade.player_name}</strong><small className="mt-1 block text-[11px] text-[#65707d]"><time dateTime={trade.executed_at}>{new Date(trade.executed_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</time> · {formatCurrency(trade.execution_price)} per share{Number(trade.fee_amount) > 0 ? ` · ${formatCurrency(trade.fee_amount)} fee` : ""}</small></p><strong className="font-mono text-[11px]">{formatCurrency(bought ? Number(trade.gross_amount) + Number(trade.fee_amount) : Number(trade.gross_amount) - Number(trade.fee_amount))}</strong></div>;
           })}</div> : <p className="mt-4 border-t border-[#202832] pt-5 text-xs text-[#77818e]">No trades have been recorded for this account.</p>}
         </article>
 
@@ -177,4 +191,10 @@ export default async function PortfolioPage() {
       </section>
     </Shell>
   );
+}
+
+/** "+£1,204.10" or "−£86.40". */
+function signedCurrency(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded < 0 ? "−" : "+"}${formatCurrency(Math.abs(rounded))}`;
 }

@@ -41,10 +41,10 @@ class PostgresMatchFreezeRepository:
                        home_team_name, away_team_name, status_short
                 FROM fixtures
                 WHERE kickoff_at <= %(now)s + %(lineup_lock)s
-                  AND kickoff_at > %(now)s - %(settlement)s
+                  AND kickoff_at > %(now)s - %(max_hold)s
                 ORDER BY kickoff_at, id
                 """,
-                {"now": now, "lineup_lock": window.lineup_lock, "settlement": window.settlement},
+                {"now": now, "lineup_lock": window.lineup_lock, "max_hold": window.max_hold},
             )
             rows = cursor.fetchall()
         return [

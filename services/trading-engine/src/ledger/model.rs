@@ -36,9 +36,19 @@ pub enum LedgerReason {
     IndexFundCashOut,
     /// Payment at the last price for a share that left the market.
     DelistingBuyout,
+    /// The trading fee on an order, charged alongside its buy debit or sell credit.
+    TradeFee,
 }
 
 impl LedgerReason {
+    /// Cash given to a portfolio rather than earned by it: performance is measured against it.
+    pub const fn is_contribution(self) -> bool {
+        matches!(
+            self,
+            Self::OpeningBalance | Self::WeeklyTopup | Self::MonthlyTopup | Self::AdminAdjustment
+        )
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OpeningBalance => "OPENING_BALANCE",
@@ -51,6 +61,7 @@ impl LedgerReason {
             Self::IndexFundCashIn => "INDEX_FUND_CASH_IN",
             Self::IndexFundCashOut => "INDEX_FUND_CASH_OUT",
             Self::DelistingBuyout => "DELISTING_BUYOUT",
+            Self::TradeFee => "TRADE_FEE",
         }
     }
 }
@@ -76,6 +87,7 @@ impl FromStr for LedgerReason {
             "INDEX_FUND_CASH_IN" => Ok(Self::IndexFundCashIn),
             "INDEX_FUND_CASH_OUT" => Ok(Self::IndexFundCashOut),
             "DELISTING_BUYOUT" => Ok(Self::DelistingBuyout),
+            "TRADE_FEE" => Ok(Self::TradeFee),
             other => Err(LedgerError::UnsupportedLedgerReason(other.to_owned())),
         }
     }

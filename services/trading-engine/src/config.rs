@@ -3,7 +3,7 @@ use std::{env, net::SocketAddr, str::FromStr};
 use rust_decimal::Decimal;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
-use crate::price_impact::CurveCalibration;
+use crate::{fees::TradingFee, price_impact::CurveCalibration};
 
 const DATABASE_URL_ENV: &str = "STOCKBALL_TRADING_ENGINE_DATABASE_URL";
 const DATABASE_URL_FALLBACK_ENV: &str = "DATABASE_URL";
@@ -11,6 +11,7 @@ const BIND_ADDR_ENV: &str = "STOCKBALL_TRADING_ENGINE_BIND_ADDR";
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:3000";
 const SEED_MULTIPLIER_ENV: &str = "STOCKBALL_DEFAULT_FULL_SUPPLY_PRICE_MULTIPLIER";
 const SEED_DEPTH_DIVISOR_ENV: &str = "STOCKBALL_DEFAULT_CURVE_DEPTH_DIVISOR";
+const TRADING_FEE_RATE_ENV: &str = "STOCKBALL_TRADING_FEE_RATE";
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -19,6 +20,8 @@ pub struct ServerConfig {
     /// The curve newly seeded players start on. Existing curves change only through a
     /// recalibration, which rebases them without moving prices.
     pub seed_curve: CurveCalibration,
+    /// The fee every order pays, as a share of its gross amount.
+    pub trading_fee: TradingFee,
 }
 
 impl ServerConfig {
@@ -46,10 +49,18 @@ impl ServerConfig {
             .validate()
             .map_err(ConfigError::InvalidSeedCurve)?;
 
+        let trading_fee = TradingFee {
+            rate: decimal_env(TRADING_FEE_RATE_ENV, TradingFee::DEFAULT.rate)?,
+        };
+        trading_fee
+            .validate()
+            .map_err(ConfigError::InvalidTradingFee)?;
+
         Ok(Self {
             database_url,
             bind_addr,
             seed_curve,
+            trading_fee,
         })
     }
 
@@ -83,4 +94,7 @@ pub enum ConfigError {
 
     #[error("invalid seed price curve: {0}")]
     InvalidSeedCurve(String),
+
+    #[error("invalid trading fee: {0}")]
+    InvalidTradingFee(String),
 }

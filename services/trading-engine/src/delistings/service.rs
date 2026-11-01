@@ -81,6 +81,7 @@ pub async fn delist_instrument(
             holder.portfolio_id,
             instrument_id,
             holder.quantity,
+            amount,
         )
         .await?;
         shares_bought_out += holder.quantity;

@@ -30,6 +30,11 @@ class TraderStandingRecord:
     joined_at: datetime
     day_change: str = "0.0000"
     day_change_percent: str = "0.0000"
+    # Capital the trader was given, net worth less that, and the return as a percentage of it.
+    # The return is None for an account that was given nothing.
+    contributed_capital: str = "0.0000"
+    total_return: str = "0.0000"
+    return_percent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +68,7 @@ class TraderTradeRecord:
     execution_price: str
     gross_amount: str
     executed_at: datetime
+    fee_amount: str = "0.0000"
 
 
 @dataclass(frozen=True)

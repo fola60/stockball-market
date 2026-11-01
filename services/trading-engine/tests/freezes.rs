@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use stockball_trading_engine::{
     execution::execute_order,
+    fees::TradingFee,
     freezes::{
         apply_freeze, release_freeze, ApplyFreezeCommand, FreezeReason, ReleaseFreezeCommand,
     },
@@ -51,6 +52,7 @@ async fn match_day_freeze_inner() {
     // Orders are rejected while frozen.
     let order = ExecuteOrderCommand {
         execution_limits: None,
+        cash_limit: None,
         request_id: format!("frozen-buy-{}", Uuid::new_v4()),
         account_id,
         portfolio_id,
@@ -58,7 +60,9 @@ async fn match_day_freeze_inner() {
         side: OrderSide::Buy,
         quantity: Decimal::new(1, 0),
     };
-    assert!(execute_order(&pool, order.clone()).await.is_err());
+    assert!(execute_order(&pool, order.clone(), TradingFee::NONE)
+        .await
+        .is_err());
 
     // An admin halt overlapping the match keeps the instrument frozen after the match ends.
     apply_freeze(
@@ -106,10 +110,11 @@ async fn match_day_freeze_inner() {
 
     let order = ExecuteOrderCommand {
         execution_limits: None,
+        cash_limit: None,
         request_id: format!("thawed-buy-{}", Uuid::new_v4()),
         ..order
     };
-    execute_order(&pool, order).await.unwrap();
+    execute_order(&pool, order, TradingFee::NONE).await.unwrap();
 }
 
 fn match_day(source_key: &str, instrument_id: Uuid) -> ApplyFreezeCommand {

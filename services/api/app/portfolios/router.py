@@ -60,6 +60,7 @@ def list_portfolio_activity(
     portfolio_id: UUID,
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100_000),
     principal: CurrentPrincipal = Depends(get_current_principal),
 ) -> list[PortfolioActivityResponse] | JSONResponse:
     if portfolio_id != principal.portfolio_id:
@@ -69,7 +70,7 @@ def list_portfolio_activity(
         )
     service = get_portfolios_service(request)
     try:
-        activity = service.list_activity(portfolio_id, limit)
+        activity = service.list_activity(portfolio_id, limit, offset)
     except PortfolioNotFoundError as exc:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,

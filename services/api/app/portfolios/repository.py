@@ -16,7 +16,9 @@ from app.portfolios.models import PortfolioActivityRecord, PortfolioRecord, Posi
 class PortfoliosRepository(Protocol):
     def get_portfolio(self, portfolio_id: UUID) -> PortfolioRecord | None: ...
 
-    def list_activity(self, portfolio_id: UUID, limit: int) -> list[PortfolioActivityRecord]: ...
+    def list_activity(
+        self, portfolio_id: UUID, limit: int, offset: int = 0
+    ) -> list[PortfolioActivityRecord]: ...
 
 
 class PostgresPortfoliosRepository:
@@ -37,6 +39,12 @@ class PostgresPortfoliosRepository:
                         id,
                         account_id,
                         cash_balance,
+                        contributed_capital,
+                        (
+                            SELECT COALESCE(SUM(realized_pnl), 0)
+                            FROM positions
+                            WHERE portfolio_id = portfolios.id
+                        ) AS realized_pnl,
                         created_at,
                         updated_at
                     FROM portfolios
@@ -56,6 +64,8 @@ class PostgresPortfoliosRepository:
                         portfolio_id,
                         instrument_id,
                         quantity,
+                        cost_basis,
+                        realized_pnl,
                         created_at,
                         updated_at
                     FROM positions
@@ -74,9 +84,13 @@ class PostgresPortfoliosRepository:
             created_at=portfolio_row["created_at"],
             updated_at=portfolio_row["updated_at"],
             positions=[_build_position_record(row) for row in position_rows],
+            contributed_capital=format_decimal(_as_decimal(portfolio_row["contributed_capital"])),
+            realized_pnl=format_decimal(_as_decimal(portfolio_row["realized_pnl"])),
         )
 
-    def list_activity(self, portfolio_id: UUID, limit: int) -> list[PortfolioActivityRecord]:
+    def list_activity(
+        self, portfolio_id: UUID, limit: int, offset: int = 0
+    ) -> list[PortfolioActivityRecord]:
         with self._connection() as connection:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
@@ -90,6 +104,7 @@ class PostgresPortfoliosRepository:
                         t.shares,
                         t.execution_price,
                         t.gross_amount,
+                        t.fee_amount,
                         t.executed_at
                     FROM trades AS t
                     JOIN instruments AS i ON i.id = t.instrument_id
@@ -97,8 +112,9 @@ class PostgresPortfoliosRepository:
                     WHERE t.portfolio_id = %(portfolio_id)s
                     ORDER BY t.executed_at DESC, t.id DESC
                     LIMIT %(limit)s
+                    OFFSET %(offset)s
                     """,
-                    {"portfolio_id": str(portfolio_id), "limit": limit},
+                    {"portfolio_id": str(portfolio_id), "limit": limit, "offset": offset},
                 )
                 rows = cursor.fetchall()
 
@@ -113,6 +129,7 @@ class PostgresPortfoliosRepository:
                 execution_price=format_decimal(_as_decimal(row["execution_price"])),
                 gross_amount=format_decimal(_as_decimal(row["gross_amount"])),
                 executed_at=row["executed_at"],
+                fee_amount=format_decimal(_as_decimal(row["fee_amount"])),
             )
             for row in rows
         ]
@@ -126,6 +143,8 @@ def _build_position_record(row: dict) -> PositionRecord:
         quantity=format_decimal(_as_decimal(row["quantity"])),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        cost_basis=format_decimal(_as_decimal(row["cost_basis"])),
+        realized_pnl=format_decimal(_as_decimal(row["realized_pnl"])),
     )
 
 

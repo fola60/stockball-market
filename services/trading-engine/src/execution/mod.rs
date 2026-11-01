@@ -3,6 +3,7 @@ mod index_fund;
 mod model;
 mod rebalance;
 mod repository;
+mod sizing;
 
 pub use error::ExecutionError;
 pub use model::{ExecuteOrderResult, OrderQuote, Trade};

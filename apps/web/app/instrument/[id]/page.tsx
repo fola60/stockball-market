@@ -4,10 +4,11 @@ import { notFound, redirect } from "next/navigation";
 import { Shell, panel } from "../../components/market-shell";
 import { ClubBadge, PlayerAvatar } from "../../components/player-media";
 import { getIndexFund, getInstrumentPageData, playerName, type InstrumentFreeze } from "@/lib/api";
-import { formatCompact, formatCurrency, formatPercent } from "@/lib/format";
+import { formatChange, formatCompact, formatCurrency, moveBadgeTone } from "@/lib/format";
 import { PriceChart } from "./price-chart";
 import { RadarChart } from "./radar-chart";
 import { TradeTicket } from "./trade-ticket";
+import { Briefing, pauseNotice } from "./briefing";
 
 export const dynamic = "force-dynamic";
 
@@ -50,11 +51,10 @@ export default async function InstrumentPage({ params }: PageProps) {
     notFound();
   }
 
-  const { account, instrument, history, stats, portfolio, tickerStocks, searchInstruments, searchFunds } = data;
+  const { account, instrument, history, stats, portfolio, briefing, tickerStocks, searchInstruments, searchFunds } = data;
   const name = playerName(instrument);
   const price = Number(instrument.current_price);
   const change = Number(instrument.price_change_24h);
-  const positive = change >= 0;
   const marketValue = price * Number(instrument.quantity_outstanding);
   const positionName = instrument.player_position?.split(",")[0] ?? "Player";
   const ownedQuantity = portfolio?.positions.find((position) => position.instrument_id === instrument.id)?.quantity ?? "0";
@@ -81,7 +81,7 @@ export default async function InstrumentPage({ params }: PageProps) {
           </div>
           <div className="md:text-right">
             <strong className="block text-3xl font-semibold tabular-nums slashed-zero md:text-[42px]">{formatCurrency(price)}</strong>
-            <span className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-xs font-semibold text-white tabular-nums slashed-zero ${positive ? "bg-[#07852f]" : "bg-[#d91c32]"}`}>{formatPercent(change)} today</span>
+            <span className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-xs font-semibold text-white tabular-nums slashed-zero ${moveBadgeTone(change)}`}>{formatChange(change)} today</span>
           </div>
         </header>
 
@@ -102,7 +102,7 @@ export default async function InstrumentPage({ params }: PageProps) {
         </section>
 
         <div className="order-first xl:order-none xl:sticky xl:top-[124px]">
-          <TradeTicket instrumentId={instrument.id} playerName={name} status={instrument.status} cashBalance={portfolio?.cash_balance ?? null} ownedQuantity={ownedQuantity} currentPrice={instrument.current_price} />
+          <TradeTicket instrumentId={instrument.id} playerName={name} status={instrument.status} cashBalance={portfolio?.cash_balance ?? null} ownedQuantity={ownedQuantity} currentPrice={instrument.current_price} notice={pauseNotice(briefing)} />
         </div>
         </div>
 
@@ -117,6 +117,8 @@ export default async function InstrumentPage({ params }: PageProps) {
             </div>
           ))}
         </dl>
+
+        <Briefing briefing={briefing} />
 
         <section aria-labelledby="player-profile-title" className={`${panel} mt-5`}>
           <div className="border-b border-[#202630] px-4 py-5 md:px-6">

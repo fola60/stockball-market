@@ -11,9 +11,13 @@ struct PositionRow {
     portfolio_id: Uuid,
     instrument_id: Uuid,
     quantity: Decimal,
+    cost_basis: Decimal,
+    realized_pnl: Decimal,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
+
+const COST_DECIMAL_PLACES: u32 = 12;
 
 pub async fn get_position(
     executor: impl PgExecutor<'_>,
@@ -27,6 +31,8 @@ pub async fn get_position(
             portfolio_id,
             instrument_id,
             quantity,
+            cost_basis,
+            realized_pnl,
             created_at,
             updated_at
         FROM positions
@@ -54,6 +60,8 @@ pub(crate) async fn lock_position(
             portfolio_id,
             instrument_id,
             quantity,
+            cost_basis,
+            realized_pnl,
             created_at,
             updated_at
         FROM positions
@@ -84,6 +92,8 @@ pub(crate) async fn lock_holders(
             portfolio_id,
             instrument_id,
             quantity,
+            cost_basis,
+            realized_pnl,
             created_at,
             updated_at
         FROM positions
@@ -121,34 +131,44 @@ pub fn assert_has_quantity(
     Ok(())
 }
 
+/// Adds shares to a position along with what they cost, fees included.
 pub async fn increase_position(
     connection: &mut PgConnection,
     portfolio_id: Uuid,
     instrument_id: Uuid,
     quantity_delta: Decimal,
+    cost: Decimal,
 ) -> Result<Position, PositionError> {
     ensure_positive_change(quantity_delta)?;
+    if cost.is_sign_negative() {
+        return Err(PositionError::NegativeCost(cost));
+    }
 
     let row = sqlx::query_as::<_, PositionRow>(
         r#"
         INSERT INTO positions (
             portfolio_id,
             instrument_id,
-            quantity
+            quantity,
+            cost_basis
         ) VALUES (
             $1,
             $2,
-            $3
+            $3,
+            $4
         )
         ON CONFLICT (portfolio_id, instrument_id)
         DO UPDATE SET
             quantity = positions.quantity + EXCLUDED.quantity,
+            cost_basis = positions.cost_basis + EXCLUDED.cost_basis,
             updated_at = now()
         RETURNING
             id,
             portfolio_id,
             instrument_id,
             quantity,
+            cost_basis,
+            realized_pnl,
             created_at,
             updated_at
         "#,
@@ -156,17 +176,21 @@ pub async fn increase_position(
     .bind(portfolio_id)
     .bind(instrument_id)
     .bind(quantity_delta)
+    .bind(cost.round_dp(COST_DECIMAL_PLACES))
     .fetch_one(&mut *connection)
     .await?;
 
     Position::try_from(row)
 }
 
+/// Removes shares from a position. They take a proportional share of its cost basis with
+/// them, and the difference between `proceeds` and that cost is the sale's realized profit.
 pub async fn decrease_position(
     connection: &mut PgConnection,
     portfolio_id: Uuid,
     instrument_id: Uuid,
     quantity_delta: Decimal,
+    proceeds: Decimal,
 ) -> Result<Position, PositionError> {
     ensure_positive_change(quantity_delta)?;
 
@@ -185,12 +209,15 @@ pub async fn decrease_position(
         position.quantity,
         quantity_delta,
     )?;
+    let removed_cost = removed_cost_basis(&position, quantity_delta);
 
     let row = sqlx::query_as::<_, PositionRow>(
         r#"
         UPDATE positions
         SET
             quantity = quantity - $3,
+            cost_basis = cost_basis - $4,
+            realized_pnl = realized_pnl + $5,
             updated_at = now()
         WHERE portfolio_id = $1
           AND instrument_id = $2
@@ -199,6 +226,8 @@ pub async fn decrease_position(
             portfolio_id,
             instrument_id,
             quantity,
+            cost_basis,
+            realized_pnl,
             created_at,
             updated_at
         "#,
@@ -206,6 +235,8 @@ pub async fn decrease_position(
     .bind(portfolio_id)
     .bind(instrument_id)
     .bind(quantity_delta)
+    .bind(removed_cost)
+    .bind((proceeds - removed_cost).round_dp(COST_DECIMAL_PLACES))
     .fetch_optional(&mut *connection)
     .await?
     .ok_or(PositionError::NotFound {
@@ -214,6 +245,17 @@ pub async fn decrease_position(
     })?;
 
     Position::try_from(row)
+}
+
+/// The cost basis a sale of `quantity` takes with it: all of it when the position closes,
+/// otherwise its proportional share.
+fn removed_cost_basis(position: &Position, quantity: Decimal) -> Decimal {
+    if quantity >= position.quantity || position.quantity.is_zero() {
+        return position.cost_basis;
+    }
+    (position.cost_basis * quantity / position.quantity)
+        .round_dp(COST_DECIMAL_PLACES)
+        .min(position.cost_basis)
 }
 
 fn ensure_positive_change(quantity: Decimal) -> Result<(), PositionError> {
@@ -240,6 +282,8 @@ impl TryFrom<PositionRow> for Position {
             portfolio_id: row.portfolio_id,
             instrument_id: row.instrument_id,
             quantity: row.quantity,
+            cost_basis: row.cost_basis,
+            realized_pnl: row.realized_pnl,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -272,5 +316,34 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(error, PositionError::InsufficientQuantity { .. }));
+    }
+
+    fn position(quantity: i64, cost_basis: i64) -> Position {
+        Position {
+            id: Uuid::new_v4(),
+            portfolio_id: Uuid::new_v4(),
+            instrument_id: Uuid::new_v4(),
+            quantity: Decimal::from(quantity),
+            cost_basis: Decimal::from(cost_basis),
+            realized_pnl: Decimal::ZERO,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn a_partial_sale_removes_a_proportional_cost_basis() {
+        assert_eq!(
+            removed_cost_basis(&position(10, 1_000), Decimal::from(4)),
+            Decimal::from(400)
+        );
+    }
+
+    #[test]
+    fn closing_a_position_removes_all_of_its_cost_basis() {
+        assert_eq!(
+            removed_cost_basis(&position(3, 1_000), Decimal::from(3)),
+            Decimal::from(1_000)
+        );
     }
 }

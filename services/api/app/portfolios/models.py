@@ -13,6 +13,9 @@ class PositionRecord:
     quantity: str
     created_at: datetime
     updated_at: datetime
+    # What the shares still held cost, fees included, and the profit their sales locked in.
+    cost_basis: str = "0"
+    realized_pnl: str = "0"
 
 
 @dataclass(frozen=True)
@@ -23,6 +26,10 @@ class PortfolioRecord:
     created_at: datetime
     updated_at: datetime
     positions: list[PositionRecord]
+    # The capital the portfolio was given (opening balance, top-ups, issued shares) and the
+    # profit locked in by every sale, including positions since closed.
+    contributed_capital: str = "0"
+    realized_pnl: str = "0"
 
 
 @dataclass(frozen=True)
@@ -36,3 +43,4 @@ class PortfolioActivityRecord:
     execution_price: str
     gross_amount: str
     executed_at: datetime
+    fee_amount: str = "0"

@@ -7,12 +7,17 @@ from uuid import UUID
 
 import httpx
 
-from app.orders.models import ExecuteOrderCommand, OrderExecutionRecord, OrderQuoteRecord
+from app.orders.models import (
+    ExecuteOrderCommand,
+    OrderExecutionRecord,
+    OrderQuoteRecord,
+    QuoteOrderCommand,
+)
 
 
 class TradingEngineClient(Protocol):
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord: ...
-    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord: ...
+    def quote_order(self, command: QuoteOrderCommand) -> OrderQuoteRecord: ...
 
 
 class OpeningBalanceClient(Protocol):
@@ -51,8 +56,10 @@ class HttpTradingEngineClient:
     def execute_order(self, command: ExecuteOrderCommand) -> OrderExecutionRecord:
         return self._post_order("/internal/v1/orders/execute", command, OrderExecutionRecord)
 
-    def quote_order(self, command: ExecuteOrderCommand) -> OrderQuoteRecord:
-        return self._post_order("/internal/v1/orders/quote", command, OrderQuoteRecord)
+    def quote_order(self, command: QuoteOrderCommand) -> OrderQuoteRecord:
+        return OrderQuoteRecord.from_payload(
+            self._post("/internal/v1/orders/quote", command.to_payload())
+        )
 
     def apply_opening_balance(
         self, *, account_id: UUID, portfolio_id: UUID, amount: Decimal

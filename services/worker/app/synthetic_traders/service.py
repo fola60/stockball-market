@@ -682,14 +682,17 @@ class SyntheticTraderService:
                 quantity = _quantize_quantity(quantity / 2)
                 continue
             gross = Decimal(quote.gross_amount)
-            if gross <= 0:
+            # The cash the order moves, trading fee included: a buy's total cost, or what a
+            # sale pays out after the fee.
+            cash = Decimal(quote.cash_amount)
+            if gross <= 0 or cash <= 0:
                 return None
             quoted_cash_before = Decimal(quote.cash_balance_after) + (
-                gross if intent.side is OrderSide.BUY else -gross
+                cash if intent.side is OrderSide.BUY else -cash
             )
             if quoted_cash_before != context.portfolio.cash_balance:
                 return None
-            ratio = min(Decimal("1"), intent.notional_cash / gross)
+            ratio = min(Decimal("1"), intent.notional_cash / cash)
             if intent.side is OrderSide.BUY:
                 post_value = Decimal(quote.position_quantity_after) * Decimal(quote.new_price)
                 other_value = (
@@ -716,19 +719,17 @@ class SyntheticTraderService:
                 if not (cash_ok and player_ok and team_ok):
                     ratio = min(ratio, Decimal("0.8"))
             if ratio >= 1:
-                if gross < config.risk.min_trade_cash_amount:
+                if cash < config.risk.min_trade_cash_amount:
                     return None
                 return replace(
                     intent,
                     quantity=quantity,
-                    notional_cash=gross,
+                    notional_cash=cash,
                     execution_limits={
                         "expected_price": quote.old_price,
-                        "expected_cash_balance": str(
-                            Decimal(quote.cash_balance_after)
-                            + (gross if intent.side is OrderSide.BUY else -gross)
-                        ),
-                        "max_gross_amount": str(intent.notional_cash),
+                        "expected_cash_balance": str(quoted_cash_before),
+                        # A sale's gross amount is above the cash it pays out by the fee.
+                        "max_gross_amount": str(max(intent.notional_cash, gross)),
                     },
                 )
             quantity = _quantize_quantity(quantity * ratio * Decimal("0.999"))

@@ -10,8 +10,13 @@ from app.clients.trading_engine import (
     TradingEngineUnavailableError,
 )
 from app.common.schemas import ErrorResponse
-from app.orders.models import SubmitOrderCommand
-from app.orders.schemas import CreateOrderRequest, OrderExecutionResponse, OrderQuoteResponse
+from app.orders.models import QuoteOrderCommand, SubmitOrderCommand
+from app.orders.schemas import (
+    CreateOrderRequest,
+    OrderExecutionResponse,
+    OrderQuoteResponse,
+    QuoteOrderRequest,
+)
 from app.orders.service import OrdersService
 
 router = APIRouter(prefix="/v1/orders", tags=["orders"])
@@ -49,6 +54,7 @@ def create_order(
                 instrument_id=payload.instrument_id,
                 side=payload.side,
                 quantity=payload.quantity,
+                cash_limit=payload.cash_limit,
             )
         )
     except TradingEngineClientError as exc:
@@ -71,20 +77,21 @@ def create_order(
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def quote_order(
-    payload: CreateOrderRequest,
+    payload: QuoteOrderRequest,
     request: Request,
     principal: CurrentPrincipal = Depends(get_current_principal),
 ) -> OrderQuoteResponse | JSONResponse:
     service = get_orders_service(request)
     try:
         result = service.quote_order(
-            SubmitOrderCommand(
+            QuoteOrderCommand(
                 request_id=payload.request_id,
                 account_id=principal.account_id,
                 portfolio_id=principal.portfolio_id,
                 instrument_id=payload.instrument_id,
                 side=payload.side,
                 quantity=payload.quantity,
+                cash_amount=payload.cash_amount,
             )
         )
     except TradingEngineClientError as exc:
