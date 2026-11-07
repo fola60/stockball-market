@@ -25,6 +25,8 @@ from app.auth.rate_limits import (
 from app.auth.repository import PostgresAuthRepository
 from app.auth.router import router as auth_router
 from app.auth.service import AuthService
+from app.blind_market.router import router as blind_market_router
+from app.blind_market.service import BlindMarketService
 from app.clients.trading_engine import HttpTradingEngineClient
 from app.config import Settings
 from app.index_funds.repository import PostgresIndexFundsRepository
@@ -60,6 +62,7 @@ def create_app(
     rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Stockball API", version="0.1.0")
+    app.state.blind_market_service = None
     request_telemetry = RequestTelemetry()
 
     if all(
@@ -93,6 +96,9 @@ def create_app(
             timeout_seconds=settings.trading_engine_timeout_seconds,
         )
         orders_service = OrdersService(trading_engine_client=trading_engine_client)
+        app.state.blind_market_service = BlindMarketService(
+            settings.database_url, trading_engine_client, settings.blind_market_weekly_topup
+        )
         if rate_limiter is None:
             rate_limiter = RedisRateLimiter(settings.redis_url)
         auth_service = AuthService(
@@ -164,6 +170,7 @@ def create_app(
     app.include_router(orders_router)
     app.include_router(traders_router)
     app.include_router(market_router)
+    app.include_router(blind_market_router)
     app.include_router(admin_router)
 
     @app.get("/healthz", tags=["health"])

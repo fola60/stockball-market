@@ -34,6 +34,11 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
           </p>
         </header>
 
+        <Link href="/blind-market" prefetch={false} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl border border-[#2d3a4e] bg-[#101722] px-[18px] py-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#8fb5ff] hover:border-[#607ea7]">
+          <span><strong className="mr-2">Blind Market</strong><span className="text-xs text-[#aab7c9]">Three anonymous players. Predict their 24-hour moves.</span></span>
+          <span className="text-xs font-bold text-[#b8d0ff]">Play today’s replay <span aria-hidden="true">→</span></span>
+        </Link>
+
         <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />
 
         <div className="flex flex-wrap items-stretch gap-6">

@@ -29,6 +29,7 @@ class Settings:
     admin_api_enabled: bool = False
     user_opening_balance: Decimal = Decimal("100000.0000")
     lineup_lock_minutes: int = 60
+    blind_market_weekly_topup: Decimal = Decimal("100000.0000")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -68,4 +69,7 @@ class Settings:
                 os.getenv("STOCKBALL_USER_OPENING_BALANCE", "100000.0000")
             ),
             lineup_lock_minutes=int(os.getenv(LINEUP_LOCK_MINUTES_ENV, "60")),
+            blind_market_weekly_topup=Decimal(
+                os.getenv("STOCKBALL_BLIND_MARKET_WEEKLY_TOPUP", "100000.0000")
+            ),
         )
