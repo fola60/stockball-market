@@ -205,7 +205,9 @@ class BlindMarketService:
                 (str(account_id), call.day),
             )
             existing = cur.fetchone()
-            guesses = list(existing["guesses"]) if existing else [None] * len(round_["answers"])
+            guesses: list[dict[str, Any] | None] = (
+                list(existing["guesses"]) if existing else [None] * len(round_["answers"])
+            )
             reward = existing["reward"] if existing else Decimal(0)
             if guesses[call.slot] is None:
                 guesses[call.slot] = call.guess.model_dump()
