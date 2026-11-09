@@ -34,9 +34,9 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
           </p>
         </header>
 
-        <Link href="/blind-market" prefetch={false} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl border border-[#2d3a4e] bg-[#101722] px-[18px] py-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#8fb5ff] hover:border-[#607ea7]">
-          <span><strong className="mr-2">Blind Market</strong><span className="text-xs text-[#aab7c9]">Three anonymous players. Predict their 24-hour moves.</span></span>
-          <span className="text-xs font-bold text-[#b8d0ff]">Play today’s replay <span aria-hidden="true">→</span></span>
+        <Link href="/daily-games" prefetch={false} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-linear-to-r from-[#b38cff]/15 via-[#8fb5ff]/10 to-[#3fd8f0]/15 px-[18px] py-3 text-sm shadow-[inset_0_0_0_1px_rgba(143,181,255,0.25)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#8fb5ff] hover:shadow-[inset_0_0_0_1px_rgba(143,181,255,0.55)]">
+          <span><strong className="mr-2">Daily Games</strong><span className="text-xs text-[#aab7c9]">Three mystery players. Call their next 24 hours.</span></span>
+          <span className="text-xs font-bold text-[#c9d8ff]">Play today’s game <span aria-hidden="true">→</span></span>
         </Link>
 
         <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />

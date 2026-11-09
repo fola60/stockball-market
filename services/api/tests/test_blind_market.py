@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.blind_market.replays import recent_form
-from app.blind_market.service import Guess, reward_for_score, score_guess
+from app.blind_market.service import Call, Guess, progress, reward_for_score, score_guess
 
 
 @pytest.mark.parametrize(
@@ -66,3 +66,28 @@ def test_low_minutes_do_not_produce_a_before_guess_rate():
     assert clue["limited_minutes"]
     assert not clue["metrics"]
     assert reveal["minutes"] == 28
+
+
+ANSWERS = [{"move": "3.1"}, {"move": "-0.4"}, {"move": "6.0"}]
+
+
+def test_each_called_player_is_scored_before_the_round_is_complete():
+    guesses = [{"direction": "up", "band": "medium"}, None, None]
+    assert progress(guesses, ANSWERS) == {"points": [2, None, None], "score": None}
+
+
+def test_the_round_scores_once_every_player_is_called():
+    guesses = [
+        {"direction": "up", "band": "medium"},
+        {"direction": "up", "band": "small"},
+        {"direction": "up", "band": "medium"},
+    ]
+    assert progress(guesses, ANSWERS) == {"points": [2, 0, 1], "score": 3}
+
+
+@pytest.mark.parametrize("slot", [-1, 3])
+def test_a_call_names_one_of_the_three_players(slot):
+    with pytest.raises(ValueError):
+        Call.model_validate(
+            {"day": "2026-11-07", "slot": slot, "guess": {"direction": "up", "band": "small"}}
+        )

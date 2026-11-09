@@ -47,6 +47,9 @@ export type Result = {
   };
 };
 
+/** Image versions for a revealed player's portrait and club badge. */
+export type Media = { player_image_version: string | null; club_badge_version: string | null };
+
 export type Round = {
   day: string;
   today: string;
@@ -56,6 +59,23 @@ export type Round = {
   weekly_topup: string;
   payout_percent: number[];
   pending_reward: string;
-  entry: { guesses: Guess[]; score?: number; reward?: string; points?: number[] } | null;
-  results: Result[] | null;
+  /** One slot per player; null until that player is called. */
+  entry: {
+    guesses: (Guess | null)[];
+    points: (number | null)[];
+    score: number | null;
+    reward: string | null;
+  } | null;
+  /** Every player once the round closes; before that, only the players this account has called. */
+  results: (Result | null)[] | null;
+};
+
+/** The API's answer to one call: that player revealed, plus the entry so far. */
+export type Called = {
+  slot: number;
+  guesses: (Guess | null)[];
+  points: (number | null)[];
+  result: Result;
+  score: number | null;
+  reward: string | null;
 };

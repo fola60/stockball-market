@@ -16,9 +16,12 @@ cp .env.example .env.local
 - The market and player pages are public. Sign-in and account creation open in
   a modal when a guest chooses to trade or view a portfolio. The web app stores
   the opaque API session token in a secure, HttpOnly cookie.
-- Blind Market is available at `/blind-market`. It requires migration 0041 and
-  enough trade history and timestamped match observations to generate three
-  replays. Rounds close at midnight Dublin time. Set
+- Daily Games is available at `/daily-games` (`/blind-market` redirects there).
+  It requires migration 0041 and enough trade history and timestamped match
+  observations to generate three replays. The API, tables and settings keep
+  their original `blind_market` names. Each card is revealed as soon as it is
+  called, and the reward can be claimed once all three are called. Rounds close
+  at midnight Dublin time. Set
   `STOCKBALL_BLIND_MARKET_WEEKLY_TOPUP` on the API to the virtual-cash amount a
   perfect score should earn (default: `100000.0000`). The amount is fixed for
   the week when its first round is created.

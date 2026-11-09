@@ -6,7 +6,7 @@ import { PlayerSearch } from "./player-search";
 import { AuthDialog, AuthTrigger } from "./auth-dialog";
 import type { AuthMode } from "@/app/login/auth-form";
 
-export type ShellSection = "market" | "players" | "funds" | "portfolio" | "history" | "leaderboard" | "blind-market";
+export type ShellSection = "market" | "players" | "funds" | "portfolio" | "history" | "leaderboard" | "daily-games";
 
 export function Label({ children }: { children: ReactNode }) {
   return <p className="mb-2 text-[11px] font-semibold leading-none text-[#77818e]">{children}</p>;
@@ -20,8 +20,8 @@ function Header({ active, account, tickerStocks, searchInstruments, searchFunds 
         <span>STOCK<span className="text-[#8fb5ff]">BALL</span></span>
       </Link>
       <nav aria-label="Primary" className="ml-5 hidden items-center gap-1 sm:flex md:ml-8">
-        {([["/", "Market", "market"], ["/players", "Players", "players"], ["/funds", "Funds", "funds"], ["/leaderboard", "Leaderboard", "leaderboard"], ["/blind-market", "Blind Market", "blind-market"]] as const).map(([href, label, section]) => (
-          <Link key={href} href={href} prefetch={section === "blind-market" ? false : undefined} aria-current={active === section ? "page" : undefined} className={`h-9 rounded-lg px-2.5 text-xs font-bold leading-9 whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${section === "blind-market" ? "hidden lg:block" : ""} ${active === section ? "bg-white/[0.05] text-white" : "text-[#7c8693] hover:bg-white/[0.03] hover:text-white"}`}>{label}</Link>
+        {([["/", "Market", "market"], ["/players", "Players", "players"], ["/funds", "Funds", "funds"], ["/leaderboard", "Leaderboard", "leaderboard"], ["/daily-games", "Daily Games", "daily-games"]] as const).map(([href, label, section]) => (
+          <Link key={href} href={href} prefetch={section === "daily-games" ? false : undefined} aria-current={active === section ? "page" : undefined} className={`h-9 rounded-lg px-2.5 text-xs font-bold leading-9 whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8fb5ff] ${section === "daily-games" ? "hidden lg:block" : ""} ${active === section ? "bg-white/[0.05] text-white" : "text-[#7c8693] hover:bg-white/[0.03] hover:text-white"}`}>{label}</Link>
         ))}
       </nav>
       <div className="ml-auto flex items-center gap-2">

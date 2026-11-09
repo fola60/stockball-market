@@ -26,11 +26,14 @@ class Guess(BaseModel):
     band: Literal["small", "medium", "large"]
 
 
-class Submission(BaseModel):
+class Call(BaseModel):
+    """One player's call. Each card is called, scored and revealed on its own."""
+
     model_config = ConfigDict(extra="forbid")
 
     day: date
-    guesses: list[Guess] = Field(min_length=3, max_length=3)
+    slot: int = Field(ge=0, le=2)
+    guess: Guess
 
 
 class RoundClosedError(Exception):
@@ -44,6 +47,23 @@ def score_guess(guess: Guess, move: Decimal) -> int:
     magnitude = abs(move)
     band = "small" if magnitude < 2 else "medium" if magnitude < 5 else "large"
     return 2 if guess.band == band else 1
+
+
+def progress(guesses: list[dict[str, Any] | None], answers: list[dict[str, Any]]) -> dict[str, Any]:
+    """Points for each player called so far, and the round's score once all three are called.
+
+    An entry keeps one guess per player, null until that player is called.
+    """
+    points = [
+        score_guess(Guess.model_validate(guess), Decimal(answer["move"])) if guess else None
+        for guess, answer in zip(guesses, answers, strict=True)
+    ]
+    called = [point for point in points if point is not None]
+    return {"points": points, "score": sum(called) if len(called) == len(points) else None}
+
+
+# An entry is complete once no player is left uncalled.
+COMPLETE = "NOT entry.guesses @> '[null]'::jsonb"
 
 
 def reward_for_score(weekly_topup: Decimal, score: int) -> Decimal:
@@ -72,7 +92,7 @@ class BlindMarketService:
             or not Decimal("0.0001") <= weekly_topup < Decimal("10000000000000000")
             or weekly_topup != weekly_topup.quantize(CASH_PRECISION)
         ):
-            raise ValueError("Blind Market weekly top-up must be positive with at most four decimals")
+            raise ValueError("Daily Games weekly top-up must be positive with at most four decimals")
         self.database_url = database_url
         self.engine = engine
         self.weekly_topup = weekly_topup
@@ -114,13 +134,12 @@ class BlindMarketService:
             entry = None
             if account_id:
                 cur.execute(
-                    """
+                    f"""
                     SELECT coalesce(sum(entry.reward), 0) AS amount
-                    FROM blind_market_entries entry JOIN blind_market_rounds round USING (day)
-                    WHERE entry.account_id = %s AND entry.claimed_at IS NULL
-                      AND round.closes_at <= %s
+                    FROM blind_market_entries entry
+                    WHERE entry.account_id = %s AND entry.claimed_at IS NULL AND {COMPLETE}
                     """,
-                    (str(account_id), now),
+                    (str(account_id),),
                 )
                 totals = cur.fetchone()
                 assert totals is not None
@@ -136,6 +155,16 @@ class BlindMarketService:
                     entry = cur.fetchone()
 
         closed = bool(round_ and round_["closes_at"] <= now)
+        answers = round_["answers"] if round_ else []
+        # A closed round reveals everyone; an open one only the players this account has called.
+        results: list[Any] | None = None
+        if closed:
+            results = answers
+        elif entry:
+            results = [
+                answer if guess else None
+                for guess, answer in zip(entry["guesses"], answers, strict=True)
+            ]
         view = {
             "day": selected,
             "today": today,
@@ -145,73 +174,87 @@ class BlindMarketService:
             "weekly_topup": str(round_["weekly_topup"] if round_ else self.weekly_topup),
             "payout_percent": PAYOUT_PERCENT,
             "pending_reward": str(pending),
-            "entry": {"guesses": entry["guesses"]} if entry else None,
-            "results": round_["answers"] if closed and round_ else None,
+            "entry": None,
+            "results": results,
         }
-        if closed and round_ and entry:
+        if round_ and entry:
+            scored = progress(entry["guesses"], answers)
             view["entry"] = {
                 "guesses": entry["guesses"],
-                "score": entry["score"],
-                "reward": str(entry["reward"]),
-                "points": [
-                    score_guess(Guess.model_validate(guess), Decimal(answer["move"]))
-                    for guess, answer in zip(entry["guesses"], round_["answers"], strict=True)
-                ],
+                "points": scored["points"],
+                "score": scored["score"],
+                "reward": str(entry["reward"]) if scored["score"] is not None else None,
             }
         return view
 
-    def submit(self, account_id: UUID, submission: Submission) -> dict[str, Any]:
+    def call(self, account_id: UUID, call: Call) -> dict[str, Any]:
+        """Records one player's call and reveals that player.
+
+        Calling a player twice keeps the first call.
+        """
         with connection(self.database_url) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             _lock(cur, f"blind-market:account:{account_id}")
-            round_ = _find_round(cur, submission.day)
+            round_ = _find_round(cur, call.day)
             if not round_ or round_["closes_at"] <= datetime.now(UTC):
                 raise RoundClosedError
             cur.execute(
                 """
-                SELECT guesses FROM blind_market_entries
+                SELECT guesses, reward FROM blind_market_entries
                 WHERE account_id = %s AND day = %s
                 """,
-                (str(account_id), submission.day),
+                (str(account_id), call.day),
             )
             existing = cur.fetchone()
-            if existing:
-                return {"guesses": existing["guesses"]}
-
-            score = sum(
-                score_guess(guess, Decimal(answer["move"]))
-                for guess, answer in zip(submission.guesses, round_["answers"], strict=True)
-            )
-            cur.execute(
-                """
-                SELECT coalesce(max(entry.score), 0) AS best
-                FROM blind_market_entries entry JOIN blind_market_rounds round USING (day)
-                WHERE entry.account_id = %s AND round.week_start = %s
-                """,
-                (str(account_id), round_["week_start"]),
-            )
-            totals = cur.fetchone()
-            assert totals is not None
-            best = totals["best"]
-            pot = round_["weekly_topup"]
-            reward = max(Decimal(0), reward_for_score(pot, score) - reward_for_score(pot, best))
-            guesses = [guess.model_dump() for guess in submission.guesses]
-            cur.execute(
-                """
-                INSERT INTO blind_market_entries (account_id, day, guesses, score, reward)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (str(account_id), submission.day, Json(guesses), score, reward),
-            )
-        return {"guesses": guesses}
+            guesses = list(existing["guesses"]) if existing else [None] * len(round_["answers"])
+            reward = existing["reward"] if existing else Decimal(0)
+            if guesses[call.slot] is None:
+                guesses[call.slot] = call.guess.model_dump()
+                scored = progress(guesses, round_["answers"])
+                running = sum(point for point in scored["points"] if point is not None)
+                if scored["score"] is not None:
+                    cur.execute(
+                        f"""
+                        SELECT coalesce(max(entry.score), 0) AS best
+                        FROM blind_market_entries entry JOIN blind_market_rounds round USING (day)
+                        WHERE entry.account_id = %s AND round.week_start = %s
+                          AND entry.day <> %s AND {COMPLETE}
+                        """,
+                        (str(account_id), round_["week_start"], call.day),
+                    )
+                    totals = cur.fetchone()
+                    assert totals is not None
+                    pot = round_["weekly_topup"]
+                    reward = max(
+                        Decimal(0),
+                        reward_for_score(pot, running) - reward_for_score(pot, totals["best"]),
+                    )
+                cur.execute(
+                    """
+                    INSERT INTO blind_market_entries (account_id, day, guesses, score, reward)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (account_id, day) DO UPDATE
+                    SET guesses = EXCLUDED.guesses, score = EXCLUDED.score, reward = EXCLUDED.reward
+                    """,
+                    (str(account_id), call.day, Json(guesses), running, reward),
+                )
+            scored = progress(guesses, round_["answers"])
+        return {
+            "slot": call.slot,
+            "guesses": guesses,
+            "points": scored["points"],
+            "result": round_["answers"][call.slot],
+            "score": scored["score"],
+            "reward": str(reward) if scored["score"] is not None else None,
+        }
 
     def claim(self, principal: CurrentPrincipal) -> None:
         with connection(self.database_url) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
-                """
+                f"""
                 SELECT entry.day, entry.reward
-                FROM blind_market_entries entry JOIN blind_market_rounds round USING (day)
+                FROM blind_market_entries entry
                 WHERE entry.account_id = %s AND entry.claimed_at IS NULL AND entry.reward > 0
-                  AND round.closes_at <= now()
+                  AND {COMPLETE}
                 ORDER BY entry.day LIMIT 10
                 """,
                 (str(principal.account_id),),

@@ -1,15 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { RadarHexagon } from "@/app/components/radar-hexagon";
 import type { RadarAxis } from "@/lib/api";
-
-function polygonPoints(values: number[], radius: number, centerX: number, centerY: number): string {
-  return values.map((value, index) => {
-    const angle = -Math.PI / 2 + (index / values.length) * Math.PI * 2;
-    const scaledRadius = radius * (value / 100);
-    return `${centerX + Math.cos(angle) * scaledRadius},${centerY + Math.sin(angle) * scaledRadius}`;
-  }).join(" ");
-}
 
 function ordinal(value: number): string {
   const remainder = value % 100;
@@ -61,10 +54,6 @@ function TraitTooltip({ axis, index }: { axis: RadarAxis; index: number }) {
 
 export function RadarChart({ axes }: { axes: RadarAxis[] }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const centerX = 260;
-  const centerY = 220;
-  const radius = 142;
-  const labelRadius = 190;
   const activeAxis = activeIndex === null ? null : axes[activeIndex];
 
   return (
@@ -91,54 +80,16 @@ export function RadarChart({ axes }: { axes: RadarAxis[] }) {
 
       <div className="hidden sm:block">
         <div className="relative mx-auto w-full max-w-[620px]">
-        <svg viewBox="0 0 520 440" role="img" aria-label={`Player composite profile: ${axes.map((axis) => `${axis.label} ${axis.score}`).join(", ")}`} className="h-auto w-full overflow-visible">
-          {[20, 40, 60, 80, 100].map((level) => (
-            <polygon key={level} points={polygonPoints(axes.map(() => level), radius, centerX, centerY)} fill={level === 100 ? "#0b1016" : "none"} stroke={level === 100 ? "#35404c" : "#252e39"} strokeWidth="1" vectorEffect="non-scaling-stroke" />
-          ))}
-          {axes.map((axis, index) => {
-            const angle = -Math.PI / 2 + (index / axes.length) * Math.PI * 2;
-            const edgeX = centerX + Math.cos(angle) * radius;
-            const edgeY = centerY + Math.sin(angle) * radius;
-            return <line key={axis.label} x1={centerX} y1={centerY} x2={edgeX} y2={edgeY} stroke="#252e39" strokeWidth="1" vectorEffect="non-scaling-stroke" />;
-          })}
-          <polygon points={polygonPoints(axes.map((axis) => axis.score), radius, centerX, centerY)} fill="#8fb5ff" fillOpacity="0.18" stroke="#8fb5ff" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-          {axes.map((axis, index) => {
-            const angle = -Math.PI / 2 + (index / axes.length) * Math.PI * 2;
-            const pointRadius = radius * (axis.score / 100);
-            const pointX = centerX + Math.cos(angle) * pointRadius;
-            const pointY = centerY + Math.sin(angle) * pointRadius;
-            const labelX = centerX + Math.cos(angle) * labelRadius;
-            const labelY = centerY + Math.sin(angle) * labelRadius;
-            const textAnchor = Math.cos(angle) > 0.2 ? "start" : Math.cos(angle) < -0.2 ? "end" : "middle";
-            const active = index === activeIndex;
-            return (
-              <g
-                key={axis.label}
-                role="button"
-                tabIndex={0}
-                aria-label={`${axis.label}: ${axis.score} composite score. ${axis.components.map((component) => `${component.label}, ${component.value}, ${ordinal(component.score)} percentile`).join("; ")}`}
-                onMouseEnter={() => setActiveIndex(index)}
-                onMouseLeave={() => setActiveIndex(null)}
-                onFocus={() => setActiveIndex(index)}
-                onBlur={() => setActiveIndex(null)}
-                onClick={() => setActiveIndex(index)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setActiveIndex(index);
-                  }
-                }}
-                className="cursor-pointer outline-none"
-              >
-                <circle cx={pointX} cy={pointY} r={active ? "7" : "4"} fill="#8fb5ff" stroke={active ? "#dce7ff" : "#080b10"} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                <circle cx={labelX} cy={labelY + 5} r="34" fill="transparent" />
-                <text x={labelX} y={labelY - 3} textAnchor={textAnchor} fill={active ? "#ffffff" : "#d9e0e8"} fontSize="12" fontWeight="650">
-                  {axis.label}
-                </text>
-              </g>
-            );
-        })}
-        </svg>
+        <RadarHexagon
+          axes={axes}
+          label={`Player composite profile: ${axes.map((axis) => `${axis.label} ${axis.score}`).join(", ")}`}
+          activeIndex={activeIndex}
+          onActiveChange={setActiveIndex}
+          describeAxis={(index) => {
+            const axis = axes[index];
+            return `${axis.label}: ${axis.score} composite score. ${axis.components.map((component) => `${component.label}, ${component.value}, ${ordinal(component.score)} percentile`).join("; ")}`;
+          }}
+        />
 
         {activeAxis && activeIndex !== null ? (
           <TraitTooltip axis={activeAxis} index={activeIndex} />
