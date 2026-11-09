@@ -39,12 +39,12 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
           <span className="text-xs font-bold text-[#c9d8ff]">Play today’s game <span aria-hidden="true">→</span></span>
         </Link>
 
-        <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />
-
         <div className="flex flex-wrap items-stretch gap-6">
           <BiggestMovers movers={data.movers} totalPlayers={data.listedCount} />
           <MatchdayPanel matchday={data.matchday} fixtures={data.fixtures} signedIn={Boolean(data.account)} />
         </div>
+
+        <IndexFunds funds={data.indexFunds.funds} prices={data.indexFunds.prices} />
 
         <MarketMap clubs={data.clubs} />
 

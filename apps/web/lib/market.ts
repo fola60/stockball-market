@@ -252,7 +252,6 @@ export async function getHomePageData() {
   const market = instruments.filter(isInMarket);
 
   const daySelection = selectMovers(market, (instrument) => Number(instrument.price_change_24h), 2);
-  const weekSelection = selectMovers(market, (instrument) => Number(instrument.price_change_7d), 1);
   const listed = instruments.filter((instrument) => instrument.status !== "DELISTED");
   // The "All players" preview is the first page of /players, which includes paused players.
   const valuable = [...listed].sort((a, b) => marketValue(b) - marketValue(a)).slice(0, 8);
@@ -263,7 +262,7 @@ export async function getHomePageData() {
   // so secondary requests go out a few at a time.
   const [daySeries, weekSeries, trades] = await Promise.all([
     optional(getSparklines(ids(daySelection), "1D"), {}),
-    optional(getSparklines([...new Set([...ids(weekSelection), ...valuable.map((instrument) => instrument.id)])], "1W"), {}),
+    optional(getSparklines(valuable.map((instrument) => instrument.id), "1W"), {}),
     optional<MarketTrade[]>(getMarketTrades(5), []),
   ]);
   const ruleFunds = listedFunds.filter((fund) => fund.index_kind === "RULE");
@@ -298,10 +297,7 @@ export async function getHomePageData() {
     tradingCount: market.length,
     pausedCount: listed.length - market.length,
     listedCount: listed.length,
-    movers: {
-      day: withPrices(daySelection, daySeries),
-      week: withPrices(weekSelection, weekSeries),
-    },
+    movers: withPrices(daySelection, daySeries),
     matchday,
     fixtures,
     clubs: clubTiles(market, matchday, listedFunds),
