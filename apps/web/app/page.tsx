@@ -34,7 +34,12 @@ export default async function MarketPage({ searchParams }: { searchParams: Promi
           </p>
         </header>
 
-        <div className="-mt-2 flex flex-wrap items-stretch gap-6">
+        <Link href="/daily-games" prefetch={false} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-linear-to-r from-[#b38cff]/15 via-[#8fb5ff]/10 to-[#3fd8f0]/15 px-[18px] py-3 text-sm shadow-[inset_0_0_0_1px_rgba(143,181,255,0.25)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#8fb5ff] hover:shadow-[inset_0_0_0_1px_rgba(143,181,255,0.55)]">
+          <span><strong className="mr-2">Daily Games</strong><span className="text-xs text-[#aab7c9]">Three mystery players. Call their next 24 hours.</span></span>
+          <span className="text-xs font-bold text-[#c9d8ff]">Play today’s game <span aria-hidden="true">→</span></span>
+        </Link>
+
+        <div className="flex flex-wrap items-stretch gap-6">
           <BiggestMovers movers={data.movers} totalPlayers={data.listedCount} />
           <MatchdayPanel matchday={data.matchday} fixtures={data.fixtures} signedIn={Boolean(data.account)} />
         </div>

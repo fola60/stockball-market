@@ -77,6 +77,14 @@ writers = ["api"]
 owner = "api"
 writers = ["api"]
 
+[tables.blind_market_rounds]
+owner = "api"
+writers = ["api"]
+
+[tables.blind_market_entries]
+owner = "api"
+writers = ["api"]
+
 [tables.admin_audit_events]
 owner = "api"
 writers = ["api"]

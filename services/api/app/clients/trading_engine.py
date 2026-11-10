@@ -61,6 +61,20 @@ class HttpTradingEngineClient:
             self._post("/internal/v1/orders/quote", command.to_payload())
         )
 
+    def apply_blind_market_reward(
+        self, *, account_id: UUID, portfolio_id: UUID, amount: Decimal, day: str
+    ) -> None:
+        self._post(
+            "/internal/v1/ledger/topups/apply",
+            {
+                "request_id": f"blind-market:{account_id}:{day}",
+                "account_id": str(account_id),
+                "portfolio_id": str(portfolio_id),
+                "amount": str(amount),
+                "reason": "WEEKLY_TOPUP",
+            },
+        )
+
     def apply_opening_balance(
         self, *, account_id: UUID, portfolio_id: UUID, amount: Decimal
     ) -> None:
