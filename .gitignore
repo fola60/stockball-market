@@ -56,3 +56,6 @@ services/worker/app/ingestion/*
 !services/worker/app/ingestion/fotmob/
 !services/worker/app/ingestion/fotmob/*.py
 !services/worker/app/ingestion/fotmob/*.md
+
+# Claude Code skills installed locally
+/.claude/skills/
