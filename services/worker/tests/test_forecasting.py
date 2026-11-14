@@ -517,3 +517,85 @@ def test_forecast_engine_ignores_a_rise_every_candidate_shares():
 
     assert decisions and all(decision.side is DecisionSide.HOLD for decision in decisions)
     assert all(decision.reason["relative_change"] == 0.0 for decision in decisions)
+
+
+def test_forecast_bot_ticks_through_the_service_and_buys_the_expected_improver():
+    from app.clients.trading_engine import OrderSide
+    from app.synthetic_traders import (
+        BotActivityContext,
+        BotPortfolioContext,
+        SyntheticTraderBotConfigRecord,
+        SyntheticTraderService,
+    )
+    from app.synthetic_traders.engines import default_engine_registry
+    from tests.test_synthetic_trader_service import (
+        FakeSyntheticTraderRepository,
+        FakeTradingEngineClient,
+    )
+
+    as_of = datetime(2026, 5, 22, 12, 0, tzinfo=UTC)
+    bot = _bot(as_of)
+    flat_prices = (Decimal("20"), Decimal("20"), Decimal("20"))
+
+    def candidate(change: float | None):
+        base = _candidate(recent_price_values=flat_prices)
+        if change is None:
+            return base
+        return replace(
+            base,
+            forecast=PlayerForecastContext(
+                as_of=as_of - timedelta(hours=3),
+                baseline_rating=7.0,
+                history_nineties=20.0,
+                expected_change={5: change},
+            ),
+        )
+
+    improver = candidate(0.3)
+    repository = FakeSyntheticTraderRepository(
+        bot=bot,
+        config=SyntheticTraderBotConfigRecord(
+            id=bot.config_id,
+            config_key="FORECAST_FORM_RUN",
+            display_name="Form Run Forecaster",
+            strategy_engine=StrategyEngine.FORECAST_VALUE,
+            version=1,
+            config=_forecast_payload(),
+            enabled=True,
+            created_at=as_of,
+            updated_at=as_of,
+        ),
+        portfolio=BotPortfolioContext(
+            account_id=bot.account_id,
+            portfolio_id=bot.portfolio_id,
+            cash_balance=Decimal("10000"),
+            total_position_value=Decimal("0"),
+            total_equity=Decimal("10000"),
+            positions=(),
+        ),
+        activity=BotActivityContext(
+            daily_trade_count=0, daily_turnover_cash=Decimal("0"), last_order_at=None
+        ),
+        candidates=(improver, candidate(0.0), candidate(0.0), candidate(-0.1), candidate(None)),
+    )
+
+    class AlwaysTrade:
+        def random(self) -> float:
+            return 0.0
+
+        def uniform(self, lower: float, upper: float) -> float:
+            return (lower + upper) / 2
+
+    client = FakeTradingEngineClient(repository.portfolio)
+    result = SyntheticTraderService(
+        repository=repository,
+        trading_engine_client=client,
+        random_source=AlwaysTrade(),  # type: ignore[arg-type]
+        engine_registry=default_engine_registry(),
+    ).tick_due_bots(as_of)
+
+    assert result.submitted_count == 1
+    assert client.commands[0].instrument_id == improver.instrument_id
+    assert client.commands[0].side is OrderSide.BUY
+    explained = result.diagnostics[0].explanation["decisions"][0]["components"]
+    assert explained["horizon_matches"] == 5 and explained["relative_change"] == pytest.approx(0.3)
