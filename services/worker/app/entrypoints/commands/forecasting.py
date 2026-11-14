@@ -39,3 +39,16 @@ def backfill_market_value_history(args) -> int:
     )
     print(json.dumps(summary, sort_keys=True))
     return 0
+
+
+def import_match_odds(args) -> int:
+    from app.forecasting import odds
+
+    if not args.season and not args.csv:
+        raise SystemExit("import-match-odds needs --season or --csv")
+    settings = DatabaseSettings.from_env()
+    configure_logging(args.log_level)
+    texts = odds.read_csv_files(args.csv) + [odds.download_season(s) for s in args.season]
+    summary = odds.import_match_odds(settings.database_url, texts)
+    print(json.dumps(summary, sort_keys=True))
+    return 0

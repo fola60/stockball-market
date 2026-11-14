@@ -67,7 +67,7 @@ def _league(
                 match_number += 1
                 match_id = f"m{match_number}"
                 fixtures.append(
-                    Fixture(match_id, 2024 + season, kickoff, home, away, True, 1, 1)
+                    Fixture(match_id, 2024 + season, kickoff, home, away, True, 1, 1, 0.1)
                 )
                 for team in (home, away):
                     for slot in range(players_per_team):
@@ -415,3 +415,72 @@ def test_fotmob_job_refreshes_forecasts_without_letting_them_fail_the_ingestion(
     untouched = Mock()
     FotMobRatingsJobHandler(lambda: service, refresh_forecasts=untouched).handle(job)
     untouched.assert_not_called()
+
+
+ODDS_CSV = """﻿Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,AvgH,AvgD,AvgA,B365H,B365D,B365A
+E0,16/08/2025,15:00,Man United,Wolves,2,0,1.50,4.20,7.00,1.5,4.2,7
+E0,16/08/2025,15:00,Man City,Nott'm Forest,1,1,,,,1.30,5.50,10.00
+E0,17/08/25,14:00,Brighton,Fulham,0,0,2.00,3.40,3.80,2,3.4,3.8
+E0,17/08/2025,16:30,Leeds,Everton,0,0,,,,,,
+"""
+
+
+def test_match_odds_parse_to_margin_free_probabilities():
+    from app.forecasting.odds import parse_match_odds, season_url
+
+    rows = parse_match_odds(ODDS_CSV)
+
+    # The row with no prices is skipped; one without the market average uses a bookmaker.
+    assert [row.home_team for row in rows] == ["Man United", "Man City", "Brighton"]
+    united = rows[0]
+    assert united.home_probability + united.draw_probability + united.away_probability == (
+        pytest.approx(1.0)
+    )
+    assert united.home_probability > 0.6 > united.away_probability
+    assert rows[2].match_date.isoformat() == "2025-08-17"
+    assert season_url(2025).endswith("/2526/E0.csv")
+
+
+def test_match_odds_link_to_the_right_fixture_despite_shared_first_words():
+    from app.forecasting.odds import _match, parse_match_odds
+
+    kickoff = datetime(2025, 8, 16, 14, 0, tzinfo=UTC)
+    fixtures = [
+        {"match_id": "1", "kickoff_at": kickoff, "home_team_name": "Manchester City",
+         "away_team_name": "Nottingham Forest"},
+        {"match_id": "2", "kickoff_at": kickoff, "home_team_name": "Manchester United",
+         "away_team_name": "Wolverhampton Wanderers"},
+        # Kicked off just after midnight UTC on the source's date.
+        {"match_id": "3", "kickoff_at": datetime(2025, 8, 18, 0, 30, tzinfo=UTC),
+         "home_team_name": "Brighton & Hove Albion", "away_team_name": "Fulham"},
+    ]
+    by_date: dict = {}
+    for fixture in fixtures:
+        by_date.setdefault(fixture["kickoff_at"].date(), []).append(fixture)
+    united, city, brighton = parse_match_odds(ODDS_CSV)
+
+    assert _match(united, by_date) == "2"
+    assert _match(city, by_date) == "1"
+    assert _match(brighton, by_date) == "3"
+    assert _match(replace(brighton, home_team="Burnley"), by_date) is None
+
+
+def test_team_strength_follows_recent_odds_and_never_later_ones():
+    from app.forecasting.features import LeagueContext
+
+    fixtures = [
+        Fixture(f"m{index}", 2025, START + timedelta(days=7 * index), "strong", "weak", True,
+                2, 0, home_edge=0.5)
+        for index in range(6)
+    ]
+    context = LeagueContext(fixtures)
+    midway = START + timedelta(days=7 * 2)
+
+    assert context.strength("strong", midway) == pytest.approx(1.5 / 6.0)
+    assert context.strength("weak", midway) == pytest.approx(-1.5 / 6.0)
+    assert context.strength("strong", START - timedelta(days=1)) is None
+    assert [fixture.match_id for fixture in context.upcoming("weak", midway, 2)] == ["m3", "m4"]
+    # A fixture list with no odds at all leaves the feature empty rather than zero.
+    assert LeagueContext([replace(f, home_edge=None) for f in fixtures]).strength(
+        "strong", midway
+    ) is None

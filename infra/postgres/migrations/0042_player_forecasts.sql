@@ -49,6 +49,20 @@ CREATE TABLE IF NOT EXISTS player_forecasts (
 CREATE INDEX IF NOT EXISTS player_forecasts_latest_idx
     ON player_forecasts (signal, horizon_matches, player_id, as_of DESC);
 
+-- Bookmakers' pre-match result odds for FotMob fixtures, as probabilities with the margin
+-- removed. A team's recent odds are the forecast model's measure of how strong it is.
+CREATE TABLE IF NOT EXISTS match_result_odds (
+    match_id text PRIMARY KEY REFERENCES fotmob_matches (match_id),
+    source text NOT NULL,
+    home_probability numeric(6, 5) NOT NULL CHECK (home_probability BETWEEN 0 AND 1),
+    draw_probability numeric(6, 5) NOT NULL CHECK (draw_probability BETWEEN 0 AND 1),
+    away_probability numeric(6, 5) NOT NULL CHECK (away_probability BETWEEN 0 AND 1),
+    source_home_team text NOT NULL,
+    source_away_team text NOT NULL,
+    source_match_date date NOT NULL,
+    imported_at timestamptz NOT NULL DEFAULT now()
+);
+
 ALTER TABLE synthetic_trader_bot_configs
     DROP CONSTRAINT IF EXISTS synthetic_trader_bot_configs_strategy_engine_check;
 ALTER TABLE synthetic_trader_bot_configs

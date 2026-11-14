@@ -29,6 +29,9 @@ prediction of zero means "no change from what is already priced".
 - `service.py`: `train()` and `refresh()`.
 - `repository.py`: `forecast_models` and `player_forecasts` (migration 0042).
 - `backfill.py`: dated Transfermarkt value history.
+- `odds.py`: football-data.co.uk match result odds, linked to FotMob fixtures
+  (`match_result_odds`). A team's recent odds are the model's measure of team strength; in
+  testing they roughly doubled its skill over using the team's own recent ratings.
 
 ## Evaluation and promotion
 
@@ -54,6 +57,7 @@ stockball-worker refresh-forecasts --no-retrain
 With `STOCKBALL_FORECAST_SIGNALS_ENABLED=true`:
 
 - the scheduled FotMob ratings job calls `refresh()` whenever it stores new ratings. A refresh
+  first downloads the current season's odds file (a failure is logged and skipped), then
   retrains first when there is no active model or the active one is older than seven days.
   A forecasting failure is recorded in the job's metrics and never fails the ingestion;
 - synthetic traders load each player's latest forecast, which only `FORECAST_VALUE` bots read.
@@ -67,6 +71,9 @@ bot behaves differently.
 # Match ratings: every finished match of earlier seasons (resumable).
 stockball-worker ingest-fotmob-ratings --season 2024 --backfill --archive-dir /path/to/archive
 
+# Match odds: download whole seasons, or pass files with --csv.
+stockball-worker import-match-odds --season 2022 --season 2023 --season 2024 --season 2025
+
 # Transfermarkt: every dated value for players the regular import already matched.
 stockball-worker backfill-market-value-history --valuations-csv /path/to/player_valuations.csv
 ```
@@ -78,7 +85,7 @@ backfill never changes.
 
 ## Boundaries
 
-- Writes only `forecast_models`, `player_forecasts` and, for the backfill, dated rows in
-  `player_market_value_observations`.
+- Writes only `forecast_models`, `player_forecasts`, `match_result_odds` and, for the
+  backfill, dated rows in `player_market_value_observations`.
 - Does not place trades or touch prices. Forecasts reach the market only through
   `FORECAST_VALUE` bots' orders.

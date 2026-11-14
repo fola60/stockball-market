@@ -279,3 +279,7 @@ writers = ["worker"]
 [tables.player_forecasts]
 owner = "worker"
 writers = ["worker"]
+
+[tables.match_result_odds]
+owner = "worker"
+writers = ["worker"]

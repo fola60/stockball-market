@@ -61,17 +61,21 @@ class HorizonResult:
         }
 
 
-def train(rows: Sequence[FeatureRow]) -> dict[int, HorizonResult]:
+def train(
+    rows: Sequence[FeatureRow], feature_names: Sequence[str] = FEATURE_NAMES
+) -> dict[int, HorizonResult]:
     """A result for every horizon with enough matured rows to fit."""
     results: dict[int, HorizonResult] = {}
     for horizon in HORIZONS:
-        result = train_horizon(rows, horizon)
+        result = train_horizon(rows, horizon, feature_names)
         if result is not None:
             results[horizon] = result
     return results
 
 
-def train_horizon(rows: Sequence[FeatureRow], horizon: int) -> HorizonResult | None:
+def train_horizon(
+    rows: Sequence[FeatureRow], horizon: int, feature_names: Sequence[str] = FEATURE_NAMES
+) -> HorizonResult | None:
     samples: list[Sample] = sorted(
         ((row, row.targets[horizon]) for row in rows if horizon in row.targets),
         key=lambda sample: sample[0].as_of,
@@ -81,24 +85,24 @@ def train_horizon(rows: Sequence[FeatureRow], horizon: int) -> HorizonResult | N
 
     holdout_season = _holdout_season(samples)
     if holdout_season is None:
-        alpha = _tune(samples, horizon)
+        alpha = _tune(samples, horizon, feature_names)
         return HorizonResult(
             horizon=horizon,
-            model=_problem(samples, horizon).solve(alpha),
+            model=_problem(samples, horizon, feature_names).solve(alpha),
             training_rows=len(samples),
         )
 
     holdout = [sample for sample in samples if sample[0].season >= holdout_season]
     holdout_start = holdout[0][0].as_of
     known = _known_before(samples, holdout_start)
-    alpha = _tune(known, horizon)
-    evaluated = _problem(known, horizon).solve(alpha)
+    alpha = _tune(known, horizon, feature_names)
+    evaluated = _problem(known, horizon, feature_names).solve(alpha)
     predictions = [evaluated.predict(row.features[horizon]) for row, _ in holdout]
     baseline_mse = _mse(holdout, [0.0] * len(holdout))
     model_mse = _mse(holdout, predictions)
     return HorizonResult(
         horizon=horizon,
-        model=_problem(samples, horizon).solve(alpha),
+        model=_problem(samples, horizon, feature_names).solve(alpha),
         training_rows=len(samples),
         holdout_season=holdout_season,
         holdout_rows=len(holdout),
@@ -153,14 +157,14 @@ def _known_before(samples: Sequence[Sample], moment: datetime) -> list[Sample]:
     return [sample for sample in samples if sample[1].matured_at < moment]
 
 
-def _tune(samples: Sequence[Sample], horizon: int) -> float:
+def _tune(samples: Sequence[Sample], horizon: int, feature_names: Sequence[str]) -> float:
     """The penalty that predicts the newest quarter of `samples` best from the rest."""
     cut = samples[int(len(samples) * (1.0 - TUNING_SHARE))][0].as_of
     fit = _known_before(samples, cut)
     check = [sample for sample in samples if sample[0].as_of >= cut]
     if len(fit) < MIN_TRAINING_ROWS // 2 or not check:
         return ALPHAS[len(ALPHAS) // 2]
-    problem = _problem(fit, horizon)
+    problem = _problem(fit, horizon, feature_names)
     errors = {}
     for alpha in ALPHAS:
         model = problem.solve(alpha)
@@ -168,9 +172,11 @@ def _tune(samples: Sequence[Sample], horizon: int) -> float:
     return min(errors, key=lambda alpha: errors[alpha])
 
 
-def _problem(samples: Sequence[Sample], horizon: int) -> RidgeProblem:
+def _problem(
+    samples: Sequence[Sample], horizon: int, feature_names: Sequence[str]
+) -> RidgeProblem:
     return prepare(
-        FEATURE_NAMES,
+        feature_names,
         [row.features[horizon] for row, _ in samples],
         [target.change for _, target in samples],
         [target.weight for _, target in samples],

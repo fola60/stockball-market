@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
@@ -18,10 +19,16 @@ MAX_EXPECTED_CHANGE = 1.0
 STORED_CONTRIBUTIONS = 6
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass(frozen=True)
 class ForecastService:
     repository: ForecastRepository
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    # Imports the season's latest match odds before a refresh. Odds only sharpen the team
+    # strength features, so a failure here is logged and the refresh carries on.
+    refresh_odds: Callable[[int], dict[str, Any]] | None = None
 
     def train(self, *, save: bool = True) -> dict[str, Any]:
         """Fit a model on all matured history and make it the active one if it earns it."""
@@ -67,8 +74,14 @@ class ForecastService:
         when there is no active model or the active one is older than `RETRAIN_AFTER`.
         """
         now = self.clock()
-        active = self.repository.active_model()
         summary: dict[str, Any] = {}
+        if self.refresh_odds is not None:
+            try:
+                summary["odds"] = self.refresh_odds(current_season(now))
+            except Exception as error:  # noqa: BLE001
+                logger.warning("match odds refresh failed: %s", error)
+                summary["odds"] = {"status": "failed", "error": str(error)}
+        active = self.repository.active_model()
         due = active is None or now - active.trained_at >= RETRAIN_AFTER
         if retrain or (retrain is None and due):
             summary["training"] = self.train()

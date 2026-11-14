@@ -98,6 +98,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-retrain", action="store_true", help="never retrain, even if the model is old"
     )
     refresh_forecasts.add_argument("--log-level", default="INFO")
+    match_odds = subcommands.add_parser(
+        "import-match-odds",
+        help="import football-data.co.uk match result odds and link them to FotMob fixtures",
+    )
+    match_odds.add_argument(
+        "--season",
+        type=int,
+        action="append",
+        default=[],
+        help="season start year to download (2025 is 2025-26); repeatable",
+    )
+    match_odds.add_argument(
+        "--csv", action="append", default=[], help="path to a downloaded E0.csv; repeatable"
+    )
+    match_odds.add_argument("--log-level", default="INFO")
     value_history = subcommands.add_parser(
         "backfill-market-value-history",
         help="store every dated Transfermarkt value for already matched players",

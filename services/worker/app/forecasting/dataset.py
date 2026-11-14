@@ -41,11 +41,13 @@ def _stat(key: str) -> str:
 def load_match_history(cursor: Any, league: int = PREMIER_LEAGUE) -> MatchHistory:
     cursor.execute(
         """
-        SELECT match_id, season, kickoff_at, home_team_id, away_team_id, finished,
-               raw_fixture #>> '{status,scoreStr}' AS score
-        FROM fotmob_matches
-        WHERE league_id = %(league)s
-        ORDER BY kickoff_at, match_id
+        SELECT m.match_id, m.season, m.kickoff_at, m.home_team_id, m.away_team_id, m.finished,
+               m.raw_fixture #>> '{status,scoreStr}' AS score,
+               (o.home_probability - o.away_probability)::float8 AS home_edge
+        FROM fotmob_matches AS m
+        LEFT JOIN match_result_odds AS o ON o.match_id = m.match_id
+        WHERE m.league_id = %(league)s
+        ORDER BY m.kickoff_at, m.match_id
         """,
         {"league": league},
     )
@@ -62,6 +64,7 @@ def load_match_history(cursor: Any, league: int = PREMIER_LEAGUE) -> MatchHistor
                 finished=bool(row["finished"]),
                 home_goals=int(score.group(1)) if score else None,
                 away_goals=int(score.group(2)) if score else None,
+                home_edge=row["home_edge"],
             )
         )
 
@@ -105,6 +108,8 @@ def load_match_history(cursor: Any, league: int = PREMIER_LEAGUE) -> MatchHistor
         for row in cursor.fetchall()
     ]
 
+    # Birth dates by FotMob id: the market-value import's for linked players, and FotMob's
+    # own profile date wherever the identity matcher looked one up.
     cursor.execute(
         """
         SELECT DISTINCT ON (matched_player_id)
@@ -114,7 +119,26 @@ def load_match_history(cursor: Any, league: int = PREMIER_LEAGUE) -> MatchHistor
         ORDER BY matched_player_id, created_at DESC
         """
     )
-    birth_dates = {str(row["player_id"]): row["source_date_of_birth"] for row in cursor.fetchall()}
+    by_player = {str(row["player_id"]): row["source_date_of_birth"] for row in cursor.fetchall()}
+    birth_dates = {
+        item.provider_player_id: by_player[item.player_id]
+        for item in appearances
+        if item.player_id in by_player
+    }
+    cursor.execute(
+        """
+        SELECT provider_player_id, evidence ->> 'date_of_birth' AS date_of_birth
+        FROM fotmob_player_identity_matches
+        WHERE evidence ->> 'date_of_birth' IS NOT NULL
+        """
+    )
+    for row in cursor.fetchall():
+        try:
+            birth_dates.setdefault(
+                str(row["provider_player_id"]), date.fromisoformat(row["date_of_birth"][:10])
+            )
+        except ValueError:
+            continue
 
     # Each value is dated by when it was published, so a row only ever sees values that
     # existed at its as-of date.

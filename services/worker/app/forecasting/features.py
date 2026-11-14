@@ -32,7 +32,7 @@ MAX_TARGET_GAP_DAYS = 200
 # almost regardless, so a target made of them says nothing.
 MIN_TARGET_NINETIES_SHARE = 0.5
 TEAM_FORM_MATCHES = 10
-# A team's recent rating is steadied toward the league with this many matches of evidence.
+# A team's recent odds are steadied toward an even match with this many matches of evidence.
 TEAM_PRIOR_MATCHES = 3.0
 FALLBACK_LEAGUE_RATING = 6.9
 
@@ -61,7 +61,6 @@ FEATURE_NAMES: tuple[str, ...] = (
     "pos_fwd",
     "age",
     "age_sq",
-    "age_missing",
     "goal_involvements_per90",
     "expected_involvements_per90",
     "chances_created_per90",
@@ -72,7 +71,6 @@ FEATURE_NAMES: tuple[str, ...] = (
     "next_home_share",
     "value_log",
     "value_change_12m",
-    "value_missing",
 )
 
 
@@ -113,6 +111,8 @@ class Fixture:
     finished: bool
     home_goals: int | None = None
     away_goals: int | None = None
+    # Bookmakers' pre-match home-win probability minus away-win probability, margin removed.
+    home_edge: float | None = None
 
 
 @dataclass(frozen=True)
@@ -142,32 +142,18 @@ class FeatureRow:
 
 
 class LeagueContext:
-    """Team form and fixture lists, looked up as of any moment."""
+    """Team strength and fixture lists, looked up as of any moment.
 
-    def __init__(self, fixtures: Iterable[Fixture], appearances: Iterable[Appearance]) -> None:
-        sums: dict[tuple[str, str], list[float]] = {}
-        for item in appearances:
-            if item.rated:
-                entry = sums.setdefault((item.match_id, item.team_id), [0.0, 0.0])
-                entry[0] += float(item.rating or 0.0) * item.nineties
-                entry[1] += item.nineties
-        team_ratings = {key: value[0] / value[1] for key, value in sums.items() if value[1] > 0}
-        fixtures = list(fixtures)
-        # A team's match rating is judged against the league's typical one the season before,
-        # which is known in advance; an all-time average would let later seasons leak back.
-        by_season: dict[int, list[float]] = {}
-        for fixture in fixtures:
-            for team_id in (fixture.home_team_id, fixture.away_team_id):
-                rating = team_ratings.get((fixture.match_id, team_id))
-                if rating is not None:
-                    by_season.setdefault(fixture.season, []).append(rating)
-        season_means = {season: fmean(ratings) for season, ratings in by_season.items()}
+    A team's strength is how heavily bookmakers favoured it in its recent matches. In testing
+    this predicted players' ratings about twice as well as the team's own recent ratings, so
+    those are not used.
+    """
 
-        def relative(fixture: Fixture, team_id: str) -> float | None:
-            rating = team_ratings.get((fixture.match_id, team_id))
-            if rating is None:
+    def __init__(self, fixtures: Iterable[Fixture]) -> None:
+        def edge(fixture: Fixture, team_id: str) -> float | None:
+            if fixture.home_edge is None:
                 return None
-            return rating - season_means.get(fixture.season - 1, FALLBACK_LEAGUE_RATING)
+            return fixture.home_edge if fixture.home_team_id == team_id else -fixture.home_edge
 
         by_team: dict[str, list[tuple[datetime, Fixture]]] = {}
         for fixture in fixtures:
@@ -183,7 +169,7 @@ class LeagueContext:
             self._played[team_id] = [
                 (
                     fixture.kickoff_at,
-                    relative(fixture, team_id),
+                    edge(fixture, team_id),
                     _goal_difference(fixture, team_id),
                 )
                 for _, fixture in items
@@ -201,14 +187,15 @@ class LeagueContext:
         end = bisect_right(self._played_kickoffs.get(team_id, []), as_of)
         return played[max(end - count, 0) : end]
 
-    def strength(self, team_id: str, as_of: datetime) -> float:
-        """The team's recent match rating against the league's, steadied toward zero."""
-        ratings = [
-            rating
-            for _, rating, _ in self.recent_matches(team_id, as_of, TEAM_FORM_MATCHES)
-            if rating is not None
+    def strength(self, team_id: str, as_of: datetime) -> float | None:
+        """The bookmakers' average edge for the team over its recent matches, steadied toward
+        zero (an even match). None when none of those matches has odds on record."""
+        edges = [
+            edge
+            for _, edge, _ in self.recent_matches(team_id, as_of, TEAM_FORM_MATCHES)
+            if edge is not None
         ]
-        return sum(ratings) / (len(ratings) + TEAM_PRIOR_MATCHES)
+        return sum(edges) / (len(edges) + TEAM_PRIOR_MATCHES) if edges else None
 
     def goal_difference(self, team_id: str, as_of: datetime) -> float:
         differences = [
@@ -269,10 +256,12 @@ def build_rows(
     """Training rows (one per appearance, with whichever targets have matured), or with
     `live_as_of` one row per player describing him now, with no targets.
 
-    `birth_dates` and `market_values` are keyed by canonical player id; players without one
-    simply lack those features.
+    `birth_dates` is keyed by provider player id and `market_values` by canonical player id.
+    A player without one sits at the average for that feature. There is deliberately no
+    "missing" indicator: market values exist only for players on today's roster, so in older
+    seasons such a flag would mark who went on to stay in the league.
     """
-    context = LeagueContext(fixtures, appearances)
+    context = LeagueContext(fixtures)
     leagues = league_ratings(appearances)
     by_player: dict[str, list[Appearance]] = {}
     for item in appearances:
@@ -283,7 +272,7 @@ def build_rows(
     for history in by_player.values():
         history.sort(key=lambda item: (item.kickoff_at, item.match_id))
         player_id = next((item.player_id for item in reversed(history) if item.player_id), None)
-        birth_date = (birth_dates or {}).get(player_id or "")
+        birth_date = (birth_dates or {}).get(history[0].provider_player_id)
         values = (market_values or {}).get(player_id or "", ())
         if live_as_of is not None:
             past = [item for item in history if item.kickoff_at <= live_as_of]
@@ -394,7 +383,6 @@ def _row(
         **{name: float(latest.position == code) for code, name in POSITION_NAMES.items()},
         "age": age,
         "age_sq": None if age is None else (age - 26.0) ** 2,
-        "age_missing": float(age is None),
         "goal_involvements_per90": per90(sum(item.goals + item.assists for item in window)),
         "expected_involvements_per90": per90(
             sum(item.expected_goals + item.expected_assists for item in window)
@@ -409,19 +397,22 @@ def _row(
             if value_now is None or value_before is None
             else _log10(value_now) - _log10(value_before)
         ),
-        "value_missing": float(value_now is None),
     }
     features: dict[int, Mapping[str, float | None]] = {}
     for horizon in HORIZONS:
         upcoming = context.upcoming(latest.team_id, as_of, horizon)
         opponents = [
-            context.strength(
-                fixture.away_team_id
-                if fixture.home_team_id == latest.team_id
-                else fixture.home_team_id,
-                as_of,
-            )
+            strength
             for fixture in upcoming
+            if (
+                strength := context.strength(
+                    fixture.away_team_id
+                    if fixture.home_team_id == latest.team_id
+                    else fixture.home_team_id,
+                    as_of,
+                )
+            )
+            is not None
         ]
         features[horizon] = {
             **shared,

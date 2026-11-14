@@ -28,6 +28,7 @@ COMMANDS: dict[str, Callable[..., int]] = {
     "train-forecast-model": forecasting.train_forecast_model,
     "refresh-forecasts": forecasting.refresh_forecasts,
     "backfill-market-value-history": forecasting.backfill_market_value_history,
+    "import-match-odds": forecasting.import_match_odds,
     # Market setup and seeding
     "seed-player-shares": market.seed_player_shares,
     "review-index-funds": market.review_index_funds,

@@ -225,8 +225,12 @@ def build_league_roster_service(
 
 def build_forecast_service(settings):
     from app.forecasting import ForecastService, PostgresForecastRepository
+    from app.forecasting.odds import refresh_current_season
 
-    return ForecastService(PostgresForecastRepository(settings.database_url))
+    return ForecastService(
+        PostgresForecastRepository(settings.database_url),
+        refresh_odds=lambda season: refresh_current_season(settings.database_url, season),
+    )
 
 
 def build_fotmob_ingestion_service(settings, *, archive_dir=None):
