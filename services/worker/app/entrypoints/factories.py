@@ -184,6 +184,7 @@ def build_synthetic_trader_service(settings: Settings) -> SyntheticTraderService
             social_signals_enabled=settings.social_signals_enabled,
             social_signal_max_age_seconds=settings.social_signal_max_age_seconds,
             match_rating_signals_enabled=settings.match_rating_signals_enabled,
+            forecast_signals_enabled=settings.forecast_signals_enabled,
         ),
         trading_engine_client=trading_engine_client(settings),
     )
@@ -219,6 +220,16 @@ def build_league_roster_service(
         instruments=TradingEngineInstrumentSeeder(engine),
         delister=engine,
         delisting_grace=timedelta(days=settings.delisting_grace_days),
+    )
+
+
+def build_forecast_service(settings):
+    from app.forecasting import ForecastService, PostgresForecastRepository
+    from app.forecasting.odds import refresh_current_season
+
+    return ForecastService(
+        PostgresForecastRepository(settings.database_url),
+        refresh_odds=lambda season: refresh_current_season(settings.database_url, season),
     )
 
 

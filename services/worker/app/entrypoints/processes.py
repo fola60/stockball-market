@@ -55,6 +55,7 @@ from app.topups import PostgresTopupRepository, TopupService
 from .factories import (
     build_bet365_ingestion_service,
     build_fixture_ingestion_service,
+    build_forecast_service,
     build_fotmob_ingestion_service,
     build_league_roster_service,
     build_market_value_import_service,
@@ -213,7 +214,12 @@ def _ingestion_handlers(settings: Settings) -> dict:
             stats_ingestion_service=build_player_stats_ingestion_service(fbref)
         ),
         JobType.INGEST_FOTMOB_RATINGS: FotMobRatingsJobHandler(
-            lambda: build_fotmob_ingestion_service(settings)
+            lambda: build_fotmob_ingestion_service(settings),
+            refresh_forecasts=(
+                build_forecast_service(settings).refresh
+                if settings.forecast_signals_enabled
+                else None
+            ),
         ),
         JobType.INGEST_BET365_ODDS: IngestBet365OddsJobHandler(
             betting_market_ingestion_service=build_bet365_ingestion_service(settings)
@@ -275,6 +281,7 @@ def _admin_handlers(settings: Settings) -> dict:
                     social_signals_enabled=settings.social_signals_enabled,
                     social_signal_max_age_seconds=settings.social_signal_max_age_seconds,
                     match_rating_signals_enabled=settings.match_rating_signals_enabled,
+                    forecast_signals_enabled=settings.forecast_signals_enabled,
                 )
             ),
         ),

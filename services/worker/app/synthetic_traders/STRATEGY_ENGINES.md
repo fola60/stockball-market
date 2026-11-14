@@ -15,10 +15,23 @@ Signals should influence bot orders only. They must not directly mutate Stockbal
 
 ## Current implementation (October 2026)
 
-The fourteen shipped profiles use seven engines: `NOISE`, `MARKET_MOMENTUM`, `STATS_VALUE`,
-`SOCIAL_SENTIMENT`, `PORTFOLIO_REBALANCER`, `BETTING_MARKET_VALUE`, and `EVENT_REACTION`.
+The seventeen shipped profiles use eight engines: `NOISE`, `MARKET_MOMENTUM`, `STATS_VALUE`,
+`SOCIAL_SENTIMENT`, `PORTFOLIO_REBALANCER`, `BETTING_MARKET_VALUE`, `EVENT_REACTION`, and
+`FORECAST_VALUE`.
 Other engine names below are design proposals, not registered implementations.
 `FORM_MOMENTUM` ships as the `STATS_VALUE_FORM_CHASER` profile rather than its own engine.
+
+### Forecast engine (migration 0042)
+
+`FORECAST_VALUE` is an eighth engine, behind `STOCKBALL_FORECAST_SIGNALS_ENABLED` (default
+off). It trades the active forecast model's expected change in a player's rating
+(`app/forecasting`), where the stats engines trade the rating's current level. Its three
+profiles differ by horizon: `FORECAST_NEXT_MATCH` (1 match), `FORECAST_FORM_RUN` (5) and
+`FORECAST_SEASON_VIEW` (10). The horizon is never randomized. Players without a fresh forecast
+at the profile's horizon are not candidates, so with no active model, or a horizon the model
+failed to beat the baseline on, those bots hold. Funds are scored from the engine's player
+decisions, as for the other fundamentals engines. No existing profile or bot was changed, and
+no forecast bots are spawned by the migration.
 
 ### Index funds (migration 0037)
 

@@ -20,6 +20,9 @@ PROFILE_VARIATION_BY_CONFIG_KEY: dict[str, float] = {
     "STATS_VALUE_FORM_CHASER": 0.25,
     "EVENT_REACTION_MEASURED": 0.18,
     "EVENT_REACTION_FAST": 0.30,
+    "FORECAST_NEXT_MATCH": 0.25,
+    "FORECAST_FORM_RUN": 0.20,
+    "FORECAST_SEASON_VIEW": 0.15,
 }
 
 ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
@@ -130,6 +133,19 @@ ENGINE_RANDOMIZED_FIELDS: dict[StrategyEngine, tuple[str, ...]] = {
         "sizing.base_cash_pct",
         "sizing.confidence_multiplier",
         "sizing.surprise_multiplier",
+        "execution.trade_probability",
+        "execution.size_noise_pct",
+    ),
+    # The horizon is the profile's identity and is never randomized.
+    StrategyEngine.FORECAST_VALUE: (
+        "signal_weights.*",
+        "forecast_inputs.change_scale",
+        "forecast_inputs.priced_in_move_pct",
+        "decision.buy_threshold",
+        "decision.sell_threshold",
+        "sizing.base_cash_pct",
+        "sizing.confidence_multiplier",
+        "sizing.expected_return_multiplier",
         "execution.trade_probability",
         "execution.size_noise_pct",
     ),

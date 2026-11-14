@@ -39,6 +39,7 @@ from .models import (
     CreateSyntheticTraderBotCommand,
     MarketTradeSample,
     MatchEventContext,
+    PlayerForecastContext,
     PlayerStatsContext,
     PricePoint,
     SocialSignalContext,
@@ -49,6 +50,8 @@ from .models import (
 from .ranking import rank_percentiles as _percentiles
 
 RECENT_MARKET_LOOKBACK_DAYS = 30
+# Forecasts older than this are never handed to an engine, whatever a profile allows.
+FORECAST_MAX_AGE_DAYS = 14
 # A player's usual social attention comes from its latest snapshot covering at least a day,
 # taken within the last week.
 SOCIAL_BASELINE_MIN_LOOKBACK_SECONDS = 24 * 60 * 60
@@ -116,10 +119,12 @@ class PostgresSyntheticTraderRepository:
         social_signals_enabled: bool = False,
         social_signal_max_age_seconds: int = 3600,
         match_rating_signals_enabled: bool = False,
+        forecast_signals_enabled: bool = False,
     ) -> None:
         self._database_url = database_url
         self._social_signals_enabled = social_signals_enabled
         self._match_rating_signals_enabled = match_rating_signals_enabled
+        self._forecast_signals_enabled = forecast_signals_enabled
         self._social_signal_max_age_seconds = max(social_signal_max_age_seconds, 1)
         self._market_history = RollingMarketHistoryCache()
         self._market_history_refresh_lock = Lock()
@@ -525,6 +530,7 @@ class PostgresSyntheticTraderRepository:
                 )
                 market_values_by_player = self._load_market_values(cursor, player_ids)
                 stats_by_player, events_by_player = self._load_stats(cursor, player_ids, as_of)
+                forecasts_by_player = self._load_forecasts(cursor, player_ids, as_of)
                 betting_by_player = (
                     {}
                     if betting_lookback_minutes is None
@@ -595,6 +601,9 @@ class PostgresSyntheticTraderRepository:
                         else betting_by_player.get(str(player_id), BettingMarketContext())
                     ),
                     match_event=None if player_id is None else events_by_player.get(str(player_id)),
+                    forecast=(
+                        None if player_id is None else forecasts_by_player.get(str(player_id))
+                    ),
                     index_basket=tuple(
                         (UUID(str(instrument_id)), Decimal(str(shares_per_unit)))
                         for instrument_id, shares_per_unit in row.get("constituents") or ()
@@ -808,6 +817,48 @@ class PostgresSyntheticTraderRepository:
                 **rating_fields,
             )
         return stats, events
+
+    def _load_forecasts(
+        self,
+        cursor,
+        player_ids: list[str],
+        as_of: datetime,
+    ) -> dict[str, PlayerForecastContext]:
+        """Each player's latest forecast per horizon, from runs no later than `as_of`."""
+        if not self._forecast_signals_enabled or not player_ids:
+            return {}
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (player_id, horizon_matches)
+                   player_id::text AS player_id, horizon_matches, as_of,
+                   baseline::float8 AS baseline, expected_change::float8 AS expected_change,
+                   history_nineties::float8 AS history_nineties
+            FROM player_forecasts
+            WHERE signal = 'MATCH_RATING'
+              AND player_id = ANY(%(player_ids)s::uuid[])
+              AND as_of <= %(as_of)s
+              AND as_of >= %(as_of)s - make_interval(days => %(max_age_days)s)
+            ORDER BY player_id, horizon_matches, as_of DESC
+            """,
+            {"player_ids": player_ids, "as_of": as_of, "max_age_days": FORECAST_MAX_AGE_DAYS},
+        )
+        by_player: dict[str, list[Mapping[str, Any]]] = {}
+        for row in cursor.fetchall():
+            by_player.setdefault(str(row["player_id"]), []).append(row)
+        forecasts: dict[str, PlayerForecastContext] = {}
+        for player_id, rows in by_player.items():
+            # Horizons written by one run share its as-of; an older run's leftovers are dropped.
+            latest = max(row["as_of"] for row in rows)
+            current = [row for row in rows if row["as_of"] == latest]
+            forecasts[player_id] = PlayerForecastContext(
+                as_of=latest,
+                baseline_rating=float(current[0]["baseline"]),
+                history_nineties=float(current[0]["history_nineties"]),
+                expected_change={
+                    int(row["horizon_matches"]): float(row["expected_change"]) for row in current
+                },
+            )
+        return forecasts
 
     def _load_match_events(
         self,
