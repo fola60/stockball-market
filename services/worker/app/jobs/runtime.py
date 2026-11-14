@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import os
 import signal
+import threading
 import traceback
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -26,6 +27,7 @@ class RetryQueue(Protocol):
 
 class OperationRunReporter(Protocol):
     def claim_for_execution(self, run_id, attempt: int, started_at: datetime) -> bool: ...
+    def heartbeat(self, run_id) -> None: ...
     def mark_succeeded(self, run_id, result, elapsed_ms: int) -> None: ...
     def mark_retrying(self, run_id, attempt: int, error: str, result) -> bool: ...
     def mark_failed(self, run_id, error: str, result=None) -> None: ...
@@ -61,6 +63,9 @@ class WorkerProcess:
     active_job_reporter: ActiveJobReporter | None = None
     isolated_job_timeouts: Mapping[JobType, float] = field(default_factory=dict)
     drain_file: str | None = None
+    # How often a running job reports that its worker is alive. A deploy can replace the
+    # worker mid-job, and a run that stops reporting is how the next one knows.
+    heartbeat_seconds: float = 30.0
 
     def run_once(self, block_seconds: int) -> bool:
         moved_retry_count = self.retry_queue.move_due()
@@ -91,11 +96,36 @@ class WorkerProcess:
             return True
         if self.active_job_reporter is not None:
             self.active_job_reporter.mark_job_started(job, started_at)
+        stop_heartbeat = self._start_heartbeat(job)
         try:
             return self._run_job(job, started)
         finally:
+            stop_heartbeat()
             if self.active_job_reporter is not None:
                 self.active_job_reporter.mark_job_finished(job)
+
+    def _start_heartbeat(self, job: WorkerJob) -> Callable[[], None]:
+        reporter = self.operation_reporter
+        run_id = job.operation_run_id
+        if run_id is None or reporter is None:
+            return lambda: None
+        stopped = threading.Event()
+
+        def beat() -> None:
+            while not stopped.wait(self.heartbeat_seconds):
+                try:
+                    reporter.heartbeat(run_id)
+                except Exception:  # noqa: BLE001
+                    self.logger.warning("job heartbeat failed run_id=%s", run_id, exc_info=True)
+
+        thread = threading.Thread(target=beat, name="stockball-job-heartbeat", daemon=True)
+        thread.start()
+
+        def stop() -> None:
+            stopped.set()
+            thread.join(timeout=5)
+
+        return stop
 
     def _run_job(self, job: WorkerJob, started: float) -> bool:
         try:

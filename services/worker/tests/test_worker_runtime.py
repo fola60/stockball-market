@@ -53,6 +53,7 @@ class FakeReporter:
     def claim_for_execution(self, run_id, attempt, started_at):
         self.events.append(("running", run_id, attempt))
         return self.claim_result
+    def heartbeat(self, run_id): self.events.append(("heartbeat", run_id))
     def mark_succeeded(self, run_id, result, elapsed_ms): self.events.append(("succeeded", run_id, result.successful_items))
     def mark_retrying(self, run_id, attempt, error, result):
         self.events.append(("retrying", run_id, attempt))
@@ -175,6 +176,32 @@ class WorkerProcessTests(unittest.TestCase):
         )
         process.run_once(0)
         self.assertEqual([event[0] for event in reporter.events], ["running", "succeeded"])
+
+    def test_running_job_reports_heartbeats_until_it_finishes(self) -> None:
+        reporter = FakeReporter()
+        run_id = uuid4()
+
+        class SlowHandler(SuccessHandler):
+            def handle(self, job: WorkerJob) -> JobExecutionResult:
+                deadline = time.monotonic() + 2
+                while ("heartbeat", run_id) not in reporter.events and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                return super().handle(job)
+
+        process = WorkerProcess(
+            queue=FakeQueue([WorkerJob(JobType.APPLY_TOPUPS, {}, operation_run_id=run_id)]),
+            retry_queue=FakeRetryQueue(),
+            runner=WorkerJobRunner({JobType.APPLY_TOPUPS: SlowHandler()}),
+            retry_delay_seconds=30, max_attempts=5, operation_reporter=reporter,
+            heartbeat_seconds=0.01,
+        )
+        process.run_once(0)
+
+        self.assertIn(("heartbeat", run_id), reporter.events)
+        self.assertEqual(reporter.events[-1][0], "succeeded")
+        finished = len(reporter.events)
+        time.sleep(0.05)
+        self.assertEqual(len(reporter.events), finished)
 
     def test_non_executable_correlated_job_is_discarded(self) -> None:
         reporter = FakeReporter(claim_result=False)

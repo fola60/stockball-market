@@ -24,6 +24,11 @@ SCHEDULE_OPERATION_TYPES = {
 }
 
 
+# A running synthetic tick whose worker has not reported for this long was abandoned. It is
+# several missed heartbeats (see WorkerProcess.heartbeat_seconds), so a slow one is not lost.
+DEFAULT_ABANDONED_TICK_SECONDS = 180
+
+
 class PostgresScheduledRunRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
@@ -181,10 +186,19 @@ class PostgresOperationRunReporter:
         self,
         database_url: str,
         scheduled_realtime_max_lag_seconds: int = 120,
+        abandoned_tick_seconds: int = DEFAULT_ABANDONED_TICK_SECONDS,
     ) -> None:
         self._database_url = database_url
         self._scheduled_realtime_max_lag = timedelta(
             seconds=scheduled_realtime_max_lag_seconds
+        )
+        self._abandoned_tick_seconds = abandoned_tick_seconds
+
+    def heartbeat(self, run_id: UUID) -> None:
+        """Record that the worker running this job is still alive."""
+        self._update(
+            "UPDATE job_runs SET updated_at = now() WHERE id = %(id)s AND status = 'RUNNING'",
+            {"id": str(run_id)},
         )
 
     def claim_for_execution(
@@ -241,6 +255,38 @@ class PostgresOperationRunReporter:
                     )
                     """,
                     {"id": str(run_id)},
+                )
+                # A worker replaced mid-tick (a deploy) leaves its run RUNNING for good. A live
+                # worker refreshes updated_at while it runs, so a silent one is not running.
+                cursor.execute(
+                    """
+                    UPDATE job_runs AS abandoned
+                    SET status = 'FAILED',
+                        error_message = 'Worker stopped before completing this synthetic tick',
+                        metrics = metrics || jsonb_build_object(
+                            'failure_reason', 'abandoned_worker_run',
+                            'stale_after_seconds', %(abandoned_after_seconds)s
+                        ),
+                        failed_items = GREATEST(failed_items, 1),
+                        completed_at = now(), updated_at = now()
+                    WHERE abandoned.source = 'SCHEDULED'
+                      AND abandoned.schedule_name = 'synthetic-trader-ticks'
+                      AND abandoned.status = 'RUNNING'
+                      AND abandoned.id <> %(id)s
+                      AND abandoned.updated_at
+                          < now() - make_interval(secs => %(abandoned_after_seconds)s)
+                      AND EXISTS (
+                          SELECT 1
+                          FROM job_runs AS candidate
+                          WHERE candidate.id = %(id)s
+                            AND candidate.source = 'SCHEDULED'
+                            AND candidate.schedule_name = 'synthetic-trader-ticks'
+                      )
+                    """,
+                    {
+                        "id": str(run_id),
+                        "abandoned_after_seconds": self._abandoned_tick_seconds,
+                    },
                 )
                 cursor.execute(
                     """
