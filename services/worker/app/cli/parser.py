@@ -80,6 +80,34 @@ def build_parser() -> argparse.ArgumentParser:
     fotmob.add_argument("--max-matches", type=_positive_int)
     fotmob.add_argument("--archive-dir", help="resumable match JSON archive (backfill only)")
     fotmob.add_argument("--log-level", default="INFO")
+    train_forecasts = subcommands.add_parser(
+        "train-forecast-model",
+        help="fit the match-rating forecast model and promote it if it beats the baseline",
+    )
+    train_forecasts.add_argument(
+        "--dry-run", action="store_true", help="report the evaluation without storing a model"
+    )
+    train_forecasts.add_argument("--log-level", default="INFO")
+    refresh_forecasts = subcommands.add_parser(
+        "refresh-forecasts",
+        help="write today's player forecasts from the active model, retraining when due",
+    )
+    retrain = refresh_forecasts.add_mutually_exclusive_group()
+    retrain.add_argument("--retrain", action="store_true", help="retrain before forecasting")
+    retrain.add_argument(
+        "--no-retrain", action="store_true", help="never retrain, even if the model is old"
+    )
+    refresh_forecasts.add_argument("--log-level", default="INFO")
+    value_history = subcommands.add_parser(
+        "backfill-market-value-history",
+        help="store every dated Transfermarkt value for already matched players",
+    )
+    value_history.add_argument(
+        "--valuations-csv", required=True, help="path to player_valuations.csv"
+    )
+    value_history.add_argument("--source", default="transfermarkt_csv")
+    value_history.add_argument("--currency", default="EUR")
+    value_history.add_argument("--log-level", default="INFO")
     fotmob_images = subcommands.add_parser(
         "ingest-fotmob-images", help="store FotMob player portraits and club badges in Postgres"
     )

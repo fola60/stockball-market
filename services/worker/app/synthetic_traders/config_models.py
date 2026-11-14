@@ -343,6 +343,46 @@ class EventReactionConfig:
 
 
 @dataclass(frozen=True)
+class ForecastValueLookbacks:
+    price_momentum_days: int
+
+
+@dataclass(frozen=True)
+class ForecastInputsConfig:
+    # Which of the model's horizons this profile trades: its next match, or a longer run.
+    horizon_matches: int
+    # Expected rating change, in rating points, that counts as a full signal.
+    change_scale: float
+    max_forecast_age_hours: float
+    # Rated football the forecast must rest on; thinner histories are mostly prior.
+    min_history_nineties: float
+    # Stockball price move over the lookback, in the forecast's direction, that counts as
+    # fully priced in.
+    priced_in_move_pct: float
+
+
+@dataclass(frozen=True)
+class ForecastValueSizingConfig:
+    base_cash_pct: float
+    confidence_multiplier: float
+    expected_return_multiplier: float
+    position_concentration_penalty: float
+
+
+@dataclass(frozen=True)
+class ForecastValueConfig:
+    universe: CandidateUniverseConfig
+    lookbacks: ForecastValueLookbacks
+    signal_weights: Mapping[str, float]
+    forecast_inputs: ForecastInputsConfig
+    decision: AlphaDecisionConfig
+    risk: RiskConfig
+    sizing: ForecastValueSizingConfig
+    execution: ExecutionConfig
+    explainability: ExplainabilityConfig
+
+
+@dataclass(frozen=True)
 class PortfolioTargetsConfig:
     target_cash_pct: float
     min_cash_pct: float
@@ -410,6 +450,7 @@ StrategyConfig = (
     | SocialSentimentConfig
     | BettingMarketValueConfig
     | EventReactionConfig
+    | ForecastValueConfig
     | PortfolioRebalancerConfig
 )
 

@@ -78,6 +78,8 @@ Default engine profiles:
 - `SOCIAL_SENTIMENT` -> `SOCIAL_HYPE_CHASER`
 - `PORTFOLIO_REBALANCER` -> `PORTFOLIO_REBALANCER`
 - `BETTING_MARKET_VALUE` -> `BETTING_MARKET_CONSERVATIVE`
+- `EVENT_REACTION` -> `EVENT_REACTION_MEASURED`
+- `FORECAST_VALUE` -> `FORECAST_FORM_RUN`
 
 Required services:
 
@@ -120,6 +122,8 @@ Required services:
   - `SOCIAL_SENTIMENT`
   - `PORTFOLIO_REBALANCER`
   - `BETTING_MARKET_VALUE`
+  - `EVENT_REACTION`
+  - `FORECAST_VALUE` (reads `player_forecasts` when `STOCKBALL_FORECAST_SIGNALS_ENABLED`; see `app/forecasting/README.md`)
 - `SOCIAL_SENTIMENT` reads current social-signal snapshots when social signals are enabled; absent or stale signals safely produce holds.
 - `BETTING_MARKET_VALUE` reads player-linked goalscorer, assist, score-or-assist, shots, and shots-on-target probabilities. Missing, stale, or insufficiently broad odds produce holds.
 

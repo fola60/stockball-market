@@ -18,6 +18,7 @@ class StrategyEngine(StrEnum):
     PORTFOLIO_REBALANCER = "PORTFOLIO_REBALANCER"
     BETTING_MARKET_VALUE = "BETTING_MARKET_VALUE"
     EVENT_REACTION = "EVENT_REACTION"
+    FORECAST_VALUE = "FORECAST_VALUE"
 
 
 class BotStatus(StrEnum):
@@ -189,6 +190,22 @@ class MatchEventContext:
 
 
 @dataclass(frozen=True)
+class PlayerForecastContext:
+    """The active forecast model's view of a player (see `app.forecasting`).
+
+    `baseline_rating` is the steadied season rating the forecast starts from, and
+    `expected_change` maps a horizon in matches to how far the model expects his rating over
+    that many appearances to land from it. Only horizons on which the model beat the
+    baseline are present.
+    """
+
+    as_of: datetime
+    baseline_rating: float
+    history_nineties: float
+    expected_change: Mapping[int, float]
+
+
+@dataclass(frozen=True)
 class BotPositionContext:
     instrument_id: UUID
     player_id: UUID | None
@@ -241,6 +258,7 @@ class CandidateInstrumentContext:
     reference_price: Decimal | None = None
     fixture_score: float = 0.0
     match_event: MatchEventContext | None = None
+    forecast: PlayerForecastContext | None = None
     # An index fund's basket: each constituent and how many of its shares back one unit.
     # Empty for player shares.
     index_basket: tuple[tuple[UUID, Decimal], ...] = ()

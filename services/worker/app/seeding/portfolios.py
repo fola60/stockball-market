@@ -478,6 +478,7 @@ _POSITION_BREADTH = {
     StrategyEngine.SOCIAL_SENTIMENT: 0.8,
     # Short-horizon traders unwind after each match; a small book keeps that selling modest.
     StrategyEngine.EVENT_REACTION: 0.6,
+    StrategyEngine.FORECAST_VALUE: 1.0,
 }
 
 
@@ -747,6 +748,9 @@ def _profile_weight(
         return 0.10 + 0.15 * market + 0.75 * random_score
     if bot.strategy_engine is StrategyEngine.PORTFOLIO_REBALANCER:
         return 1.0 + 0.05 * stats + 0.05 * market + 0.05 * random_score
+    if bot.strategy_engine is StrategyEngine.FORECAST_VALUE:
+        # Forecasts start from season quality, so an opening book leans on it.
+        return 0.05 + 0.60 * stats + 0.25 * market + 0.10 * random_score
     if bot.strategy_engine is StrategyEngine.EVENT_REACTION:
         return 0.10 + 0.35 * stats + 0.30 * betting + 0.25 * random_score
     if bot.strategy_engine is StrategyEngine.SOCIAL_SENTIMENT:

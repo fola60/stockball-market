@@ -271,3 +271,11 @@ writers = ["worker"]
 [tables.fotmob_club_teams]
 owner = "worker"
 writers = ["worker"]
+
+[tables.forecast_models]
+owner = "worker"
+writers = ["worker"]
+
+[tables.player_forecasts]
+owner = "worker"
+writers = ["worker"]

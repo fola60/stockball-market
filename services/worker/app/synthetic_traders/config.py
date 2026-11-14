@@ -22,6 +22,10 @@ from .config_models import (
     ExecutionConfig,
     ExplainabilityConfig,
     FairValueBlendConfig,
+    ForecastInputsConfig,
+    ForecastValueConfig,
+    ForecastValueLookbacks,
+    ForecastValueSizingConfig,
     MarketMomentumConfig,
     MarketMomentumInputs,
     MarketMomentumLookbacks,
@@ -594,6 +598,43 @@ def _parse_event_reaction_sizing(payload: Mapping[str, Any]) -> EventReactionSiz
     )
 
 
+def _parse_forecast_inputs(payload: Mapping[str, Any]) -> ForecastInputsConfig:
+    inputs = _section(payload, "forecast_inputs")
+    # Durations and thresholds are floats so per-bot randomized overrides parse.
+    return ForecastInputsConfig(
+        horizon_matches=_positive_int(
+            inputs.get("horizon_matches"), "forecast_inputs.horizon_matches"
+        ),
+        change_scale=_positive_float(inputs.get("change_scale"), "forecast_inputs.change_scale"),
+        max_forecast_age_hours=_positive_float(
+            inputs.get("max_forecast_age_hours"), "forecast_inputs.max_forecast_age_hours"
+        ),
+        min_history_nineties=_non_negative_float(
+            inputs.get("min_history_nineties", 0.0), "forecast_inputs.min_history_nineties"
+        ),
+        priced_in_move_pct=_positive_float(
+            inputs.get("priced_in_move_pct"), "forecast_inputs.priced_in_move_pct"
+        ),
+    )
+
+
+def _parse_forecast_sizing(payload: Mapping[str, Any]) -> ForecastValueSizingConfig:
+    sizing = _section(payload, "sizing")
+    return ForecastValueSizingConfig(
+        base_cash_pct=_ratio(sizing.get("base_cash_pct"), "sizing.base_cash_pct"),
+        confidence_multiplier=_positive_float(
+            sizing.get("confidence_multiplier"), "sizing.confidence_multiplier"
+        ),
+        expected_return_multiplier=_non_negative_float(
+            sizing.get("expected_return_multiplier"), "sizing.expected_return_multiplier"
+        ),
+        position_concentration_penalty=_ratio(
+            sizing.get("position_concentration_penalty"),
+            "sizing.position_concentration_penalty",
+        ),
+    )
+
+
 def _parse_portfolio_targets(payload: Mapping[str, Any]) -> PortfolioTargetsConfig:
     targets = _section(payload, "portfolio_targets")
     return PortfolioTargetsConfig(
@@ -1071,6 +1112,25 @@ def _event_reaction_config(payload: Mapping[str, Any]) -> StrategyConfig:
     )
 
 
+def _forecast_config(payload: Mapping[str, Any]) -> StrategyConfig:
+    return ForecastValueConfig(
+        universe=_parse_universe(payload),
+        lookbacks=ForecastValueLookbacks(
+            price_momentum_days=_positive_int(
+                _section(payload, "lookbacks").get("price_momentum_days"),
+                "lookbacks.price_momentum_days",
+            )
+        ),
+        signal_weights=_parse_float_mapping(payload, "signal_weights"),
+        forecast_inputs=_parse_forecast_inputs(payload),
+        decision=_parse_alpha_decision(payload),
+        risk=_parse_risk(payload),
+        sizing=_parse_forecast_sizing(payload),
+        execution=_parse_execution(payload),
+        explainability=_parse_explainability(payload),
+    )
+
+
 def _rebalancer_config(payload: Mapping[str, Any]) -> StrategyConfig:
     return PortfolioRebalancerConfig(
         portfolio_targets=_parse_portfolio_targets(payload),
@@ -1092,5 +1152,6 @@ _STRATEGY_PARSERS: Mapping[StrategyEngine, Callable[[Mapping[str, Any]], Strateg
     StrategyEngine.SOCIAL_SENTIMENT: _social_config,
     StrategyEngine.BETTING_MARKET_VALUE: _betting_config,
     StrategyEngine.EVENT_REACTION: _event_reaction_config,
+    StrategyEngine.FORECAST_VALUE: _forecast_config,
     StrategyEngine.PORTFOLIO_REBALANCER: _rebalancer_config,
 }

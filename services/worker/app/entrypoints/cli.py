@@ -6,7 +6,7 @@ from typing import Callable
 
 from app.cli import build_parser
 
-from .commands import ingestion, market, runtime
+from .commands import forecasting, ingestion, market, runtime
 
 COMMANDS: dict[str, Callable[..., int]] = {
     # Long-running processes
@@ -24,6 +24,10 @@ COMMANDS: dict[str, Callable[..., int]] = {
     "ingest-bet365-odds": ingestion.ingest_bet365_odds,
     "sync-twitter-injury-registry": ingestion.sync_twitter_injury_registry,
     "ingest-twitter-injuries": ingestion.ingest_twitter_injuries,
+    # Forecasting
+    "train-forecast-model": forecasting.train_forecast_model,
+    "refresh-forecasts": forecasting.refresh_forecasts,
+    "backfill-market-value-history": forecasting.backfill_market_value_history,
     # Market setup and seeding
     "seed-player-shares": market.seed_player_shares,
     "review-index-funds": market.review_index_funds,
