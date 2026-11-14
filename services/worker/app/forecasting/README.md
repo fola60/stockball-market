@@ -15,6 +15,11 @@ how far the minutes-weighted rating over those appearances will land from his st
 rating (`app.player_stats.ratings`, the `average_rating` the stats bots already see). A
 prediction of zero means "no change from what is already priced".
 
+A forecast is conditional on the player playing enough to be rated, and players who keep
+their place tend to rate slightly above their season figure, so the typical forecast is a
+little above zero. `FORECAST_VALUE` bots trade each forecast relative to the median of their
+candidates for that reason.
+
 ## Layout
 
 - `features.py`: turns match history into rows of what was knowable at one moment. Every
@@ -82,6 +87,22 @@ Earlier seasons' players who are not on the current roster stay keyed by FotMob 
 train the model; forecasts are only written for players with a canonical id. Every other
 reader of `player_market_value_observations` takes the latest value, which the value-history
 backfill never changes.
+
+## Rollout
+
+Nothing here is live until these steps are taken, in this order:
+
+1. Deploy the code. Migration 0042 must not be applied before it: the migration seeds
+   `FORECAST_VALUE` profiles, and an older worker cannot parse that engine name.
+2. Import match odds for every season with ratings (`import-match-odds --season ...`).
+3. `train-forecast-model`, and read the evaluation it prints.
+4. Set `STOCKBALL_FORECAST_SIGNALS_ENABLED=true` for the trading worker and the ingestion
+   worker. Forecasts are then refreshed after each FotMob ingestion.
+5. Spawn forecast bots when wanted, for example
+   `spawn-synthetic-traders --config-key FORECAST_FORM_RUN --count 25`. They need funding
+   like any other bot.
+
+To back out, unset the flag: forecasts stop being written and read, and forecast bots hold.
 
 ## Boundaries
 

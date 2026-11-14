@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from statistics import median
 
 from app.player_stats import RATING_PRIOR_NINETIES
 from app.synthetic_traders.config import ForecastValueConfig
@@ -31,6 +32,12 @@ class ForecastValueStrategyEngine:
     forecast model's expected change from that rating over the profile's horizon (his next
     match, or a longer run) and buys players expected to improve and sells holdings expected
     to decline. A Stockball price that has already moved the same way counts as priced in.
+
+    A forecast is conditional on the player playing, and players who keep their place tend to
+    rate a little above their season figure, so the typical forecast is slightly positive.
+    Each player is therefore judged against the median forecast of the bot's candidates: a
+    share price is a claim on a player relative to the others, and a rise everyone is expected
+    to share is no reason to buy one of them.
 
     Players without a fresh forecast for the horizon are not candidates, so with no active
     model, or one that failed to beat the baseline at this horizon, the engine holds.
@@ -64,7 +71,9 @@ class ForecastValueStrategyEngine:
         )
         if not candidates:
             return ()
-        changes = {c.instrument_id: expected_change(c) or 0.0 for c in candidates}
+        raw_changes = {c.instrument_id: expected_change(c) or 0.0 for c in candidates}
+        typical = median(raw_changes.values())
+        changes = {key: value - typical for key, value in raw_changes.items()}
         ranks = rank_percentiles(changes)
         momentum_start = context.as_of - timedelta(days=config.lookbacks.price_momentum_days)
         weights = config.signal_weights
@@ -123,7 +132,9 @@ class ForecastValueStrategyEngine:
                         "engine": self.strategy_engine.value,
                         "horizon_matches": inputs.horizon_matches,
                         "baseline_rating": forecast.baseline_rating,
-                        "expected_change": change,
+                        "expected_change": raw_changes[candidate.instrument_id],
+                        "typical_expected_change": typical,
+                        "relative_change": change,
                         "change_signal": signal,
                         "change_rank": rank,
                         "price_move": price_move,

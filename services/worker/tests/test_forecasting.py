@@ -329,6 +329,7 @@ def test_forecast_engine_buys_expected_improvers_and_sells_held_decliners():
     )
     unheld_decliner = replace(_candidate(recent_price_values=flat_prices), forecast=forecast(-0.2))
     steady = replace(_candidate(recent_price_values=flat_prices), forecast=forecast(0.0))
+    also_steady = replace(_candidate(recent_price_values=flat_prices), forecast=forecast(0.0))
     stale = replace(
         _candidate(recent_price_values=flat_prices), forecast=forecast(0.3, hours_old=24 * 30)
     )
@@ -347,6 +348,7 @@ def test_forecast_engine_buys_expected_improvers_and_sells_held_decliners():
                     decliner,
                     unheld_decliner,
                     steady,
+                    also_steady,
                     stale,
                     other_horizon,
                     unforecast,
@@ -384,10 +386,17 @@ def test_forecast_engine_treats_a_price_that_already_rose_as_priced_in():
         _candidate(recent_price_values=(Decimal("16"), Decimal("18"), Decimal("20"))),
         forecast=forecast,
     )
+    field = tuple(
+        replace(
+            _candidate(recent_price_values=(Decimal("20"), Decimal("20"), Decimal("20"))),
+            forecast=replace(forecast, expected_change={5: 0.0}),
+        )
+        for _ in range(3)
+    )
     decisions = {
         decision.instrument_id: decision
         for decision in ForecastValueStrategyEngine().evaluate(
-            _context(_bot(as_of), candidates=(flat, risen)), config
+            _context(_bot(as_of), candidates=(flat, risen, *field)), config
         )
     }
 
@@ -484,3 +493,27 @@ def test_team_strength_follows_recent_odds_and_never_later_ones():
     assert LeagueContext([replace(f, home_edge=None) for f in fixtures]).strength(
         "strong", midway
     ) is None
+
+
+def test_forecast_engine_ignores_a_rise_every_candidate_shares():
+    as_of = datetime(2026, 5, 22, 12, 0, tzinfo=UTC)
+    config = parse_strategy_config(StrategyEngine.FORECAST_VALUE, _forecast_payload())
+    flat_prices = (Decimal("20"), Decimal("20"), Decimal("20"))
+    candidates = tuple(
+        replace(
+            _candidate(recent_price_values=flat_prices),
+            forecast=PlayerForecastContext(
+                as_of=as_of - timedelta(hours=1),
+                baseline_rating=7.0,
+                history_nineties=20.0,
+                expected_change={5: 0.2},
+            ),
+        )
+        for _ in range(5)
+    )
+    decisions = ForecastValueStrategyEngine().evaluate(
+        _context(_bot(as_of), candidates=candidates), config
+    )
+
+    assert decisions and all(decision.side is DecisionSide.HOLD for decision in decisions)
+    assert all(decision.reason["relative_change"] == 0.0 for decision in decisions)

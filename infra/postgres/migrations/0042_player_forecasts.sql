@@ -114,7 +114,7 @@ INSERT INTO synthetic_trader_bot_configs (
       },
       "forecast_inputs": {
         "horizon_matches": 1,
-        "change_scale": 0.12,
+        "change_scale": 0.25,
         "max_forecast_age_hours": 96,
         "min_history_nineties": 4,
         "priced_in_move_pct": 0.06
@@ -186,7 +186,7 @@ INSERT INTO synthetic_trader_bot_configs (
       },
       "forecast_inputs": {
         "horizon_matches": 5,
-        "change_scale": 0.1,
+        "change_scale": 0.15,
         "max_forecast_age_hours": 192,
         "min_history_nineties": 4,
         "priced_in_move_pct": 0.1
@@ -258,7 +258,7 @@ INSERT INTO synthetic_trader_bot_configs (
       },
       "forecast_inputs": {
         "horizon_matches": 10,
-        "change_scale": 0.08,
+        "change_scale": 0.12,
         "max_forecast_age_hours": 240,
         "min_history_nineties": 6,
         "priced_in_move_pct": 0.15

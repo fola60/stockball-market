@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 from .features import FEATURE_NAMES, HORIZONS, FeatureRow, Target
 from .ridge import RidgeModel, RidgeProblem, prepare
 
-ALPHAS: tuple[float, ...] = (3.0, 10.0, 30.0, 100.0, 300.0)
+ALPHAS: tuple[float, ...] = (0.3, 1.0, 3.0, 10.0, 30.0, 100.0, 300.0)
 MIN_TRAINING_ROWS = 1000
 MIN_HOLDOUT_ROWS = 300
 # The newest share of the training window, used only to choose the penalty.

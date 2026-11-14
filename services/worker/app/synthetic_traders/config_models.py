@@ -351,7 +351,8 @@ class ForecastValueLookbacks:
 class ForecastInputsConfig:
     # Which of the model's horizons this profile trades: its next match, or a longer run.
     horizon_matches: int
-    # Expected rating change, in rating points, that counts as a full signal.
+    # Expected rating change relative to the typical candidate's, in rating points, that
+    # counts as a full signal.
     change_scale: float
     max_forecast_age_hours: float
     # Rated football the forecast must rest on; thinner histories are mostly prior.
